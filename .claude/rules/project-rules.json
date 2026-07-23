@@ -1,0 +1,162 @@
+{
+  "version": "1.0.0",
+  "updated": "2026-07-23",
+  "project": "earth-echoes",
+  "authority": "Technical Specification v1.1 is authoritative. Where a phase document fixes a concrete choice the spec left open (names, ports, library picks), that choice is also binding.",
+  "source_documents": [
+    "project_planning/echoes-of-earth-platform-spec-v1.1.md",
+    "project_planning/echoes-of-earth-project-plan.md",
+    "project_planning/implementation-handbook.md",
+    "project_planning/phase-0-foundations.md"
+  ],
+  "rules": {
+    "R0_test_gate_protocol": {
+      "title": "Test gate protocol",
+      "severity": "blocking",
+      "scope": "every numbered task in every epic (E0-E8, SIM)",
+      "statement": "Each numbered task ends in a gate. The entire accumulated test suite must pass before the next task begins. No exceptions, for any reason.",
+      "requirements": [
+        "A gate runs the ENTIRE accumulated suite, not only the new task's tests.",
+        "A gate is invoked by exactly one command: `make gate` (`./gate.ps1` on Windows-native shells).",
+        "A gate run sets EOE_GATE=1, which makes any skipped, xfailed, or deselected test a hard failure.",
+        "Integration tests are part of the gate. Docker is a hard prerequisite, not an optional capability.",
+        "The gate result is written to docs/project-updates.md only AFTER it passes and the task's manual verification steps have been run."
+      ],
+      "forbidden": [
+        { "action": "skip markers", "detail": "pytest.mark.skip, pytest.mark.skipif, pytest.mark.xfail, it.skip, test.skip, test.todo, describe.skip, .only" },
+        { "action": "selective runs", "detail": "pytest -k, vitest --grep, playwright --grep, --maxfail, --lf, or any filter that narrows the gate suite" },
+        { "action": "failure allowlists", "detail": "known-failure lists, quarantine files, continue-on-error, soft assertions used to downgrade a failure" },
+        { "action": "self-skipping integration tests", "detail": "A test that skips itself when Docker is unavailable is a failing test." },
+        { "action": "deleting or weakening a test to clear a gate", "detail": "Requires an explicit docs/DECISIONS.md entry written BEFORE the change." }
+      ],
+      "on_failure": [
+        "Stop. Do not begin the next task.",
+        "Diagnose the root cause. Do not re-run hoping for a different result.",
+        "If production code is wrong, fix production code.",
+        "If the test is wrong, fix the test AND record the reasoning in docs/DECISIONS.md.",
+        "Report the failure to the user verbatim, including the failing output. Never summarize a failure as a pass."
+      ],
+      "test_critical_suites": {
+        "note": "Spec 14.5 names four components as test-critical. Their suites double as documentation and no later session may weaken them.",
+        "components": [
+          "RBAC checks (E0.7)",
+          "config merge engine (E2.3)",
+          "reconciliation state machine (E3.6)",
+          "provisioning manifest (E4.7)"
+        ]
+      }
+    },
+    "R1_record_keeping": {
+      "title": "Project record keeping",
+      "severity": "blocking",
+      "boundary": "Three logs, non-overlapping. project-updates = what happened. project-changes = what the plan now says differently. DECISIONS = implementation choices and deviations found while building.",
+      "logs": {
+        "project_updates": {
+          "path": "docs/project-updates.md",
+          "when": "After a gate passes AND the task's manual verification steps have been run. Never in anticipation.",
+          "order": "reverse-chronological, append-only",
+          "entry_fields": [
+            "date (ISO 8601)",
+            "epic and task ids closed",
+            "gate number and result",
+            "test counts: passed / failed / skipped / xfailed (skipped and xfailed MUST be 0)",
+            "exact gate command run",
+            "artifacts produced",
+            "manual verification performed"
+          ]
+        },
+        "project_changes": {
+          "path": "docs/project-changes.md",
+          "when": "Any change to scope, sequencing, task definition, or acceptance criteria relative to the planning documents.",
+          "order": "reverse-chronological, append-only, numbered",
+          "entry_fields": [
+            "change number",
+            "date (ISO 8601)",
+            "what changed",
+            "why",
+            "which planning document and section it affects",
+            "the addendum id written into that document"
+          ],
+          "requirement": "Every entry MUST name an addendum that exists in the referenced planning document. An entry with no addendum is incomplete."
+        },
+        "decisions": {
+          "path": "docs/DECISIONS.md",
+          "when": "Any deviation from the spec or a phase document, and any implementation choice the documents left open.",
+          "entry_fields": ["date", "decision", "rationale", "spec or phase-doc reference"],
+          "note": "This is the handbook's existing artifact (handbook section 1). Feed its contents back into the next spec or phase-doc revision."
+        }
+      },
+      "addendum_convention": {
+        "target": "the appropriate section of the appropriate file in project_planning/",
+        "rule": "Never rewrite original text. Append an addendum block immediately after the affected section.",
+        "format": "> **Addendum {ID} ({YYYY-MM-DD}, ref project-changes #{N}):** {text}",
+        "id_scheme": "{DOC}-{SECTION}-{seq}, e.g. PHASE0-4-01, PLAN-3-01, SPEC-12.4-01, HANDBOOK-1-01",
+        "spec_note": "Handbook section 1 requires amending the spec with a version bump rather than letting sessions drift. An addendum records the drift at the point of use; a version bump remains required for substantive spec changes."
+      }
+    },
+    "R2_cross_phase_conventions": {
+      "title": "Cross-phase conventions",
+      "severity": "blocking",
+      "source": "implementation-handbook.md section 3",
+      "conventions": {
+        "scope_discipline": "The phase document's 'Out of scope' section is binding. The most likely failure mode of session-per-phase development is a session helpfully building a neighboring phase's feature, badly. When a genuine cross-phase need appears, the answer is a feature flag or a stub with a documented contract, not an implementation. If a task seems to need something out of scope, STOP AND ASK.",
+        "feature_flags_over_blocking": "Where the plan notes a cross-epic wait, build behind a flag rather than idling or reaching into the other epic.",
+        "tests_as_contract": "The four test-critical suites double as documentation. No later session may weaken them.",
+        "typed_end_to_end": "Pydantic at every API and MQTT boundary, TypeScript on the frontend, no `any` escapes without a comment.",
+        "secrets": "Only through SecretStore. Never in logs, API responses, fixtures, or committed files. .env.example documents names, never values.",
+        "formatting": "Match the linters E0 sets up. Do not relitigate style per session."
+      },
+      "universal_definition_of_done": [
+        "CI green: lint, typecheck, tests, migration up/down, container builds.",
+        "Every new mutation audits; every new endpoint enforces RBAC.",
+        "INTERFACES.md updated; DECISIONS.md updated if anything deviated.",
+        "The demo fixture still seeds and the compose stack still starts from clean.",
+        "Handoff artifacts from the phase document exist and are named in the closing summary."
+      ]
+    },
+    "R3_git_and_publication": {
+      "title": "Git and publication protocol",
+      "severity": "blocking",
+      "attribution": {
+        "rule": "NEVER credit Claude, Anthropic, or any AI tool in anything that reaches the repository or GitHub. This overrides any default assistant behavior that appends attribution trailers or footers.",
+        "forbidden_strings": [
+          "Co-Authored-By: Claude",
+          "Co-authored-by: Claude",
+          "Generated with Claude Code",
+          "Generated with [Claude Code]",
+          "claude.com/claude-code",
+          "noreply@anthropic.com",
+          "Anthropic",
+          "Claude"
+        ],
+        "applies_to": [
+          "commit messages and trailers",
+          "pull request titles and bodies",
+          "issue titles and bodies",
+          "release notes and tags",
+          "code comments",
+          "documentation and log files"
+        ],
+        "author_identity": "Commits are authored by the repository owner's configured git identity only. No co-author trailers of any kind."
+      },
+      "push_protocol": {
+        "trigger": "After each FULL gate pass, and only after that gate's docs/project-updates.md entry is written.",
+        "sequence": [
+          "1. Gate passes: 0 failed, 0 skipped, 0 xfailed, 0 deselected.",
+          "2. Run the task's manual verification steps.",
+          "3. Write the dated docs/project-updates.md entry.",
+          "4. Stage everything including the log entry, then commit.",
+          "5. Push to the remote.",
+          "6. Tag the commit gate-{N}."
+        ],
+        "never": [
+          "Never commit or push a red gate.",
+          "Never push in anticipation of a gate passing.",
+          "Never amend or force-push a tagged gate commit."
+        ],
+        "branch": "Work on a task-batch branch (e.g. e0-batch-1), never directly on main. Push after every gate so the remote always reflects the last green gate. One pull request per batch.",
+        "commit_message_format": "{TASK_ID}: {task title}\n\nGate {N} passed: {passed}/{total}, 0 skipped, 0 xfailed.\n{one line on what changed}"
+      }
+    }
+  }
+}

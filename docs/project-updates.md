@@ -1,0 +1,23 @@
+# Project Updates
+
+Dated, reverse-chronological, append-only log of verified project state changes (rule R1,
+`.claude/rules/project-rules.json`). An entry is written only after its gate passed with
+0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
+Never in anticipation.
+
+## 2026-07-23: E0.0 Governance scaffolding (Gate 0 GREEN)
+
+- **Tasks closed:** E0.0 (task added by project-changes #1)
+- **Gate:** 0, GREEN
+- **Tests:** 15 passed / 0 failed / 0 skipped / 0 xfailed / 0 deselected; ruff check and
+  ruff format both clean
+- **Command:** `./gate.ps1`
+- **Artifacts:** `.claude/rules/project-rules.json` (rules R0 to R3); `CLAUDE.md` rules
+  loader; `docs/DECISIONS.md` (D1 to D11); `docs/project-changes.md` (#1 to #4);
+  `docs/INTERFACES.md` skeleton; four addenda across `project_planning/`; `.gitmessage`
+  wired as `commit.template`; `gate.ps1`, `gate.sh`, `Makefile`; backend test scaffold
+  (governance suite, git-hygiene suite, `tests/gate_runner.py`)
+- **Manual verification:** R0 guard proven end to end: a deliberately skipped test makes
+  `tests/gate_runner.py` exit 1, and removing it returns exit 0 (this check exposed and
+  fixed the pytest 9 exitstatus defect recorded as D11). Planning documents verified
+  byte-identical to the `planning-baseline` tag after addendum stripping.

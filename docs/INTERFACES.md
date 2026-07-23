@@ -1,0 +1,87 @@
+# Interfaces
+
+The growing contract between phases (implementation-handbook.md section 1). Every phase
+reads this file first and appends what it owns. Do not change a section owned by an earlier
+phase without flagging the change explicitly first. Section references (spec sections and
+phase-doc tasks) are given so a fresh session can verify any entry at its source.
+
+---
+
+## Owned by E0
+
+### Repository layout (E0.1; phase-0 section 2)
+
+```
+/backend        FastAPI app (package name: app), alembic/, tests/
+/frontend       Vite React TS app
+/deploy         docker-compose.yml and env templates (stack templates arrive in E5)
+/sim            reserved for the simulation harness (SIM epic)
+/docs           INTERFACES.md, DECISIONS.md, project logs, migration conventions
+```
+
+Dev ports: API 8000, frontend dev server 5173, Postgres 5432, Redis 6379.
+
+### Environment variables (E0.1, E0.3; phase-0 section 2)
+
+| Name | Required | Meaning |
+|---|---|---|
+| `DATABASE_URL` | yes | Postgres connection URL |
+| `EOE_SESSION_SECRET` | yes | signs session cookies |
+| `EOE_KEK` | yes | base64 platform key-encryption key (SecretStore, E0.11) |
+| `REDIS_URL` | no | enables Redis-backed features (E3, E7) |
+| `EOE_CORS_ORIGINS` | no | comma-separated allowed browser origins (D2/D4) |
+
+No secret defaults are committed; `deploy/.env.example` documents names only, never values.
+Settings precedence: environment variable over TOML config file over default (D5).
+
+### API conventions (E0.3; phase-0 section 2; spec section 13)
+
+- Versioned prefix `/api/v1` on every route. Health: `GET /api/v1/health`.
+- Error envelope, the only error shape:
+  `{"error": {"code": string, "message": string, "detail": object|null}}`.
+- Error `code` vocabulary (D8, stable, never renamed): `validation_error`, `unauthorized`,
+  `forbidden`, `not_found`, `method_not_allowed`, `conflict`, `internal_error`.
+- Every list endpoint accepts `limit`, `offset`, `sort`, and filter params, and responds
+  with `{"items": [...], "total": int, "limit": int, "offset": int}` (D7).
+- Sort grammar (D7): `sort=field` ascending, `sort=-field` descending, comma-separated
+  multi-key.
+- Request IDs: middleware generates or honors an inbound `X-Request-ID`, echoes it on every
+  response, and binds it into structured logs. `audit_log.request_id` (E0.8) consumes it.
+- The frontend couples to the backend only through the OpenAPI contract (D2).
+
+### Migration conventions (E0.2; docs/migration-conventions.md)
+
+Append-only history; every migration reversible with a real `downgrade()`; autogenerate
+reviewed by hand; exactly one head at all times. SQLAlchemy `MetaData` carries a fixed
+constraint naming convention; all constraints are named through it.
+
+### Design tokens (E0.4; spec section 3.2)
+
+Token namespaces (binding target format for DES.4): `--eoe-color-*`, `--eoe-space-*`,
+`--eoe-font-*`, `--eoe-radius-*`, `--eoe-shadow-*`. The token sheet lives in one file
+(path recorded here when E0.4 lands). Every component styles through tokens; no hard-coded
+colors anywhere in the frontend.
+
+### Auth and session mechanics (E0.6; placeholder)
+
+Decided ahead (D1): DB-backed `session` rows; signed opaque session id in an
+`HttpOnly; SameSite=Lax` cookie; double-submit CSRF token (D4). Details land with E0.6.
+
+### RBAC roles and the permission dependency (E0.7; placeholder)
+
+Roles fixed by spec section 12.3: `owner`, `deployment_operator`, `field_tech`, `viewer`.
+Deployment-scoped assignment with a nullable scope column until E1 adds the foreign key.
+Details land with E0.7.
+
+### Audit hook usage (E0.8; placeholder)
+
+Table columns fixed by phase-0 section 4: id, at, actor_user_id, action, entity_type,
+entity_id, scope, detail JSONB, request_id. Every mutation endpoint calls the write hook.
+Details land with E0.8.
+
+### SecretStore interface (E0.11; placeholder)
+
+Platform-side envelope encryption per spec section 12.4 (KEK from `EOE_KEK`, data keys per
+secret, rotation by re-wrap). Consumers: E4 (device-facing bundle secrets), E5 (service
+credentials). NOT the device-facing scheme of spec section 8.4, which E4 owns. Details land
+with E0.11.
