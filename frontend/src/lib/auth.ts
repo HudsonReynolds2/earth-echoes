@@ -17,15 +17,37 @@ export function readCsrfToken(): string {
   return match ? decodeURIComponent(match[1]) : "";
 }
 
-export async function login(email: string, password: string): Promise<Me> {
+export class TotpRequiredError extends Error {
+  constructor() {
+    super("Authentication code required");
+  }
+}
+
+export async function login(email: string, password: string, totpCode?: string): Promise<Me> {
   const response = await fetch(`${apiBaseUrl()}/api/v1/auth/login`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, totp_code: totpCode ?? null }),
   });
   if (!response.ok) {
-    throw new Error(response.status === 401 ? "Invalid email or password" : "Login failed");
+    if (response.status === 401) {
+      try {
+        const body = (await response.json()) as {
+          error?: { detail?: { totp_required?: boolean } };
+        };
+        if (body.error?.detail?.totp_required) {
+          throw new TotpRequiredError();
+        }
+      } catch (cause) {
+        if (cause instanceof TotpRequiredError) {
+          throw cause;
+        }
+        // fall through to the generic message on parse failure
+      }
+      throw new Error("Invalid email or password");
+    }
+    throw new Error("Login failed");
   }
   return (await response.json()) as Me;
 }

@@ -5,11 +5,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { login } from "../lib/auth";
+import { TotpRequiredError, login } from "../lib/auth";
 
 export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [totpNeeded, setTotpNeeded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
@@ -20,11 +22,18 @@ export function Login() {
     setBusy(true);
     setError(null);
     try {
-      await login(email, password);
+      await login(email, password, totpNeeded ? totpCode : undefined);
       await queryClient.invalidateQueries({ queryKey: ["me"] });
       navigate("/");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Login failed");
+      if (cause instanceof TotpRequiredError) {
+        // E0.10: the server signaled an enrolled account; reveal the code
+        // field and let the user resubmit.
+        setTotpNeeded(true);
+        setError(cause.message);
+      } else {
+        setError(cause instanceof Error ? cause.message : "Login failed");
+      }
     } finally {
       setBusy(false);
     }
@@ -54,6 +63,19 @@ export function Login() {
             required
           />
         </label>
+        {totpNeeded && (
+          <label>
+            Authentication code
+            <input
+              value={totpCode}
+              onChange={(event) => setTotpCode(event.target.value)}
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              data-testid="totp-input"
+              required
+            />
+          </label>
+        )}
         {error && (
           <p className="status-bad" data-testid="login-error">
             {error}

@@ -54,6 +54,41 @@ describe("login page", () => {
   });
 });
 
+describe("totp at login", () => {
+  it("reveals the code field when the server requires TOTP, then submits it", async () => {
+    let sawCode: string | null = null;
+    server.use(
+      http.post("http://api.test/api/v1/auth/login", async ({ request }) => {
+        const body = (await request.json()) as { totp_code: string | null };
+        if (!body.totp_code) {
+          return HttpResponse.json(
+            {
+              error: {
+                code: "unauthorized",
+                message: "TOTP code required",
+                detail: { totp_required: true },
+              },
+            },
+            { status: 401 },
+          );
+        }
+        sawCode = body.totp_code;
+        return HttpResponse.json(mePayload);
+      }),
+    );
+    renderAt("/login");
+    await userEvent.type(screen.getByLabelText("Email"), "owner@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "irrelevant-fixture-value");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    const codeInput = await screen.findByTestId("totp-input");
+    await userEvent.type(codeInput, "123456");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(sawCode).toBe("123456");
+  });
+});
+
 describe("shell session affordance", () => {
   it("offers sign-in when logged out", async () => {
     renderAt("/");

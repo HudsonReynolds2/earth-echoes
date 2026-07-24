@@ -24,6 +24,7 @@ router = APIRouter(prefix="/auth")
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    totp_code: str | None = None
 
 
 class AssignmentResponse(BaseModel):
@@ -72,6 +73,23 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbDep) -
     user = authenticate(db, body.email, body.password)
     if user is None:
         raise AppError("unauthorized", "invalid credentials", status_code=401)
+    if user.totp_enabled:
+        # E0.10 acceptance: an enrolled user must pass TOTP at login;
+        # unenrolled users never reach this branch.
+        from pyotp import TOTP
+
+        from app.api.totp import secret_name
+
+        if not body.totp_code:
+            raise AppError(
+                "unauthorized",
+                "TOTP code required",
+                status_code=401,
+                detail={"totp_required": True},
+            )
+        secret = request.app.state.secret_store.get(secret_name(user.id))
+        if not TOTP(secret).verify(body.totp_code, valid_window=1):
+            raise AppError("unauthorized", "invalid credentials", status_code=401)
     settings = request.app.state.settings
     session = create_session(
         db,

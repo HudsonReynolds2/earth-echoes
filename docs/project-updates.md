@@ -5,6 +5,25 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.10 Optional TOTP (Gate 10 GREEN)
+
+- **Tasks closed:** E0.10 (batch 3)
+- **Gate:** 10, GREEN
+- **Tests:** backend 156 passed (7 TOTP tests: full enrollment walk with wrong-code
+  rejection, the acceptance triple at login — missing code 401 with totp_required, wrong
+  code indistinguishable, right code 200 — unenrolled unaffected, secret only in
+  SecretStore and never in responses post-enrollment, re-enroll and no-enrollment 409s,
+  CSRF required, both mutations audited), vitest 32 (login page reveals and submits the
+  code field), Playwright 2; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/api/totp.py` (enroll/confirm under /auth/totp); login TOTP gate in
+  `app/api/auth.py`; `user.totp_enabled` via migration `0dd2c6d5b1d2` (hand-fixed: NOT NULL
+  needs a server_default on populated tables — autogenerate review catching a real
+  deploy-breaker); pyotp; login-page code field driven by the totp_required signal
+- **Manual verification:** through the real compose stack: enrolled via curl (secret
+  delivered once), confirmed with a computed code (200), login without a code returned the
+  totp_required envelope, login with a live code returned 200. Clean teardown.
+
 ## 2026-07-24: E0.11 Platform secrets envelope encryption (Gate 11 GREEN, before E0.10)
 
 - **Tasks closed:** E0.11 (batch 3; implemented before E0.10 per project-changes #5 /

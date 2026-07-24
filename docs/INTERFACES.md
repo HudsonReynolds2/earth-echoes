@@ -114,6 +114,13 @@ The merge watchtower for every later phase. Design contract:
   wrapper) plus the E0.8 audit hook when it lands.
 - **Password hashing:** `app/auth/passwords.py`, argon2-cffi defaults; plaintext exists
   only inside the login request scope; never logged (tested).
+- **TOTP (E0.10, optional, off by default):** `POST /auth/totp/enroll` (session+CSRF;
+  returns the secret and otpauth URL exactly once; secret stored ONLY as SecretStore
+  `totp:{user_id}`) then `POST /auth/totp/confirm {code}` flips `user.totp_enabled`
+  (migration `0dd2c6d5b1d2`). Login for enrolled users requires `totp_code`; a missing code
+  returns 401 with `detail: {totp_required: true}` (the login page reveals the code field
+  on that signal); a wrong code is indistinguishable from bad credentials. Both mutations
+  audit (`auth.totp_enroll`, `auth.totp_enabled`).
 
 ### RBAC roles and the permission dependency (E0.7)
 
