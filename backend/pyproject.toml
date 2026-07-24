@@ -3,13 +3,24 @@ name = "eoe-backend"
 version = "0.0.0"
 description = "Echoes of Earth management platform: backend"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "uvicorn>=0.34",
+]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "ruff>=0.8",
+    "mypy>=1.14",
+    "pyyaml>=6.0",
 ]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.uv]
+package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -4,6 +4,17 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D12 (2026-07-23): Test fix at Gate 1, docker CLI directory appended to subprocess PATH
+
+- **Decision:** Integration-test helpers append the docker CLI's own directory to the
+  subprocess PATH (`docker_env()` in `backend/tests/test_repo_layout.py`). Assertion logic
+  unchanged.
+- **Rationale:** Rule R0 requires recording any test fix made at a red gate. Docker Desktop's
+  `credsStore` invokes `docker-credential-desktop` from PATH; a shell environment captured
+  before the install cannot resolve it, failing every image pull with "error getting
+  credentials" even though the daemon runs fine.
+- **Reference:** rule R0 on_failure; Gate 1 first run log.
+
 ## D11 (2026-07-23): Gate enforcement lives in a runner wrapper, not the conftest hook
 
 - **Decision:** The R0 hard-failure on skipped/xfailed/deselected tests is enforced by
