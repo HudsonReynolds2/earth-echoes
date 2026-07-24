@@ -92,10 +92,28 @@ The merge watchtower for every later phase. Design contract:
   DECISIONS D15). Rule R0 applies inside CI: `backend-tests` runs `tests/gate_runner.py`,
   so skipped/xfailed/deselected tests fail the pipeline.
 
-### Auth and session mechanics (E0.6; placeholder)
+### Auth and session mechanics (E0.6)
 
-Decided ahead (D1): DB-backed `session` rows; signed opaque session id in an
-`HttpOnly; SameSite=Lax` cookie; double-submit CSRF token (D4). Details land with E0.6.
+- **Tables:** `user` (id UUID, email unique+indexed, password_hash Argon2id, is_active,
+  created_at) and `session` (opaque 43-char id PK, user_id FK, csrf_token, created_at,
+  expires_at, revoked_at, user_agent, ip) — migration `c07e17281417`. Model classes:
+  `app.models.User`, `app.models.UserSession`.
+- **Cookies:** `eoe_session` = `<session_id>.<hmac-sha256(session_id, EOE_SESSION_SECRET)>`,
+  HttpOnly, SameSite=Lax, Secure on https (D1); `eoe_csrf` = per-session token, JS-readable
+  by design (double-submit, D4). TTL from `EOE_SESSION_TTL_SECONDS` (default 43200).
+- **Endpoints:** `POST /api/v1/auth/login` (one indistinguishable 401 for any bad
+  credential; response carries id/email/is_active, never a password or hash),
+  `POST /api/v1/auth/logout` (requires session + `X-CSRF-Token`; revokes the row
+  immediately; 204), `GET /api/v1/auth/me` (`/me` is an E0 addition to the spec-13 surface
+  for frontend session state).
+- **Dependencies for later phases** (`app/auth/deps.py`): `get_db` yields a SQLAlchemy
+  session from `app.state.session_factory`; `require_session` (SessionDep) validates the
+  signed cookie and loads a live row; `require_csrf` (CsrfSessionDep) enforces the
+  double-submit header on mutations. E0.7's RBAC dependency composes on top of
+  `require_session`; every later mutating endpoint uses `CsrfSessionDep` (or its RBAC
+  wrapper) plus the E0.8 audit hook when it lands.
+- **Password hashing:** `app/auth/passwords.py`, argon2-cffi defaults; plaintext exists
+  only inside the login request scope; never logged (tested).
 
 ### RBAC roles and the permission dependency (E0.7; placeholder)
 

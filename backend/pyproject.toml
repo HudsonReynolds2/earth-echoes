@@ -11,6 +11,8 @@ dependencies = [
     "fastapi>=0.115",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
+    "argon2-cffi>=23.1",
+    "email-validator>=2.2",
 ]
 
 [dependency-groups]

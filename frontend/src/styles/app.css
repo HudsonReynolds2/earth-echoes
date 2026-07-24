@@ -106,3 +106,57 @@ body {
   font-family: var(--eoe-font-family-mono);
   font-size: var(--eoe-font-size-sm);
 }
+
+.shell-auth {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-2);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-4);
+  max-width: 24rem;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-1);
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-muted);
+}
+
+.auth-form input {
+  border: 1px solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-md);
+  padding: var(--eoe-space-2) var(--eoe-space-3);
+  font-family: var(--eoe-font-family);
+  font-size: var(--eoe-font-size-md);
+  background: var(--eoe-color-surface);
+  color: var(--eoe-color-text);
+}
+
+.auth-form input:focus-visible,
+button:focus-visible {
+  outline: var(--eoe-space-1) solid var(--eoe-color-focus);
+}
+
+button {
+  background: var(--eoe-color-accent);
+  color: var(--eoe-color-accent-contrast);
+  border: none;
+  border-radius: var(--eoe-radius-md);
+  padding: var(--eoe-space-2) var(--eoe-space-4);
+  font-family: var(--eoe-font-family);
+  font-size: var(--eoe-font-size-md);
+  font-weight: var(--eoe-font-weight-bold);
+  cursor: pointer;
+}
+
+button:disabled {
+  background: var(--eoe-color-border);
+  cursor: default;
+}

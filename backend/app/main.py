@@ -8,7 +8,9 @@ baseline. Serve with: uvicorn app.main:create_app --factory
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.db import create_session_factory
 from app.errors import install_error_handlers
 from app.middleware import RequestIdMiddleware, SecurityHeadersMiddleware, configure_logging
 from app.settings import Settings
@@ -33,6 +35,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         swagger_ui_oauth2_redirect_url=None,
     )
     app.state.settings = resolved
+    engine, session_factory = create_session_factory(resolved.database_url)
+    app.state.db_engine = engine
+    app.state.session_factory = session_factory
 
     # Order matters: security headers wrap everything, request id inside them,
     # CORS innermost so its headers survive on error responses too.
@@ -52,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     api_router = APIRouter(prefix=API_PREFIX)
     api_router.include_router(health_router)
+    api_router.include_router(auth_router)
     app.include_router(api_router)
 
     return app

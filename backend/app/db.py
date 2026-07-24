@@ -6,8 +6,8 @@ migration policy depends on (docs/migration-conventions.md). Binding for all
 later phases; do not change existing entries.
 """
 
-from sqlalchemy import MetaData
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Engine, MetaData, create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 NAMING_CONVENTION: dict[str, str] = {
     "ix": "ix_%(column_0_label)s",
@@ -24,3 +24,9 @@ class Base(DeclarativeBase):
     """Declarative base every model in every phase inherits from."""
 
     metadata = metadata
+
+
+def create_session_factory(database_url: str) -> tuple[Engine, sessionmaker[Session]]:
+    """Engine plus session factory; create_app owns one per application."""
+    engine = create_engine(database_url, pool_pre_ping=True)
+    return engine, sessionmaker(bind=engine, expire_on_commit=False)
