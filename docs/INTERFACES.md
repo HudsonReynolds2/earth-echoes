@@ -63,9 +63,13 @@ constraint naming convention; all constraints are named through it.
 ### Design tokens (E0.4; spec section 3.2)
 
 Token namespaces (binding target format for DES.4): `--eoe-color-*`, `--eoe-space-*`,
-`--eoe-font-*`, `--eoe-radius-*`, `--eoe-shadow-*`. The token sheet lives in one file
-(path recorded here when E0.4 lands). Every component styles through tokens; no hard-coded
-colors anywhere in the frontend.
+`--eoe-font-*`, `--eoe-radius-*`, `--eoe-shadow-*`. The token sheet is the single file
+**`frontend/src/styles/tokens.css`** (neutral defaults; DES.4 delivers a replacement value
+set for exactly its custom-property names). `frontend/src/styles/tokens.alt.css` is a
+test-only fixture proving the swap and must mirror the exact key set. Every component
+styles through `var(--eoe-*)`; color, spacing, radius, and shadow literals outside the
+sheet fail the gate (`frontend/tests/tokens.test.ts`). The theme-swap browser test
+(`frontend/e2e/theme-swap.spec.ts`) is DES.7's regression guarantee.
 
 ### Auth and session mechanics (E0.6; placeholder)
 

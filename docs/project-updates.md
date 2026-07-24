@@ -5,6 +5,27 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.4 React skeleton with neutral design tokens (Gate 4 GREEN)
+
+- **Tasks closed:** E0.4 (closes the E0.0 to E0.4 batch)
+- **Gate:** 4, GREEN
+- **Tests:** backend 67 passed, frontend vitest 14 passed, Playwright 2 passed; 0 failed /
+  0 skipped / 0 xfailed / 0 deselected across all stacks; ruff, mypy strict, eslint,
+  prettier, tsc all clean
+- **Command:** `./gate.ps1`
+- **Artifacts:** routing (Overview, System, 404) inside a token-styled layout shell
+  (sidebar plus content); TanStack Query provider with a health query; the binding token
+  sheet `frontend/src/styles/tokens.css` (five namespaces, neutral theme) plus the
+  test-only `tokens.alt.css` mirror; API client on `VITE_API_BASE_URL` (fail-loud, D2);
+  MSW handlers so the frontend tests run with no backend; ESLint flat config with
+  no-explicit-any as error plus Prettier; vitest suites (token discipline, shell/routing/
+  query, api client); Playwright theme-swap suite; frontend prod image still builds
+- **Manual verification:** through compose from outside the harness: the dev server served
+  the shell HTML and the token sheet with `--eoe-*` definitions; the Playwright run proved
+  in a real browser that loading the alternate value set changes computed background,
+  color, font family, and spacing with zero code changes (E0.4's literal acceptance
+  criterion). Clean teardown.
+
 ## 2026-07-24: E0.3 FastAPI skeleton (Gate 3 GREEN)
 
 - **Tasks closed:** E0.3

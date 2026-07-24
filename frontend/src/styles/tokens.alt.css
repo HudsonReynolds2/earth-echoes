@@ -1,0 +1,44 @@
+/**
+ * Alternate token sheet, used ONLY by tests (task E0.4 acceptance: swapping
+ * token values visibly restyles the shell). Never imported by application
+ * code. Must define exactly the same custom-property names as tokens.css
+ * with deliberately different color/spacing values (a dark, wider-spaced
+ * theme), so the theme-swap e2e test can assert computed styles change.
+ */
+:root {
+  --eoe-color-bg: #1c1917;
+  --eoe-color-surface: #292524;
+  --eoe-color-surface-raised: #44403c;
+  --eoe-color-border: #57534e;
+  --eoe-color-text: #fafaf9;
+  --eoe-color-text-muted: #d6d3d1;
+  --eoe-color-accent: #e7e5e4;
+  --eoe-color-accent-contrast: #1c1917;
+  --eoe-color-danger: #fecaca;
+  --eoe-color-success: #bbf7d0;
+  --eoe-color-warning: #fde68a;
+  --eoe-color-focus: #93c5fd;
+
+  --eoe-space-1: 0.375rem;
+  --eoe-space-2: 0.75rem;
+  --eoe-space-3: 1.125rem;
+  --eoe-space-4: 1.5rem;
+  --eoe-space-6: 2.25rem;
+  --eoe-space-8: 3rem;
+
+  --eoe-font-family: Georgia, "Times New Roman", serif;
+  --eoe-font-family-mono: "Courier New", monospace;
+  --eoe-font-size-sm: 0.875rem;
+  --eoe-font-size-md: 1rem;
+  --eoe-font-size-lg: 1.25rem;
+  --eoe-font-size-xl: 1.75rem;
+  --eoe-font-weight-normal: 400;
+  --eoe-font-weight-bold: 700;
+
+  --eoe-radius-sm: 0px;
+  --eoe-radius-md: 0px;
+  --eoe-radius-lg: 0px;
+
+  --eoe-shadow-sm: 0 0 0 1px rgb(255 255 255 / 0.2);
+  --eoe-shadow-md: 0 0 0 2px rgb(255 255 255 / 0.3);
+}
