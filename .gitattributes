@@ -1,0 +1,16 @@
+# Line-ending policy (DECISIONS D16): every text file is LF in the repository
+# AND in the working tree, on every platform. Prettier and the CI runners
+# assume LF; letting core.autocrlf smudge CRLF into checkouts turns formatting
+# checks red on Windows (observed at Gate 5).
+* text=auto eol=lf
+
+# Windows scripts that genuinely require CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Binaries, never converted
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

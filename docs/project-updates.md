@@ -5,6 +5,35 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.5 CI pipeline (Gate 5 GREEN)
+
+- **Tasks closed:** E0.5 (batch 2; PR #1 merged to main beforehand)
+- **Gate:** 5, GREEN
+- **Tests:** backend 77 passed (10 new CI-structural checks), vitest 14, Playwright 2;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected; all quality stages clean
+- **Command:** `./gate.ps1`
+- **Artifacts:** `gate.sh` refactored into the canonical stage registry (7 stages,
+  per-stage invocation, `--list`, unknown-stage rejection); `.github/workflows/ci.yml`
+  (7 jobs each invoking one registry stage, `ci-green` fan-in with fail-not-skip
+  semantics, push+PR triggers, per-ref concurrency cancel, uv/npm/Playwright caching,
+  Postgres service container for the literal D9 reversibility commands, BUILD_SHA from the
+  commit SHA); `backend/tests/test_ci_pipeline.py` (two-way registry/workflow parity,
+  fan-in completeness, checkout history/tags, migrations and containers coverage,
+  extension-recipe documentation); INTERFACES "CI pipeline" section (3-step add-a-stage
+  recipe); DECISIONS D15 (CI shape) and D16 (LF line-ending pin after the Gate 5 red run);
+  `.gitattributes` with history renormalized
+- **Manual verification:** registry proven by hand: `--list` prints all seven stages,
+  unknown stage exits 2, `migrations-check` without DATABASE_URL exits 1, `backend-quality`
+  correctly went red on an unformatted file during development. **Live-run verification
+  complete:** first workflow run 30116966780 on `e0-batch-2` succeeded, all 8 jobs green in
+  about 2.5 minutes wall clock, with the migrations job executing the literal D9
+  reversibility commands against the service container (D9 closed). **Red-path proof:**
+  scratch branch `ci-red-proof` with a deliberately failing test produced run 30117111859:
+  `backend-tests` and `backend-quality` failed, unrelated stages stayed green, and
+  `ci-green` ran and FAILED rather than skipping; run conclusion `failure`; branch deleted,
+  run retained in Actions history as evidence. **Branch protection:** API attempt returned
+  404 (admin required; account has WRITE); exact owner instructions recorded as D17.
+
 ## 2026-07-24: E0.4 React skeleton with neutral design tokens (Gate 4 GREEN)
 
 - **Tasks closed:** E0.4 (closes the E0.0 to E0.4 batch)
