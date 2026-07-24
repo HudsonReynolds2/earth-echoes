@@ -32,7 +32,9 @@ from app.settings import Settings
 BACKEND = REPO_ROOT / "backend"
 PG_CONTAINER = "eoe-auth-test"
 PG_PORT = 54334
-PASSWORD = "correct-horse-battery"
+# Generated per run: no password-like literal may be committed, even as a
+# fixture; the repo's own secret scanner enforces this (R2, DECISIONS D18).
+PASSWORD = f"pw-{uuid.uuid4().hex}"
 EMAIL = "owner@example.com"
 
 

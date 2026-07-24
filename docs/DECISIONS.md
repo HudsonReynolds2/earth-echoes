@@ -4,6 +4,21 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D18 (2026-07-24): Secret scan covers untracked files; fixture credentials are generated
+
+- **Decision:** Two changes after CI (correctly) went red on the E0.6 push while the local
+  gate had passed. (1) Test fixture credentials are generated per run
+  (`PASSWORD = f"pw-{uuid4().hex}"`), never committed as literals; the scanner's flag on
+  `correct-horse-battery` was upheld, not allowlisted. (2) The secret scan now walks
+  `git ls-files --cached --others --exclude-standard`, so untracked files are covered at
+  the gate that introduces them instead of only after their close-out commit.
+- **Rationale:** Rule R0 requires recording test changes at a red gate; both changes
+  strengthen the check. The local/CI divergence existed because gates run before the
+  close-out commit while CI runs after it: new files were invisible to a tracked-only scan
+  locally.
+- **Reference:** rule R2 (secrets never in fixtures); CI run on `e0-batch-3` at gate-6;
+  backend/tests/test_repo_layout.py, backend/tests/test_auth.py.
+
 ## D17 (2026-07-24): Branch protection pending repository-owner action
 
 - **Decision:** The API attempt to require the `ci-green` status check on `main` returned

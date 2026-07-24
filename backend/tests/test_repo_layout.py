@@ -114,7 +114,10 @@ def test_env_file_is_gitignored():
 
 
 def test_no_committed_secret_patterns():
-    tracked = run_git("ls-files").splitlines()
+    # --others --exclude-standard includes untracked files, closing the gap
+    # where a new file escaped the scan until after its introducing gate's
+    # close-out commit (DECISIONS D18).
+    tracked = run_git("ls-files", "--cached", "--others", "--exclude-standard").splitlines()
     for name in tracked:
         path = REPO_ROOT / name
         if not path.is_file():
