@@ -16,6 +16,7 @@ export const mePayload = {
   id: "00000000-0000-0000-0000-000000000001",
   email: "owner@example.com",
   is_active: true,
+  assignments: [{ role: "owner", deployment_id: null }],
 };
 
 export const server = setupServer(

@@ -5,6 +5,31 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.7 RBAC framework (Gate 7 GREEN)
+
+- **Tasks closed:** E0.7 (batch 3)
+- **Gate:** 7, GREEN
+- **Tests:** backend 123 passed (37 new RBAC checks: 24-row table-driven permission
+  matrix, no-assignment and union-of-assignments cases, all four roles against an
+  org-level mutation and a deployment-scoped read over real HTTP with real sessions,
+  scope isolation, invalid-scope 422, /me assignments), vitest 26 (can() mirror, Can
+  component, cross-language parity), Playwright 2; 0 failed / 0 skipped / 0 xfailed /
+  0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/auth/rbac.py` (Role, Permission, ROLE_PERMISSIONS, pure
+  `has_permission`, `require_permission` factory with optional path-param scoping);
+  `role_assignment` table via hand-reviewed migration `658a7e1ad594` (nullable un-FK'd
+  scope per phase-0, NULL = org-wide); `/auth/me` returns assignments; frontend `can()`
+  mirror + `<Can>`/`useCan` gating helper with a gate-enforced parity test against the
+  Python source; INTERFACES RBAC section. This is the first of the four spec-14.5
+  test-critical suites.
+- **Manual verification:** through the real compose stack: seeded an owner with an
+  org-wide assignment; login and `GET /auth/me` returned
+  `assignments: [{role: owner, deployment_id: null}]`. One red gate during development:
+  the vocabulary parity test's unanchored parse matched the module docstring and compared
+  against an empty list; fixed with anchored bounds plus non-emptiness guards so an empty
+  parse can never silently pass.
+
 ## 2026-07-24: E0.6 Local accounts and sessions (Gate 6 GREEN)
 
 - **Tasks closed:** E0.6 (batch 3)

@@ -25,10 +25,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AssignmentResponse(BaseModel):
+    role: str
+    deployment_id: uuid.UUID | None
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     is_active: bool
+    assignments: list[AssignmentResponse] = []
 
 
 def _cookie_secure(request: Request) -> bool:
@@ -76,7 +82,15 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbDep) -
     _set_auth_cookies(
         request, response, session.id, session.csrf_token, settings.session_ttl_seconds
     )
-    return UserResponse(id=user.id, email=user.email, is_active=user.is_active)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        is_active=user.is_active,
+        assignments=[
+            AssignmentResponse(role=a.role, deployment_id=a.deployment_id)
+            for a in user.role_assignments
+        ],
+    )
 
 
 @router.post("/logout", status_code=204)
@@ -90,4 +104,12 @@ def logout(request: Request, response: Response, db: DbDep, session: CsrfSession
 @router.get("/me", response_model=UserResponse)
 def me(session: SessionDep) -> UserResponse:
     user = session.user
-    return UserResponse(id=user.id, email=user.email, is_active=user.is_active)
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        is_active=user.is_active,
+        assignments=[
+            AssignmentResponse(role=a.role, deployment_id=a.deployment_id)
+            for a in user.role_assignments
+        ],
+    )

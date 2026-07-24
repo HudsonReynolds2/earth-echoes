@@ -9,6 +9,7 @@ export interface Me {
   id: string;
   email: string;
   is_active: boolean;
+  assignments: { role: string; deployment_id: string | null }[];
 }
 
 export function readCsrfToken(): string {

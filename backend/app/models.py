@@ -4,7 +4,7 @@ the E0.2 naming convention names every constraint."""
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -26,6 +26,30 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     sessions: Mapped[list["UserSession"]] = relationship(back_populates="user")
+    role_assignments: Mapped[list["RoleAssignment"]] = relationship(
+        back_populates="user", lazy="selectin"
+    )
+
+
+class RoleAssignment(Base):
+    """Deployment-scoped role grant (task E0.7; spec 12.3).
+
+    deployment_id is an opaque UUID with no foreign key until E1 creates the
+    deployment table (phase-0 E0.7 fixes this explicitly); NULL means the
+    grant is organization-wide. Role values come from app.auth.rbac.Role;
+    stored as strings so adding a role never needs an enum migration.
+    """
+
+    __tablename__ = "role_assignment"
+    __table_args__ = (UniqueConstraint("user_id", "role", "deployment_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"), index=True)
+    role: Mapped[str] = mapped_column(String(40))
+    deployment_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[User] = relationship(back_populates="role_assignments")
 
 
 class UserSession(Base):

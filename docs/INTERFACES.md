@@ -115,11 +115,28 @@ The merge watchtower for every later phase. Design contract:
 - **Password hashing:** `app/auth/passwords.py`, argon2-cffi defaults; plaintext exists
   only inside the login request scope; never logged (tested).
 
-### RBAC roles and the permission dependency (E0.7; placeholder)
+### RBAC roles and the permission dependency (E0.7)
 
-Roles fixed by spec section 12.3: `owner`, `deployment_operator`, `field_tech`, `viewer`.
-Deployment-scoped assignment with a nullable scope column until E1 adds the foreign key.
-Details land with E0.7.
+- **Canonical module:** `backend/app/auth/rbac.py` — `Role` (spec 12.3: `owner`,
+  `deployment_operator`, `field_tech`, `viewer`), `Permission` (platform verbs; extend the
+  enum and `ROLE_PERMISSIONS` together, deliberately), `has_permission` (pure decision
+  core), `require_permission` (dependency factory).
+- **Assignment model:** `role_assignment` (migration `658a7e1ad594`): user_id FK, role
+  string, `deployment_id` UUID **nullable and un-FK'd until E1 adds the deployment table**
+  (phase-0 E0.7). **NULL scope = organization-wide grant**; a scoped grant applies only to
+  its deployment; an org-level check is satisfied only by an org-wide grant. Unique on
+  (user_id, role, deployment_id).
+- **Usage on every later endpoint** (spec 12.3: checked at the API layer on every request):
+  `Depends(require_permission(Permission.X))` for org-level,
+  `Depends(require_permission(Permission.X, "deployment_id"))` to scope by a path
+  parameter. Composes `require_session`; mutations still add CSRF (E0.6) and the E0.8
+  audit hook when it lands.
+- **`GET /auth/me` returns `assignments`** (`[{role, deployment_id}]`) for the frontend.
+- **Frontend helper:** `src/lib/rbac.ts` (`can`, `meCan`) plus `src/components/Can.tsx`
+  (`<Can>`, `useCan`) hide or disable actions by role. The TS map mirrors the Python
+  canon; `frontend/tests/rbac.test.tsx` parses `rbac.py` and fails the gate on divergence.
+- **TEST-CRITICAL:** `backend/tests/test_rbac.py` is the RBAC contract (spec 14.5); no
+  later session may weaken it.
 
 ### Audit hook usage (E0.8; placeholder)
 
