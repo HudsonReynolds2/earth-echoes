@@ -5,6 +5,33 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.12 Seed script (Gate 12 GREEN) — E0 build tasks complete
+
+- **Tasks closed:** E0.12, closing batch 3 (E0.6 through E0.12) and with it every E0 build
+  task
+- **Gate:** 12, GREEN
+- **Tests:** backend 157 passed (the seed acceptance test drives an empty unmigrated
+  database through one command to migrated-and-seeded, parses the once-printed
+  credentials, proves only the Argon2id hash is at rest, logs in as the org-wide owner
+  over HTTP, and confirms re-seeding is refused), vitest 32, Playwright 2; 0 failed /
+  0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/seed.py` (`uv run python -m app.seed`: migrates to head, creates the
+  org-wide owner, prints credentials exactly once, audited as a system bootstrap, refuses
+  re-seed); README dev setup updated (10 steps, at the budget)
+- **Manual verification:** against the real compose stack: one seed command, the password
+  printed exactly once, and the printed credentials logged in with HTTP 200. Clean
+  teardown.
+- **E0 definition of done (phase-0 section 5), swept:** compose-up to running API and
+  frontend ✓ (lifecycle test at every gate); owner logs in with TOTP if enrolled, creates
+  users, assigns roles ✓ (Gates 6/9/10); every mutation audits ✓; RBAC across all four
+  roles with table-driven tests ✓ (Gate 7, test-critical suite); the secrets envelope
+  round-trips and rotates under test ✓ (Gate 11); CI runs the full check suite ✓ (E0.5,
+  every push); the shell renders entirely through the token sheet ✓ (discipline tests at
+  every gate). Handoff artifacts: INTERFACES.md (every E0 section now concrete),
+  DECISIONS.md (D1 to D18), the six-revision migration chain, the seed script,
+  .env.example, and the token namespace delivered to the DES track at E0.4.
+
 ## 2026-07-24: E0.10 Optional TOTP (Gate 10 GREEN)
 
 - **Tasks closed:** E0.10 (batch 3)
