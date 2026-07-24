@@ -12,11 +12,14 @@ phase-doc tasks) are given so a fresh session can verify any entry at its source
 ### Repository layout (E0.1; phase-0 section 2)
 
 ```
+/guide          client-facing group (PHASE0-2-01): quickstart, seed script,
+                deployment verification; new operator-facing material goes HERE
 /backend        FastAPI app (package name: app), alembic/, tests/
 /frontend       Vite React TS app
 /deploy         docker-compose.yml and env templates (stack templates arrive in E5)
 /sim            reserved for the simulation harness (SIM epic)
-/docs           INTERFACES.md, DECISIONS.md, project logs, migration conventions
+/docs           engineering-internal: INTERFACES.md, DECISIONS.md, project logs,
+                migration conventions
 ```
 
 Dev ports: API 8000, frontend dev server 5173, Postgres 5432, Redis 6379.

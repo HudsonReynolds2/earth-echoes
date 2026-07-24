@@ -1,5 +1,26 @@
 # Project Updates
 
+## 2026-07-24: E0.12+ deployment verifier, USER guide, client-facing group (Gate 14 GREEN)
+
+- **Tasks closed:** E0.12 extension (project-changes #7; addendum PHASE0-2-01)
+- **Gate:** 14, GREEN
+- **Tests:** backend 172 passed (the verifier gate test runs the shipped tool as a
+  subprocess against a real compose stack: exit 0, every step PASS, temp accounts gone,
+  TOTP secrets gone, audit rows surviving with nulled actors, no password material on
+  stdout), vitest 32, Playwright 2; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `backend/app/verify.py` (`uv run python -m app.verify [--api URL]`):
+  20-check owner-journey across health, auth, CSRF, the full TOTP lifecycle, user
+  administration, RBAC deny paths for viewer and scoped operator, the audit trail, and
+  live session revocation; guaranteed cleanup in a finally block; httpx promoted to main
+  dependencies (D20). Top-level **`guide/`** client-facing group (layout change
+  PHASE0-2-01): index README, getting-started, seed-script usage with implications,
+  verify-deployment with implications; root README banner links it and demarcates docs/
+  as engineering-internal.
+- **Manual verification:** operator-style run against a fresh compose stack: 20/20 checks
+  passed, "removed 3 temporary account(s); audit trail retained (immutable)", zero
+  `verify-*` accounts left in the database. Clean teardown.
+
 ## 2026-07-24: E0-R readiness flight (Gate 13 GREEN)
 
 - **Tasks closed:** E0-R (project-changes #6; addendum PHASE0-5-01) — the E0 exit-exam

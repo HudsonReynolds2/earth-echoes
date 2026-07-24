@@ -1,5 +1,8 @@
 # Echoes of Earth Management Platform
 
+> **Operating a deployment? Start with the [User Guide](guide/README.md)** — quickstart,
+> the seed script, and end-to-end deployment verification live there.
+
 Web platform for deployment configuration, remote monitoring, and remote reconfiguration of
 the Echoes of Earth bioacoustic monitoring system. The authoritative specification and the
 phase documents live in `project_planning/`; the binding working rules live in `CLAUDE.md`
@@ -9,11 +12,12 @@ and `.claude/rules/project-rules.json`; the growing inter-phase contract lives i
 Repository layout (fixed by phase-0-foundations.md section 2):
 
 ```
+/guide          USER-FACING: quickstart, seed script, deployment verification
 /backend        FastAPI app (package name: app), alembic/, tests/
 /frontend       Vite React TS app
 /deploy         docker-compose.yml and env templates
 /sim            reserved for the simulation harness (SIM epic)
-/docs           INTERFACES.md, DECISIONS.md, project logs
+/docs           engineering-internal: INTERFACES.md, DECISIONS.md, project logs
 ```
 
 ## Development setup

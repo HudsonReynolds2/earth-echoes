@@ -5,6 +5,22 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #7 (2026-07-24): Top-level guide/ directory and the deployment verifier (Gate 14)
+
+- **What changed:** The fixed repository layout gains a top-level `guide/` directory: the
+  clearly demarcated, GitHub-prominent home for every client-facing artifact (operator
+  quickstart, seed-script instructions with implications, deployment-verifier
+  instructions). E0.12's deliverable also gains `backend/app/verify.py`
+  (`uv run python -m app.verify`): a shippable owner-journey verifier that drives every E0
+  subsystem through a temporary owner account over real HTTP and then deletes the
+  account (audit rows deliberately survive with a nulled actor — immutability holds).
+  No API surface changes; the locked route/table contracts are untouched.
+- **Why:** Project-owner directive: client-facing parts must live in one demarcated,
+  easy-to-find group, with USER instructions for the seed script, and epic-wide
+  verification through a seeded owner account that is removed afterwards.
+- **Affects:** project_planning/phase-0-foundations.md section 2 (repository layout)
+- **Addendum:** PHASE0-2-01
+
 ## #6 (2026-07-24): E0 readiness flight added (Gate 13)
 
 - **What changed:** A cross-cutting readiness suite (`backend/tests/test_e0_readiness.py`,

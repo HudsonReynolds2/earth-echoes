@@ -58,6 +58,7 @@ def test_fixed_repository_layout():
         "deploy",
         "sim",
         "docs",
+        "guide",  # client-facing group (project-changes #7, PHASE0-2-01)
     ):
         assert (REPO_ROOT / relative).is_dir(), f"missing fixed directory: {relative}"
     assert (REPO_ROOT / "backend" / "Dockerfile").is_file()

@@ -4,6 +4,20 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D20 (2026-07-24): Verifier cleanup semantics and httpx promotion
+
+- **Decision:** The deployment verifier (`app/verify.py`) deletes the temporary accounts it
+  creates via direct database operations (the API deliberately has no user-delete surface,
+  spec 13), in FK order: sessions, role assignments, the `totp:{id}` secret row, then the
+  user. **Audit rows are never deleted**: the `ondelete=SET NULL` actor FK clears their
+  actor reference and the verification trail remains permanently — immutability outranks
+  tidiness, and the guide documents this as an implication. `httpx` moves from the dev
+  group to main dependencies (the shipped verifier needs it).
+- **Rationale:** "Delete the specific account we create" (owner directive) is satisfied at
+  the account level while preserving the audit invariant every other part of the platform
+  enforces.
+- **Reference:** project-changes #7; guide/verify-deployment.md; spec sections 13, 14.1.
+
 ## D19 (2026-07-24): Pre-E8 hardening pulled forward by the readiness flight
 
 - **Decision:** Two production-posture fixes land with the E0-R readiness flight rather
