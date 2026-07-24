@@ -1,0 +1,164 @@
+# CI pipeline (task E0.5; phase-0 section 4; docs/INTERFACES.md "CI pipeline").
+#
+# Every job invokes a single stage from the canonical registry in gate.sh, so
+# CI and the local gate execute the same code and cannot drift
+# (backend/tests/test_ci_pipeline.py enforces the parity both ways).
+#
+# HOW TO ADD A STAGE (the 3-step recipe; the parity test fails the gate if a
+# step is skipped):
+#   1. Add the stage function and STAGES entry in gate.sh (naming:
+#      <area>-<kind>, e.g. sim-protocol, controlplane-integration).
+#   2. Add a job below that checks out, sets up its toolchain, and runs
+#      `sh gate.sh <stage>`.
+#   3. Add the job id to the ci-green `needs` list. ci-green is the single
+#      required check, so new stages block merges automatically.
+#
+# Everything runs on every push, deliberately: correctness over minutes at
+# this scale. Path filtering is a recorded future option (DECISIONS D15), not
+# a current behavior.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------- backend ----
+  backend-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: sh gate.sh backend-quality
+
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The git-hygiene scan and the planning-baseline byte-compare need
+          # full history and tags.
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Configure commit template (governance suite asserts it)
+        run: git config commit.template .gitmessage
+      # Ubuntu runners ship Docker, so the compose-lifecycle and
+      # ephemeral-Postgres integration tests run for real and never skip
+      # (rule R0: EOE_GATE makes a skip a hard failure).
+      - run: sh gate.sh backend-tests
+
+  migrations:
+    # The literal reversibility commands (DECISIONS D9) as their own named
+    # check, visible per PR rather than buried inside backend-tests.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 54320:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://ci:ci@localhost:54320/ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: sh gate.sh migrations-check
+
+  # ---------------------------------------------------------- frontend ----
+  frontend-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - run: sh gate.sh frontend-quality
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - run: sh gate.sh frontend-tests
+
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - run: sh gate.sh frontend-e2e
+
+  # -------------------------------------------------------- containers ----
+  containers:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh gate.sh containers-build
+
+  # ------------------------------------------------------------ fan-in ----
+  # The single stable check name branch protection requires. New jobs only
+  # need adding to this needs list. `if: always()` plus the explicit result
+  # check makes ci-green FAIL (not skip) when any dependency fails; GitHub
+  # treats a skipped required check as satisfied, which would be a hole.
+  ci-green:
+    runs-on: ubuntu-latest
+    needs:
+      - backend-quality
+      - backend-tests
+      - migrations
+      - frontend-quality
+      - frontend-tests
+      - frontend-e2e
+      - containers
+    if: always()
+    steps:
+      - name: Every stage must have succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"result": *"(failure|cancelled|skipped)"'; then
+            echo "a required stage did not succeed"
+            exit 1
+          fi

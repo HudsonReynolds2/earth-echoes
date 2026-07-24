@@ -4,6 +4,33 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D16 (2026-07-24): Line endings pinned to LF via .gitattributes
+
+- **Decision:** `.gitattributes` pins every text file to LF in the repository and the
+  working tree on all platforms (`* text=auto eol=lf`), with CRLF only for `*.ps1`/`*.bat`
+  and binary patterns exempted. History renormalized with `git add --renormalize`.
+- **Rationale:** Gate 5 went red when a branch switch on Windows (core.autocrlf=true)
+  smudged CRLF into the working tree and Prettier correctly flagged every file. Without the
+  pin, formatting checks disagree between Windows checkouts and the LF-native CI runners,
+  making the pipeline flaky by construction.
+- **Reference:** rule R0 on_failure; Gate 5 first run log; task E0.5.
+
+## D15 (2026-07-24): CI shape, single workflow over a stage registry with a fan-in check
+
+- **Decision:** One workflow (`.github/workflows/ci.yml`) whose jobs each invoke a single
+  stage from the canonical registry in `gate.sh`, ending in a `ci-green` fan-in job that is
+  the sole required status check. Everything runs on every push with a per-ref concurrency
+  cancel; no path filters. Docker layer caching for the containers job and path filtering
+  are recorded future optimizations, deliberately not built now.
+- **Rationale:** The registry gives zero drift between CI and the local gate (same shell
+  functions execute in both), which is what keeps the pipeline honest as later epics add
+  suites (sim-protocol, controlplane-integration). The fan-in gives branch protection one
+  stable check name so adding a stage never requires touching repository settings. Full runs
+  on every push favor correctness over minutes at the current scale.
+- **Reference:** phase-0-foundations.md section 4 (E0.5); docs/INTERFACES.md "CI pipeline";
+  closes D9's deferral (the literal alembic reversibility commands now run in CI as the
+  `migrations` job).
+
 ## D14 (2026-07-24): Test fix at Gate 3, prefix discipline asserted through the public surface
 
 - **Decision:** The prefix-discipline test reads the OpenAPI schema (every documented path

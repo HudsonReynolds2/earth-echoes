@@ -71,6 +71,27 @@ styles through `var(--eoe-*)`; color, spacing, radius, and shadow literals outsi
 sheet fail the gate (`frontend/tests/tokens.test.ts`). The theme-swap browser test
 (`frontend/e2e/theme-swap.spec.ts`) is DES.7's regression guarantee.
 
+### CI pipeline (E0.5; .github/workflows/ci.yml)
+
+The merge watchtower for every later phase. Design contract:
+
+- **Stage registry:** `gate.sh` is canonical. Each stage is a function; `sh gate.sh <stage>`
+  runs one stage, `sh gate.sh` runs the local set, `sh gate.sh --list` prints the registry.
+  Every CI job invokes exactly one registry stage, so CI and the local gate execute the same
+  code; `backend/tests/test_ci_pipeline.py` enforces the parity in both directions.
+- **Job naming:** `<area>-<kind>` (`backend-quality`, `frontend-e2e`, ...). Future areas
+  slot in beside them: `sim-protocol` (listener/aggregator contract suites, SIM epic),
+  `controlplane-integration` (E3), and so on.
+- **Adding a stage, the 3-step recipe:** (1) stage function plus `STAGES` entry in
+  `gate.sh`; (2) job invoking `sh gate.sh <stage>` in `ci.yml`; (3) the job id added to the
+  `ci-green` needs list. The parity test fails the gate if any step is skipped.
+- **`ci-green` fan-in** is the single required status check for branch protection; it runs
+  with `if: always()` and fails (never skips) when any dependency fails, because GitHub
+  treats a skipped required check as satisfied.
+- Everything runs on every push (no path filters at this scale; recorded future option,
+  DECISIONS D15). Rule R0 applies inside CI: `backend-tests` runs `tests/gate_runner.py`,
+  so skipped/xfailed/deselected tests fail the pipeline.
+
 ### Auth and session mechanics (E0.6; placeholder)
 
 Decided ahead (D1): DB-backed `session` rows; signed opaque session id in an
