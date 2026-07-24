@@ -4,6 +4,19 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D17 (2026-07-24): Branch protection pending repository-owner action
+
+- **Decision:** The API attempt to require the `ci-green` status check on `main` returned
+  404 (GitHub's masking of missing admin rights; the working account has WRITE). The
+  pipeline is fully functional without it; hard merge-blocking waits on the repo owner.
+- **Action for the repository owner (HudsonReynolds2):** Settings → Branches → Add branch
+  protection rule → branch pattern `main` → enable "Require status checks to pass before
+  merging" → select **`ci-green`** (only this one; it fans in every stage, so newly added
+  stages block automatically without touching settings again). Optionally also enable
+  "Require a pull request before merging".
+- **Reference:** phase-0-foundations.md section 4 (E0.5 acceptance, "a failing test blocks
+  merge"); docs/INTERFACES.md "CI pipeline".
+
 ## D16 (2026-07-24): Line endings pinned to LF via .gitattributes
 
 - **Decision:** `.gitattributes` pins every text file to LF in the repository and the

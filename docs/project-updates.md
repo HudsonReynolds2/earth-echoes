@@ -24,9 +24,15 @@ Never in anticipation.
   `.gitattributes` with history renormalized
 - **Manual verification:** registry proven by hand: `--list` prints all seven stages,
   unknown stage exits 2, `migrations-check` without DATABASE_URL exits 1, `backend-quality`
-  correctly went red on an unformatted file during development. Live-run verification
-  (first workflow run, branch protection attempt, red-path proof) recorded below as it
-  completes.
+  correctly went red on an unformatted file during development. **Live-run verification
+  complete:** first workflow run 30116966780 on `e0-batch-2` succeeded, all 8 jobs green in
+  about 2.5 minutes wall clock, with the migrations job executing the literal D9
+  reversibility commands against the service container (D9 closed). **Red-path proof:**
+  scratch branch `ci-red-proof` with a deliberately failing test produced run 30117111859:
+  `backend-tests` and `backend-quality` failed, unrelated stages stayed green, and
+  `ci-green` ran and FAILED rather than skipping; run conclusion `failure`; branch deleted,
+  run retained in Actions history as evidence. **Branch protection:** API attempt returned
+  404 (admin required; account has WRITE); exact owner instructions recorded as D17.
 
 ## 2026-07-24: E0.4 React skeleton with neutral design tokens (Gate 4 GREEN)
 
