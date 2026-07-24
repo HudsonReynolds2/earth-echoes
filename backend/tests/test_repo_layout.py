@@ -5,16 +5,16 @@ hygiene, compose topology and ports, README step budget, and proof that the
 R0 gate guard machinery actually fails on a skipped test.
 """
 
-import os
 import re
-import shutil
 import subprocess
 import uuid
 
 import pytest
 import yaml
-from conftest import REPO_ROOT, run_git
+from conftest import REPO_ROOT, docker_cli, docker_env, run_git
 from gate_runner import GateGuard, enforce
+
+__all__ = ["compose_env", "docker_cli", "docker_env"]  # re-exported for peer suites
 
 DEPLOY = REPO_ROOT / "deploy"
 CORE_ENV_VARS = ("DATABASE_URL", "EOE_SESSION_SECRET", "EOE_KEK", "REDIS_URL")
@@ -30,29 +30,6 @@ SECRET_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY)\w*\s*[=:]\s*[\"']?[A-Za-z0-9+/_\-]{20,}"),
 )
-
-
-def docker_cli() -> str:
-    """Locate docker, tolerating a PATH captured before Docker Desktop installed."""
-    found = shutil.which("docker")
-    if found:
-        return found
-    fallback = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
-    if os.path.exists(fallback):
-        return fallback
-    raise AssertionError("docker not found; Docker is a hard gate prerequisite (rule R0)")
-
-
-def docker_env() -> dict[str, str]:
-    """Process env with the docker CLI's directory appended to PATH.
-
-    Docker Desktop's credential helper (docker-credential-desktop) lives beside
-    docker.exe; a shell whose environment predates the install cannot resolve
-    it, which fails every pull (DECISIONS D12).
-    """
-    env = dict(os.environ)
-    env["PATH"] = env.get("PATH", "") + os.pathsep + os.path.dirname(docker_cli())
-    return env
 
 
 def compose_env() -> dict[str, str]:

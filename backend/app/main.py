@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.users import router as users_router
 from app.db import create_session_factory
 from app.errors import install_error_handlers
 from app.middleware import RequestIdMiddleware, SecurityHeadersMiddleware, configure_logging
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(health_router)
     api_router.include_router(auth_router)
     api_router.include_router(audit_router)
+    api_router.include_router(users_router)
     app.include_router(api_router)
 
     return app

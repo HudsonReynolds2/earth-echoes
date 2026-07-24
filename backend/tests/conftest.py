@@ -9,11 +9,95 @@ Filtered runs stay legal while debugging between gates; they are only
 forbidden as a way to clear a gate.
 """
 
+import contextlib
 import os
+import shutil
 import subprocess
+import sys
+import time
+import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def docker_cli() -> str:
+    """Locate docker, tolerating a PATH captured before Docker Desktop installed."""
+    found = shutil.which("docker")
+    if found:
+        return found
+    fallback = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+    if os.path.exists(fallback):
+        return fallback
+    raise AssertionError("docker not found; Docker is a hard gate prerequisite (rule R0)")
+
+
+def docker_env() -> dict[str, str]:
+    """Process env with the docker CLI's directory appended to PATH (D12)."""
+    env = dict(os.environ)
+    env["PATH"] = env.get("PATH", "") + os.pathsep + os.path.dirname(docker_cli())
+    return env
+
+
+@contextlib.contextmanager
+def ephemeral_postgres(migrate: bool = True):
+    """Disposable Postgres on a unique container name and a Docker-assigned
+    free host port, so any number of test modules can hold one without
+    colliding with each other or with orphans from interrupted runs."""
+    name = f"eoe-pg-{uuid.uuid4().hex[:10]}"
+    secret = uuid.uuid4().hex
+    env = docker_env()
+    run = subprocess.run(
+        [
+            docker_cli(),
+            "run",
+            "-d",
+            "--name",
+            name,
+            "-p",
+            "127.0.0.1:0:5432",
+            "-e",
+            f"POSTGRES_PASSWORD={secret}",
+            "postgres:16-alpine",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert run.returncode == 0, f"could not start ephemeral postgres: {run.stderr}"
+    try:
+        streak = 0
+        for _ in range(90):
+            probe = subprocess.run(
+                [docker_cli(), "exec", name, "pg_isready", "-U", "postgres"],
+                capture_output=True,
+                env=env,
+            )
+            streak = streak + 1 if probe.returncode == 0 else 0
+            if streak >= 2:  # survives the init-time restart
+                break
+            time.sleep(1)
+        else:
+            raise AssertionError("ephemeral postgres never became ready")
+        ports = subprocess.run(
+            [docker_cli(), "port", name, "5432/tcp"], capture_output=True, text=True, env=env
+        )
+        assert ports.returncode == 0, ports.stderr
+        host_port = ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1]
+        url = f"postgresql+psycopg://postgres:{secret}@127.0.0.1:{host_port}/postgres"
+        if migrate:
+            upgraded = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                cwd=REPO_ROOT / "backend",
+                capture_output=True,
+                text=True,
+                env={**env, "DATABASE_URL": url},
+                timeout=120,
+            )
+            assert upgraded.returncode == 0, f"migration failed: {upgraded.stderr}"
+        yield url
+    finally:
+        subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
 
 
 def run_git(*args: str) -> str:

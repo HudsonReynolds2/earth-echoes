@@ -7,15 +7,11 @@ unit checks on the signing and hashing primitives.
 """
 
 import logging
-import subprocess
-import sys
-import time
 import uuid
 
 import pytest
-from conftest import REPO_ROOT
+from conftest import ephemeral_postgres
 from fastapi.testclient import TestClient
-from test_repo_layout import docker_cli, docker_env
 
 from app.auth.cookies import (
     CSRF_COOKIE,
@@ -29,9 +25,6 @@ from app.main import API_PREFIX, create_app
 from app.models import User, UserSession, utcnow
 from app.settings import Settings
 
-BACKEND = REPO_ROOT / "backend"
-PG_CONTAINER = "eoe-auth-test"
-PG_PORT = 54334
 # Generated per run: no password-like literal may be committed, even as a
 # fixture; the repo's own secret scanner enforces this (R2, DECISIONS D18).
 PASSWORD = f"pw-{uuid.uuid4().hex}"
@@ -40,54 +33,10 @@ EMAIL = "owner@example.com"
 
 @pytest.fixture(scope="module")
 def pg_url():
-    secret = uuid.uuid4().hex
-    env = docker_env()
-    subprocess.run([docker_cli(), "rm", "-f", PG_CONTAINER], capture_output=True, env=env)
-    run = subprocess.run(
-        [
-            docker_cli(),
-            "run",
-            "-d",
-            "--name",
-            PG_CONTAINER,
-            "-p",
-            f"{PG_PORT}:5432",
-            "-e",
-            f"POSTGRES_PASSWORD={secret}",
-            "postgres:16-alpine",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    assert run.returncode == 0, f"could not start ephemeral postgres: {run.stderr}"
-    try:
-        streak = 0
-        for _ in range(90):
-            probe = subprocess.run(
-                [docker_cli(), "exec", PG_CONTAINER, "pg_isready", "-U", "postgres"],
-                capture_output=True,
-                env=env,
-            )
-            streak = streak + 1 if probe.returncode == 0 else 0
-            if streak >= 2:
-                break
-            time.sleep(1)
-        else:
-            raise AssertionError("ephemeral postgres never became ready")
-        url = f"postgresql+psycopg://postgres:{secret}@localhost:{PG_PORT}/postgres"
-        upgraded = subprocess.run(
-            [sys.executable, "-m", "alembic", "upgrade", "head"],
-            cwd=BACKEND,
-            capture_output=True,
-            text=True,
-            env={**docker_env(), "DATABASE_URL": url},
-            timeout=120,
-        )
-        assert upgraded.returncode == 0, f"migration failed: {upgraded.stderr}"
+    """Shared by every DB-backed suite via import; each importing module gets
+    its own migrated throwaway instance (conftest.ephemeral_postgres)."""
+    with ephemeral_postgres() as url:
         yield url
-    finally:
-        subprocess.run([docker_cli(), "rm", "-f", "-v", PG_CONTAINER], capture_output=True, env=env)
 
 
 @pytest.fixture(scope="module")

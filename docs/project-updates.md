@@ -5,6 +5,29 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.9 User administration (Gate 9 GREEN)
+
+- **Tasks closed:** E0.9 (batch 3)
+- **Gate:** 9, GREEN
+- **Tests:** backend 141 passed (10 new admin tests incl. the end-to-end acceptance flow:
+  owner creates viewer over HTTP, viewer logs in, viewer 403 on administration; CSRF
+  required on mutations; duplicate-email 409; unknown-role 422; audit row without secrets;
+  deactivation kills the victim's live session mid-flight; password rotation; wholesale
+  assignment replacement; self-lockout guards; D7 list with filters), vitest 31 (admin
+  page, viewer denial, gated sidebar link, create flow, conflict surfacing), Playwright 2;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/api/users.py` (every E0 mechanism on one surface: RBAC gate + CSRF +
+  audit + D7 + D1 revocation + self-lockout guard); `UsersAdmin` page behind `<Can>`, gated
+  sidebar link, users client; test-infra hardening: the ephemeral-Postgres fixture moved to
+  conftest with unique container names and Docker-assigned free ports after an orphaned
+  fixed-port container broke iteration (docker_cli/docker_env centralized in conftest)
+- **Manual verification:** through the real compose stack: owner created
+  `new-viewer@example.com` via POST /users (201, viewer assignment echoed, no secrets);
+  the viewer logged in (200), read their own identity, and got 403 on GET /users. The
+  audit-row check for user.create is gate-tested (a display-only shell quoting slip cut
+  the manual audit printout; the API behaved correctly throughout). Clean teardown.
+
 ## 2026-07-24: E0.8 Audit log (Gate 8 GREEN)
 
 - **Tasks closed:** E0.8 (batch 3)

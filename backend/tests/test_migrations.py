@@ -11,8 +11,6 @@ import ast
 import re
 import subprocess
 import sys
-import time
-import uuid
 from pathlib import Path
 
 import pytest
@@ -20,16 +18,13 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from conftest import REPO_ROOT
+from conftest import REPO_ROOT, docker_env, ephemeral_postgres
 from sqlalchemy import create_engine, inspect
-from test_repo_layout import docker_cli, docker_env
 
 BACKEND = REPO_ROOT / "backend"
 VERSIONS = BACKEND / "alembic" / "versions"
 FILENAME_RE = re.compile(r"[0-9a-f]{12}_[a-z0-9_]+\.py")
 CONSTRAINT_PREFIX_RE = re.compile(r"(pk|fk|uq|ck|ix)_")
-PG_CONTAINER = "eoe-migration-test"
-PG_PORT = 54329
 
 
 def _script_dir() -> ScriptDirectory:
@@ -124,44 +119,9 @@ def test_migration_conventions_documented():
 
 @pytest.fixture(scope="module")
 def pg_url():
-    password = uuid.uuid4().hex
-    env = docker_env()
-    subprocess.run([docker_cli(), "rm", "-f", PG_CONTAINER], capture_output=True, env=env)
-    run = subprocess.run(
-        [
-            docker_cli(),
-            "run",
-            "-d",
-            "--name",
-            PG_CONTAINER,
-            "-p",
-            f"{PG_PORT}:5432",
-            "-e",
-            f"POSTGRES_PASSWORD={password}",
-            "postgres:16-alpine",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    assert run.returncode == 0, f"could not start ephemeral postgres: {run.stderr}"
-    try:
-        ready_streak = 0
-        for _ in range(90):
-            probe = subprocess.run(
-                [docker_cli(), "exec", PG_CONTAINER, "pg_isready", "-U", "postgres"],
-                capture_output=True,
-                env=env,
-            )
-            ready_streak = ready_streak + 1 if probe.returncode == 0 else 0
-            if ready_streak >= 2:  # survives the init-time restart
-                break
-            time.sleep(1)
-        else:
-            raise AssertionError("ephemeral postgres never became ready")
-        yield f"postgresql+psycopg://postgres:{password}@localhost:{PG_PORT}/postgres"
-    finally:
-        subprocess.run([docker_cli(), "rm", "-f", "-v", PG_CONTAINER], capture_output=True, env=env)
+    # migrate=False: this suite exercises the migration commands itself.
+    with ephemeral_postgres(migrate=False) as url:
+        yield url
 
 
 def _alembic(url: str, *args: str) -> subprocess.CompletedProcess:

@@ -7,6 +7,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { logout } from "../lib/auth";
 import { useMe } from "../lib/useMe";
+import { Can } from "./Can";
 
 export function Shell() {
   const { data: me } = useMe();
@@ -28,6 +29,9 @@ export function Shell() {
             Overview
           </NavLink>
           <NavLink to="/system">System</NavLink>
+          <Can permission="manage_users">
+            <NavLink to="/users">Users</NavLink>
+          </Can>
         </nav>
         <div className="shell-auth" data-testid="shell-auth">
           {me ? (

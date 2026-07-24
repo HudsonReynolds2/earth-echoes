@@ -160,6 +160,17 @@ The merge watchtower for every later phase. Design contract:
   one query model (`AuditQuery` style) — FastAPI does not expand a query model mixed with
   loose query params.
 
+### User administration (E0.9)
+
+`GET/POST /api/v1/users`, `PATCH /api/v1/users/{id}` — owner-only
+(`Permission.MANAGE_USERS`), mutations require CSRF and audit (`user.create`,
+`user.update` with changed-field names only, never values). Assignments replace
+wholesale on PATCH. Deactivation revokes the target's live sessions immediately (D1).
+Self-lockout guarded: an owner cannot deactivate themselves or drop their own org-wide
+owner role (409). List follows D7 with `email` (icontains) and `is_active` filters via the
+`UsersQuery` pattern. Admin UI at `/users` behind `<Can permission="manage_users">`;
+sidebar link hidden for non-owners.
+
 ### SecretStore interface (E0.11; placeholder)
 
 Platform-side envelope encryption per spec section 12.4 (KEK from `EOE_KEK`, data keys per
