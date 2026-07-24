@@ -13,9 +13,14 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev
 
 COPY app ./app
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
+
+ARG BUILD_SHA=dev
+ENV EOE_BUILD_SHA=${BUILD_SHA}
 
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
-    CMD ["/srv/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=2)"]
+    CMD ["/srv/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2)"]
 
-CMD ["/srv/backend/.venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/srv/backend/.venv/bin/python", "-m", "uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

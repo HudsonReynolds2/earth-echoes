@@ -7,6 +7,8 @@ services:
   api:
     build:
       context: ../backend
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
     ports:
       - "8000:8000"
     environment:
@@ -14,6 +16,7 @@ services:
       EOE_SESSION_SECRET: ${EOE_SESSION_SECRET:?set in deploy/.env, see .env.example}
       EOE_KEK: ${EOE_KEK:?set in deploy/.env, see .env.example}
       REDIS_URL: ${REDIS_URL:-}
+      EOE_CORS_ORIGINS: ${EOE_CORS_ORIGINS:-http://localhost:5173}
     depends_on:
       postgres:
         condition: service_healthy

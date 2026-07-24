@@ -1,30 +1,57 @@
-"""E0.1 liveness placeholder.
+"""FastAPI application factory (task E0.3).
 
-A bare ASGI callable returning 200 at every path, exactly enough to prove the
-container stack runs. The FastAPI application (app factory, /api/v1 prefix,
-error envelope, request-ID middleware) is task E0.3 and MUST NOT appear here
-before it (phase-0-foundations.md section 4).
+Everything rides the /api/v1 prefix; every error leaves through the envelope
+(app.errors); every response carries a request id and the security-header
+baseline. Serve with: uvicorn app.main:create_app --factory
 """
 
-import json
-from collections.abc import Awaitable, Callable, MutableMapping
-from typing import Any
+from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-Scope = MutableMapping[str, Any]
-Message = MutableMapping[str, Any]
-Receive = Callable[[], Awaitable[Message]]
-Send = Callable[[Message], Awaitable[None]]
+from app.api.health import router as health_router
+from app.errors import install_error_handlers
+from app.middleware import RequestIdMiddleware, SecurityHeadersMiddleware, configure_logging
+from app.settings import Settings
+
+API_PREFIX = "/api/v1"
 
 
-async def app(scope: Scope, receive: Receive, send: Send) -> None:
-    if scope["type"] != "http":
-        return
-    body = json.dumps({"status": "ok", "service": "eoe-api-placeholder"}).encode()
-    await send(
-        {
-            "type": "http.response.start",
-            "status": 200,
-            "headers": [(b"content-type", b"application/json")],
-        }
+def create_app(settings: Settings | None = None) -> FastAPI:
+    # Settings() resolves its required fields from the environment and the
+    # optional TOML file (D5); mypy cannot see those sources.
+    resolved = settings if settings is not None else Settings()  # type: ignore[call-arg]
+    configure_logging()
+
+    app = FastAPI(
+        title="Echoes of Earth Management Platform",
+        version="0.0.0",
+        docs_url="/api/v1/docs",
+        openapi_url="/api/v1/openapi.json",
+        redoc_url=None,
+        # No swagger OAuth2 flow; without this FastAPI mounts a route at
+        # /docs/oauth2-redirect, outside the versioned prefix.
+        swagger_ui_oauth2_redirect_url=None,
     )
-    await send({"type": "http.response.body", "body": body})
+    app.state.settings = resolved
+
+    # Order matters: security headers wrap everything, request id inside them,
+    # CORS innermost so its headers survive on error responses too.
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestIdMiddleware)
+    if resolved.cors_origin_list:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=resolved.cors_origin_list,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*", "X-Request-ID"],
+            expose_headers=["X-Request-ID"],
+        )
+
+    install_error_handlers(app)
+
+    api_router = APIRouter(prefix=API_PREFIX)
+    api_router.include_router(health_router)
+    app.include_router(api_router)
+
+    return app

@@ -5,6 +5,30 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.3 FastAPI skeleton (Gate 3 GREEN)
+
+- **Tasks closed:** E0.3
+- **Gate:** 3, GREEN
+- **Tests:** 67 passed / 0 failed / 0 skipped / 0 xfailed / 0 deselected; ruff, mypy strict
+  (9 source files), frontend typecheck clean. New suites: settings precedence (6), API
+  skeleton (17), pagination contract (8); compose lifecycle strengthened to prove the
+  versioned health endpoint, API-to-Postgres reachability, and the 404 envelope through the
+  real stack
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/main.py::create_app` factory (uvicorn `--factory` mode);
+  `app/settings.py` (env > TOML > default per D5, fail-loud, alias-named errors);
+  `app/errors.py` (envelope as the only error shape, D8 vocabulary frozen, AppError rejects
+  unknown codes at raise time); `app/middleware.py` (request-id middleware plus
+  log-record-factory binding, security-header baseline); `app/api/health.py` (build/version/
+  db-ping payload); `app/api/pagination.py` (D7 contract: PageParams, ListResponse,
+  parse_sort, apply_page); CORS-with-credentials from `EOE_CORS_ORIGINS`; Dockerfile
+  BUILD_SHA arg and versioned healthcheck; DECISIONS D14
+- **Manual verification:** through compose from outside the harness: health returned
+  `build_sha` injected via the BUILD_SHA build arg and `database: ok`; unknown path returned
+  the exact envelope with `not_found`; inbound `X-Request-ID` echoed with security headers
+  present; CORS returned allow-credentials, the configured origin, and exposed X-Request-ID.
+  Clean teardown.
+
 ## 2026-07-23: E0.2 Postgres and migrations (Gate 2 GREEN)
 
 - **Tasks closed:** E0.2

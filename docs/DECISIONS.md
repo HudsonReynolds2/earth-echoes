@@ -4,6 +4,19 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D14 (2026-07-24): Test fix at Gate 3, prefix discipline asserted through the public surface
+
+- **Decision:** The prefix-discipline test reads the OpenAPI schema (every documented path
+  starts with `/api/v1`, health present) and behaviorally proves nothing serves outside the
+  prefix (`/` and `/health` return 404). It does not walk router internals. Invariant
+  unchanged.
+- **Rationale:** Rule R0 requires recording any test fix made at a red gate. Two attempts at
+  walking `app.routes` failed against current FastAPI, which represents included routers as
+  lazy pathless containers and applies prefixes at match time, leaving route objects with
+  unprefixed paths. The public surface (schema plus observable behavior) is the stable,
+  version-proof thing to assert.
+- **Reference:** rule R0 on_failure; Gate 3 first and second run logs.
+
 ## D13 (2026-07-23): Ephemeral test Postgres via direct docker run, not the testcontainers library
 
 - **Decision:** The migration suite starts its ephemeral Postgres with a direct `docker run`

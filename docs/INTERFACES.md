@@ -36,7 +36,12 @@ Settings precedence: environment variable over TOML config file over default (D5
 
 ### API conventions (E0.3; phase-0 section 2; spec section 13)
 
-- Versioned prefix `/api/v1` on every route. Health: `GET /api/v1/health`.
+- Versioned prefix `/api/v1` on every route, including docs (`/api/v1/docs`,
+  `/api/v1/openapi.json`); nothing serves outside it. Health: `GET /api/v1/health` returns
+  `{status, version, build_sha, database}`; `build_sha` is injected at image build
+  (`BUILD_SHA` arg); an unreachable database degrades the payload, never fails the endpoint.
+- Serve with `uvicorn app.main:create_app --factory`; the factory takes an optional
+  `Settings` for tests.
 - Error envelope, the only error shape:
   `{"error": {"code": string, "message": string, "detail": object|null}}`.
 - Error `code` vocabulary (D8, stable, never renamed): `validation_error`, `unauthorized`,

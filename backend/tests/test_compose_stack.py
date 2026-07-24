@@ -8,6 +8,7 @@ and clean teardown assert against the same stack instance.
 
 import json
 import subprocess
+import urllib.error
 import urllib.request
 
 import pytest
@@ -35,6 +36,11 @@ def _http_status(url: str) -> int:
         return response.status
 
 
+def _http_json(url: str) -> dict:
+    with urllib.request.urlopen(url, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def test_stack_lifecycle_up_probe_teardown():
     env = compose_env()
     try:
@@ -53,8 +59,19 @@ def test_stack_lifecycle_up_probe_teardown():
             "redis": "running",
         }, f"unexpected service states: {states}"
 
-        assert _http_status("http://localhost:8000/") == 200
+        health = _http_json("http://localhost:8000/api/v1/health")
+        assert health["status"] == "ok"
+        assert health["database"] == "ok", f"api cannot reach postgres: {health}"
         assert _http_status("http://localhost:5173/") == 200
+
+        # The envelope is the only error shape, proven through the real stack.
+        try:
+            urllib.request.urlopen("http://localhost:8000/", timeout=10)
+            raise AssertionError("root path should 404 under the /api/v1 prefix discipline")
+        except urllib.error.HTTPError as error:
+            assert error.code == 404
+            body = json.loads(error.read().decode("utf-8"))
+            assert body["error"]["code"] == "not_found"
 
         # Check 10: Postgres accepts the documented DATABASE_URL credential shape.
         ready = _compose("exec", "-T", "postgres", "pg_isready", "-U", "eoe", "-d", "eoe", env=env)

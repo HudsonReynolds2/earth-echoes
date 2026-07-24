@@ -8,6 +8,9 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "psycopg[binary]>=3.2",
+    "fastapi>=0.115",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
 ]
 
 [dependency-groups]
@@ -16,6 +19,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.14",
     "pyyaml>=6.0",
+    "httpx>=0.28",
 ]
 
 [tool.mypy]
@@ -27,6 +31,7 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-ra"
 markers = [
     "integration: exercises the real Docker compose stack; a hard gate prerequisite (rule R0)",
