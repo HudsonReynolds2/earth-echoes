@@ -4,6 +4,17 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D13 (2026-07-23): Ephemeral test Postgres via direct docker run, not the testcontainers library
+
+- **Decision:** The migration suite starts its ephemeral Postgres with a direct `docker run`
+  through the already-proven `docker_cli()`/`docker_env()` helpers (port 54329, random
+  password, forced removal on teardown) instead of the `testcontainers` library D6 named.
+- **Rationale:** testcontainers-python reaches the daemon through docker-py, whose Windows
+  named-pipe transport adds a pywin32 dependency and a second connection path to debug. The
+  direct approach reuses one code path for all Docker interaction and gives the same
+  guarantee: a real, disposable Postgres per test module.
+- **Reference:** amends D6; docs/migration-conventions.md; backend/tests/test_migrations.py.
+
 ## D12 (2026-07-23): Test fix at Gate 1, docker CLI directory appended to subprocess PATH
 
 - **Decision:** Integration-test helpers append the docker CLI's own directory to the

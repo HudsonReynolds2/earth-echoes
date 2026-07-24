@@ -5,6 +5,26 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-23: E0.2 Postgres and migrations (Gate 2 GREEN)
+
+- **Tasks closed:** E0.2
+- **Gate:** 2, GREEN
+- **Tests:** 36 passed / 0 failed / 0 skipped / 0 xfailed / 0 deselected, zero warnings
+  (migration suite: chain integrity, non-trivial-downgrade AST check, filename template,
+  conventions doc, plus upgrade/downgrade/round-trip/empty-autogenerate-diff/constraint
+  naming against a real ephemeral Postgres); ruff, mypy strict, frontend typecheck clean
+- **Command:** `./gate.ps1`
+- **Artifacts:** `backend/app/db.py` (binding MetaData naming convention plus `Base`);
+  `backend/alembic.ini` (no URL stored; `path_separator = os`); `backend/alembic/env.py`
+  (targets `app.db.Base`, URL exclusively from `DATABASE_URL`); reversibility-annotated
+  `script.py.mako`; baseline root migration `4a07fe3a8e54` (deliberately empty, the single
+  downgrade exemption); `docs/migration-conventions.md`; Gate 2 suite
+  `backend/tests/test_migrations.py`; DECISIONS D13 (ephemeral Postgres via direct docker
+  run, amending D6)
+- **Manual verification:** by hand against a scratch Postgres container: `upgrade head`,
+  `downgrade -1`, `upgrade head`, `downgrade base`, `upgrade head` all succeeded and
+  `alembic current` reported `4a07fe3a8e54 (head)`; container removed cleanly.
+
 ## 2026-07-23: E0.1 Repository and container scaffolding (Gate 1 GREEN)
 
 - **Tasks closed:** E0.1
