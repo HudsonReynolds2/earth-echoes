@@ -4,6 +4,18 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D19 (2026-07-24): Pre-E8 hardening pulled forward by the readiness flight
+
+- **Decision:** Two production-posture fixes land with the E0-R readiness flight rather
+  than waiting for E8.7: the API image runs as a fixed non-root user (UID 10001), and the
+  compose frontend service now receives `VITE_API_BASE_URL` (default
+  `http://localhost:8000`, overridable via `EOE_FRONTEND_API_URL`).
+- **Rationale:** Owner directive to verify a production-poised platform. The missing
+  frontend env var was a genuine defect: inside the compose stack the browser app could
+  never reach the API (only the Playwright config set the variable, out-of-band). Root
+  containers are a needless posture risk with a two-line fix.
+- **Reference:** project-changes #6; E8.7 still performs the full security review.
+
 ## D18 (2026-07-24): Secret scan covers untracked files; fixture credentials are generated
 
 - **Decision:** Two changes after CI (correctly) went red on the E0.6 push while the local

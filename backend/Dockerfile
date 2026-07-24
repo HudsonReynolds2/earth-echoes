@@ -19,6 +19,10 @@ COPY alembic ./alembic
 ARG BUILD_SHA=dev
 ENV EOE_BUILD_SHA=${BUILD_SHA}
 
+# Production posture (D19, pulled forward from E8.7): never run as root.
+RUN useradd --uid 10001 --create-home eoe && chown -R eoe:eoe /srv/backend
+USER eoe
+
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
     CMD ["/srv/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2)"]

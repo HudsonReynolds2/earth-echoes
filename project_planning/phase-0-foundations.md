@@ -67,6 +67,8 @@ Do not build any of the following; a later epic owns each. Hierarchy entities an
 
 ## 5. Definition of done
 
+> **Addendum PHASE0-5-01 (2026-07-24, ref project-changes #6):** The definition of done additionally includes a cross-cutting readiness suite (`backend/tests/test_e0_readiness.py`) locking the public surface (exact route and table sets), proving env-var documentation parity, exercising the seams later epics consume (E1 scope columns, E3/E5 SecretStore name shapes, E8.5 session-minting), running a data-seeded migration round trip, and verifying production posture (prod frontend image serves; API container non-root; the compose frontend carries `VITE_API_BASE_URL`).
+
 `docker compose up` on a clean machine yields a running API and frontend. An owner logs in (with TOTP if enrolled), creates users, and assigns roles. Every mutation writes an audit row. RBAC blocks and allows correctly across all four roles with tests proving it. The secrets envelope round-trips and rotates under test. CI runs the full check suite. The frontend shell renders entirely through the token sheet.
 
 ## 6. Handoff artifacts

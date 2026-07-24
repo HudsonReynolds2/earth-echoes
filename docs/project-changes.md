@@ -5,6 +5,21 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #6 (2026-07-24): E0 readiness flight added (Gate 13)
+
+- **What changed:** A cross-cutting readiness suite (`backend/tests/test_e0_readiness.py`,
+  Gate 13) verifies E0.1 through E0.11 as a whole: the exact public surface (routes and
+  tables) as a locked contract, env-var parity between documentation and Settings, the
+  seams later epics consume (E1's un-FK'd scope columns and MAC-wide entity ids, E3/E5's
+  SecretStore name shapes, E8.5's session-minting seam for OIDC), a data-seeded migration
+  round trip, and production posture (prod frontend image actually serves; API container
+  runs non-root). Two defects found and fixed in the process: the compose frontend lacked
+  `VITE_API_BASE_URL`, and the API image ran as root.
+- **Why:** Project-owner directive: verify the platform is production-poised and that the
+  infrastructure later epics build on is genuinely ready, not just unit-tested.
+- **Affects:** project_planning/phase-0-foundations.md section 5 (definition of done)
+- **Addendum:** PHASE0-5-01
+
 ## #5 (2026-07-24): E0.11 lands before E0.10
 
 - **What changed:** The implementation order of the last two build tasks swaps: E0.11

@@ -1,5 +1,29 @@
 # Project Updates
 
+## 2026-07-24: E0-R readiness flight (Gate 13 GREEN)
+
+- **Tasks closed:** E0-R (project-changes #6; addendum PHASE0-5-01) — the E0 exit-exam
+  verifying E0.1 through E0.11 as a production-poised whole
+- **Gate:** 13, GREEN
+- **Tests:** backend 171 passed (14 new readiness tests), vitest 32, Playwright 2;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `backend/tests/test_e0_readiness.py`, organized by consumer epic as
+  executable handoff documentation: locked surface contracts (exact route and table sets
+  that later epics extend consciously; env-var documentation parity; OpenAPI operation
+  completeness), E1 seams (un-FK'd nullable UUID scope columns awaiting E1.1's foreign
+  key; MAC-wide audit entity ids; intact naming convention), E3/E4/E5 SecretStore consumer
+  name shapes round-tripped, the E8.5 OIDC seam proven by minting a session for a user
+  whose password can never verify, and production posture (data-seeded migration round
+  trip to base and back; the prod nginx image proven to actually SERVE the built app, not
+  just build; the API image proven non-root at UID 10001). Two defects found by designing
+  the flight and fixed within it (D19): the compose frontend never received
+  `VITE_API_BASE_URL` (the in-stack browser-to-API path had never worked), and the API
+  container ran as root.
+- **Manual verification:** through the real compose stack: `id -u` in the api container
+  returned 10001; the frontend container carried `VITE_API_BASE_URL=http://localhost:8000`;
+  health served 200 through the published port. Clean teardown.
+
 Dated, reverse-chronological, append-only log of verified project state changes (rule R1,
 `.claude/rules/project-rules.json`). An entry is written only after its gate passed with
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
