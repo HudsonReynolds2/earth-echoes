@@ -59,6 +59,10 @@ Do not build any of the following; a later epic owns each. Hierarchy entities an
 
 **E0.12 Seed script.** A dev seed creating the initial owner account (credentials printed once at creation, not stored in the repo). Acceptance: fresh environment to logged-in owner in one command.
 
+> **Addendum PHASE0-4-01 (2026-07-23, ref project-changes #1):** Task E0.0 (governance scaffolding) precedes E0.1: the binding project rules file (`.claude/rules/project-rules.json`), the `CLAUDE.md` rules loader, `docs/project-updates.md`, `docs/project-changes.md`, `docs/DECISIONS.md`, the `docs/INTERFACES.md` skeleton, the git baseline of `project_planning/`, the commit message template, and the gate runner. E0.0 ends in Gate 0, subject to rule R0 like every task.
+
+> **Addendum PHASE0-4-02 (2026-07-23, ref project-changes #4):** The citation "spec 12.1" in E0.8 is a typo: the audit-log requirement derives from spec sections 14.1 (immutable audit log of every mutation and config push) and 13 (`GET /audit`); section 12.1 covers tenancy.
+
 ## 5. Definition of done
 
 `docker compose up` on a clean machine yields a running API and frontend. An owner logs in (with TOTP if enrolled), creates users, and assigns roles. Every mutation writes an audit row. RBAC blocks and allows correctly across all four roles with tests proving it. The secrets envelope round-trips and rotates under test. CI runs the full check suite. The frontend shell renders entirely through the token sheet.

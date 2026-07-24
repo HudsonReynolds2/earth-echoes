@@ -1,0 +1,108 @@
+/* Shell styles (task E0.4). Every value routes through the token sheet;
+ * no color, spacing, radius, or shadow literals may appear here (enforced
+ * by tests/tokens.test.ts). */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+body {
+  background: var(--eoe-color-bg);
+  color: var(--eoe-color-text);
+  font-family: var(--eoe-font-family);
+  font-size: var(--eoe-font-size-md);
+  font-weight: var(--eoe-font-weight-normal);
+}
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.shell-sidebar {
+  width: 14rem;
+  flex-shrink: 0;
+  background: var(--eoe-color-surface);
+  border-right: var(--eoe-space-1) solid var(--eoe-color-border);
+  padding: var(--eoe-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-6);
+}
+
+.shell-brand {
+  font-size: var(--eoe-font-size-lg);
+  font-weight: var(--eoe-font-weight-bold);
+  padding: var(--eoe-space-2);
+}
+
+.shell-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-1);
+}
+
+.shell-nav a {
+  color: var(--eoe-color-text-muted);
+  text-decoration: none;
+  padding: var(--eoe-space-2) var(--eoe-space-3);
+  border-radius: var(--eoe-radius-md);
+  font-size: var(--eoe-font-size-md);
+}
+
+.shell-nav a:hover {
+  background: var(--eoe-color-surface-raised);
+  color: var(--eoe-color-text);
+}
+
+.shell-nav a.active {
+  background: var(--eoe-color-accent);
+  color: var(--eoe-color-accent-contrast);
+}
+
+.shell-nav a:focus-visible {
+  outline: var(--eoe-space-1) solid var(--eoe-color-focus);
+}
+
+.shell-content {
+  flex: 1;
+  padding: var(--eoe-space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-4);
+}
+
+.card {
+  background: var(--eoe-color-surface);
+  border: var(--eoe-space-1) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-lg);
+  box-shadow: var(--eoe-shadow-sm);
+  padding: var(--eoe-space-6);
+  max-width: 40rem;
+}
+
+.card h1 {
+  font-size: var(--eoe-font-size-xl);
+  margin-bottom: var(--eoe-space-3);
+}
+
+.muted {
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.status-ok {
+  color: var(--eoe-color-success);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.status-bad {
+  color: var(--eoe-color-danger);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.mono {
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-sm);
+}

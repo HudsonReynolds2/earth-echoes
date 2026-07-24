@@ -1,0 +1,9 @@
+# Commit format (rule R3, .claude/rules/project-rules.json):
+#
+#   {TASK_ID}: {task title}
+#
+#   Gate {N} passed: {passed}/{total}, 0 skipped, 0 xfailed.
+#   {one line on what changed}
+#
+# Repository owner's identity only. No co-author trailers. No AI attribution
+# of any kind in the message, trailers, or body.

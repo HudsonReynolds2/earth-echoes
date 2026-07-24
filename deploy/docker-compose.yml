@@ -1,0 +1,58 @@
+# Dev compose stack (E0.1; spec section 15.1). Fixed ports per
+# phase-0-foundations.md section 2: API 8000, frontend 5173, Postgres 5432,
+# Redis 6379. Values come from the environment or a .env file beside this
+# file; deploy/.env.example documents the names, never values.
+
+services:
+  api:
+    build:
+      context: ../backend
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set in deploy/.env, see .env.example}
+      EOE_SESSION_SECRET: ${EOE_SESSION_SECRET:?set in deploy/.env, see .env.example}
+      EOE_KEK: ${EOE_KEK:?set in deploy/.env, see .env.example}
+      REDIS_URL: ${REDIS_URL:-}
+      EOE_CORS_ORIGINS: ${EOE_CORS_ORIGINS:-http://localhost:5173}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+      target: dev
+    ports:
+      - "5173:5173"
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set in deploy/.env, see .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in deploy/.env, see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:?set in deploy/.env, see .env.example}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:

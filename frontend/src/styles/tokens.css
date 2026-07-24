@@ -1,0 +1,50 @@
+/**
+ * THE design-token sheet (task E0.4; spec 3.2). One file, five namespaces.
+ * This is the only place in src/ where raw color, spacing, radius, or shadow
+ * values may appear; every component styles through var(--eoe-*). The DES
+ * track's DES.4 deliverable is a replacement value set for exactly these
+ * names (docs/INTERFACES.md, "Design tokens"). Values here are a deliberately
+ * neutral gray theme.
+ */
+:root {
+  /* --eoe-color-*: neutral defaults until DES.3 picks a direction */
+  --eoe-color-bg: #f5f5f4;
+  --eoe-color-surface: #ffffff;
+  --eoe-color-surface-raised: #fafaf9;
+  --eoe-color-border: #d6d3d1;
+  --eoe-color-text: #1c1917;
+  --eoe-color-text-muted: #57534e;
+  --eoe-color-accent: #44403c;
+  --eoe-color-accent-contrast: #fafaf9;
+  --eoe-color-danger: #7f1d1d;
+  --eoe-color-success: #14532d;
+  --eoe-color-warning: #713f12;
+  --eoe-color-focus: #1e3a8a;
+
+  /* --eoe-space-*: 4px-based scale */
+  --eoe-space-1: 0.25rem;
+  --eoe-space-2: 0.5rem;
+  --eoe-space-3: 0.75rem;
+  --eoe-space-4: 1rem;
+  --eoe-space-6: 1.5rem;
+  --eoe-space-8: 2rem;
+
+  /* --eoe-font-* */
+  --eoe-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --eoe-font-family-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --eoe-font-size-sm: 0.8125rem;
+  --eoe-font-size-md: 0.9375rem;
+  --eoe-font-size-lg: 1.125rem;
+  --eoe-font-size-xl: 1.5rem;
+  --eoe-font-weight-normal: 400;
+  --eoe-font-weight-bold: 600;
+
+  /* --eoe-radius-* */
+  --eoe-radius-sm: 3px;
+  --eoe-radius-md: 6px;
+  --eoe-radius-lg: 10px;
+
+  /* --eoe-shadow-* */
+  --eoe-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --eoe-shadow-md: 0 2px 8px rgb(0 0 0 / 0.1);
+}

@@ -68,6 +68,8 @@ Definition of done: `docker compose up` yields an API and frontend with login, r
 10. **E0.10 Optional TOTP.** Enrollment and verification for privileged roles.
 11. **E0.11 Platform secrets envelope encryption.** The platform-side KEK/DEK storage layer (spec 12.4) behind an interface (env KEK now, secret manager later). E5 and E4 both consume this, so it lands here.
 
+> **Addendum PLAN-3-01 (2026-07-23, ref project-changes #2):** E0 carries a twelfth task not listed above: E0.12 Seed script (dev seed creating the initial owner account; fresh environment to logged-in owner in one command), defined in phase-0-foundations.md section 4. Add it as a story when creating the Jira board.
+
 ### E1: Hierarchy and inventory
 
 Goal: the Organization to Listener data model with full CRUD, validation, and import.
@@ -260,6 +262,8 @@ Each phase document contains:
 6. **Handoff artifacts.** What the phase must leave behind for later phases: migration state, documented interfaces, seeded dev data, and updates to a running `INTERFACES.md` in the repo.
 
 Recommended authoring order: write the E0 phase document first and start implementation; write each subsequent phase document as its predecessor nears completion, folding in anything the finished phase changed. Keep the spec authoritative; when implementation forces a deviation, amend the spec version and note it in the next phase document rather than letting the documents drift apart.
+
+> **Addendum PLAN-5-01 (2026-07-23, ref project-changes #3):** Superseded detail: each implementation session receives the spec, the phase document, and the current `docs/INTERFACES.md` (plus `docs/DECISIONS.md` once it has content) per implementation-handbook.md section 2, not "exactly two inputs".
 
 ---
 
