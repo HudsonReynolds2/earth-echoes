@@ -24,6 +24,14 @@ the next spec or phase-doc revision. Newest first within each batch.
 - **Decision:** The API attempt to require the `ci-green` status check on `main` returned
   404 (GitHub's masking of missing admin rights; the working account has WRITE). The
   pipeline is fully functional without it; hard merge-blocking waits on the repo owner.
+- **Verified empirically (same day, after E0.12):** `main` reports `protected: false`; the
+  working account's permissions are `admin: false, maintain: false, push: true`; and a
+  scratch draft PR (#4, since closed, branch deleted) with deliberately red checks —
+  `backend-quality`, `backend-tests`, and `ci-green` all FAILURE — reported
+  `mergeStateStatus: UNSTABLE, mergeable: MERGEABLE`. **GitHub would currently allow a red
+  PR to merge.** Detection works end to end; enforcement is the single missing piece and it
+  is exactly the one-checkbox owner action below. Until it is applied, merge discipline is
+  procedural (rule R3: never merge a red PR).
 - **Action for the repository owner (HudsonReynolds2):** Settings → Branches → Add branch
   protection rule → branch pattern `main` → enable "Require status checks to pass before
   merging" → select **`ci-green`** (only this one; it fans in every stage, so newly added

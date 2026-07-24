@@ -5,6 +5,17 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: Merge-blocking verification, protection confirmed absent
+
+- **Event:** At the project owner's request, verified whether a failing `ci-green` actually
+  blocks merging. Findings: `main` is unprotected (`protected: false`); the working
+  account cannot change that (`admin: false`); a scratch draft PR (#4) with deliberately
+  red checks was `MERGEABLE` with `mergeStateStatus: UNSTABLE`. Detection is fully
+  functional; GitHub-side blocking is inactive until the repository owner applies the D17
+  one-checkbox setting (require `ci-green` on `main`). Scratch PR closed and its branch
+  deleted; the red run remains in Actions history as evidence. Until D17 is applied, merge
+  discipline is procedural per rule R3.
+
 ## 2026-07-24: E0.12 Seed script (Gate 12 GREEN) — E0 build tasks complete
 
 - **Tasks closed:** E0.12, closing batch 3 (E0.6 through E0.12) and with it every E0 build
