@@ -12,6 +12,7 @@ import uuid
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, EmailStr
 
+from app.audit import record_audit
 from app.auth.cookies import CSRF_COOKIE, SESSION_COOKIE, sign_session_id
 from app.auth.deps import CsrfSessionDep, DbDep, SessionDep
 from app.auth.service import authenticate, create_session, revoke_session
@@ -79,6 +80,14 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbDep) -
         user_agent=request.headers.get("user-agent", ""),
         ip=request.client.host if request.client else "",
     )
+    record_audit(
+        db,
+        action="auth.login",
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_user_id=user.id,
+    )
+    db.commit()
     _set_auth_cookies(
         request, response, session.id, session.csrf_token, settings.session_ttl_seconds
     )
@@ -96,6 +105,14 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbDep) -
 @router.post("/logout", status_code=204)
 def logout(request: Request, response: Response, db: DbDep, session: CsrfSessionDep) -> None:
     revoke_session(db, session)
+    record_audit(
+        db,
+        action="auth.logout",
+        entity_type="user",
+        entity_id=str(session.user_id),
+        actor_user_id=session.user_id,
+    )
+    db.commit()
     secure = _cookie_secure(request)
     response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="lax", secure=secure)
     response.delete_cookie(CSRF_COOKIE, path="/", samesite="lax", secure=secure)

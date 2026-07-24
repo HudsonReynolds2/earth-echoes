@@ -42,7 +42,9 @@ def create_session(
         ip=ip[:64],
     )
     db.add(session)
-    db.commit()
+    # Flush, don't commit: the endpoint commits once, atomically with its
+    # audit row (task E0.8).
+    db.flush()
     return session
 
 
@@ -55,4 +57,4 @@ def load_valid_session(db: Session, session_id: str) -> UserSession | None:
 
 def revoke_session(db: Session, session: UserSession) -> None:
     session.revoked_at = utcnow()
-    db.commit()
+    db.flush()  # endpoint commits atomically with its audit row (E0.8)

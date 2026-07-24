@@ -8,6 +8,7 @@ baseline. Serve with: uvicorn app.main:create_app --factory
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.db import create_session_factory
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router = APIRouter(prefix=API_PREFIX)
     api_router.include_router(health_router)
     api_router.include_router(auth_router)
+    api_router.include_router(audit_router)
     app.include_router(api_router)
 
     return app

@@ -5,6 +5,27 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.8 Audit log (Gate 8 GREEN)
+
+- **Tasks closed:** E0.8 (batch 3)
+- **Gate:** 8, GREEN
+- **Tests:** backend 131 passed (8 new audit tests: login/logout rows with request-id
+  correlation, transaction atomicity via rollback, D3 revoke presence, no mutating audit
+  routes, owner-gated read with the D7 envelope, action/actor/scope filters, newest-first
+  default), vitest 26, Playwright 2; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** immutable `audit_log` table via hand-reviewed migration `c872acca01ec`
+  with the reversible D3 `REVOKE UPDATE, DELETE`; `app/audit.py::record_audit` riding the
+  caller's transaction; login/logout retrofitted (services now flush, endpoints commit once
+  atomically with their audit row); `GET /audit` behind VIEW_AUDIT using the D7 contract;
+  `script.py.mako` fixed to carry autogenerate imports (caught when the audit migration
+  needed the JSONB dialect import); the `AuditQuery`-extends-`PageParams` pattern recorded
+  as binding for all later list endpoints
+- **Manual verification:** through the real compose stack: two logins and a logout produced
+  exactly three audit rows; `?action=auth.logout` returned precisely the logout row with
+  actor, entity, and request-id populated; default ordering newest-first; a revoked session
+  querying /audit got 401 (the viewer-403 path is gate-tested). Clean teardown.
+
 ## 2026-07-24: E0.7 RBAC framework (Gate 7 GREEN)
 
 - **Tasks closed:** E0.7 (batch 3)

@@ -3,8 +3,10 @@ the E0.2 naming convention names every constraint."""
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -50,6 +52,34 @@ class RoleAssignment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="role_assignments")
+
+
+class AuditLog(Base):
+    """Immutable audit row (task E0.8; spec 14.1, 13; addendum PHASE0-4-02).
+
+    Application code has NO update or delete path for this table, and the
+    migration revokes UPDATE/DELETE at the database layer (decision D3).
+    entity_type/entity_id are deliberately untyped strings so later phases
+    log hierarchy entities (including MAC-keyed Listeners) without schema
+    churn; scope holds a deployment id, NULL meaning organization-wide
+    (spec 12.1: no denormalized tenant columns).
+    """
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), index=True, default=None
+    )
+    action: Mapped[str] = mapped_column(String(100), index=True)
+    entity_type: Mapped[str] = mapped_column(String(100))
+    entity_id: Mapped[str] = mapped_column(String(100))
+    scope: Mapped[uuid.UUID | None] = mapped_column(index=True, default=None)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    request_id: Mapped[str] = mapped_column(String(64), default="-")
 
 
 class UserSession(Base):

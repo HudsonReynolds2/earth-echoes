@@ -138,11 +138,27 @@ The merge watchtower for every later phase. Design contract:
 - **TEST-CRITICAL:** `backend/tests/test_rbac.py` is the RBAC contract (spec 14.5); no
   later session may weaken it.
 
-### Audit hook usage (E0.8; placeholder)
+### Audit hook usage (E0.8)
 
-Table columns fixed by phase-0 section 4: id, at, actor_user_id, action, entity_type,
-entity_id, scope, detail JSONB, request_id. Every mutation endpoint calls the write hook.
-Details land with E0.8.
+- **Hook:** `app.audit.record_audit(db, *, action, entity_type, entity_id, actor_user_id,
+  scope, detail)` — stages the row on the caller's session and **never commits**; the
+  endpoint's single commit seals the mutation and its audit row atomically. Call it in
+  every mutation endpoint (universal DoD). The request id binds automatically from the
+  middleware contextvar.
+- **Caution:** `audit_log.actor_user_id` is a plain FK with no ORM relationship, so the
+  unit of work will NOT order inserts — commit a newly created user before auditing with
+  their id.
+- **Action naming:** `<area>.<verb>` (`auth.login`, `auth.logout`, `user.create`, ...).
+  `entity_type`/`entity_id` are free strings (MAC-keyed Listeners fit later); `scope` is a
+  deployment UUID, NULL = organization-wide.
+- **Immutability:** no update/delete path in application code (tested), plus the migration
+  revokes UPDATE/DELETE at the DB layer (D3; binds fully in prod topologies with a
+  non-owner app role — E8.7 revisits).
+- **Read surface:** `GET /api/v1/audit` behind `Permission.VIEW_AUDIT` (owner-only for
+  now), filters `action`, `actor`, `scope`, D7 envelope, default sort `-at`.
+- **List-endpoint pattern (binding):** extend `PageParams` with the endpoint's filters into
+  one query model (`AuditQuery` style) — FastAPI does not expand a query model mixed with
+  loose query params.
 
 ### SecretStore interface (E0.11; placeholder)
 
