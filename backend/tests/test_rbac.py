@@ -9,6 +9,7 @@ all four roles against protected routes, org-wide and deployment-scoped.
 import uuid
 
 import pytest
+from conftest import make_kek
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from test_auth import EMAIL, PASSWORD, pg_url  # noqa: F401  (module fixture reuse)
@@ -108,7 +109,7 @@ def rbac_app(pg_url):  # noqa: F811
         Settings(
             database_url=pg_url,
             session_secret="gate7-test-secret",
-            kek="gate7-test-kek",
+            kek=make_kek(),
             cors_origins="",
         )
     )

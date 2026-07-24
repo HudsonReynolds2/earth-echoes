@@ -5,6 +5,28 @@ Dated, reverse-chronological, append-only log of verified project state changes 
 0 failed, 0 skipped, 0 xfailed, 0 deselected, AND the task's manual verification steps ran.
 Never in anticipation.
 
+## 2026-07-24: E0.11 Platform secrets envelope encryption (Gate 11 GREEN, before E0.10)
+
+- **Tasks closed:** E0.11 (batch 3; implemented before E0.10 per project-changes #5 /
+  addendum PHASE0-4-03 so TOTP secrets ride SecretStore from birth)
+- **Gate:** 11, GREEN
+- **Tests:** backend 149 passed (8 secrets tests: KEK validation fail-loud, round trip and
+  upsert, lifecycle, ciphertext-only at rest with fingerprint, isolated-database rotation
+  with old-KEK rejection, tamper authentication failure, the acceptance log-grep, consumer
+  docstring contract), vitest 31, Playwright 2; 0 failed / 0 skipped / 0 xfailed /
+  0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/secrets.py::SecretStore` (AES-256-GCM envelope per spec 12.4, fresh
+  DEK per write, KEK fingerprinting, `rotate_kek`), `secret` table migration
+  `3f3b87c6623f`, store wired as `app.state.secret_store`, `EOE_KEK` validated fail-loud at
+  startup (all test fixtures and the compose lifecycle env upgraded to structurally valid
+  KEKs); INTERFACES SecretStore section
+- **Manual verification:** scratch-database run: round trip OK, rotation re-wrapped and the
+  new KEK read the value back, the old KEK was rejected with fingerprints only, and a
+  DEBUG-level log capture contained no plaintext. Two silent-integrity catches during
+  iteration, both fixed: a helper named `test_kek` was being collected as six phantom
+  passing tests, and a blind rename briefly dropped the rotation test from collection.
+
 ## 2026-07-24: E0.9 User administration (Gate 9 GREEN)
 
 - **Tasks closed:** E0.9 (batch 3)

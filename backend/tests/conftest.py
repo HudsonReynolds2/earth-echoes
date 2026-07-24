@@ -9,6 +9,7 @@ Filtered runs stay legal while debugging between gates; they are only
 forbidden as a way to clear a gate.
 """
 
+import base64
 import contextlib
 import os
 import shutil
@@ -19,6 +20,12 @@ import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def make_kek() -> str:
+    """A structurally valid platform KEK (base64 of 32 random bytes) for test
+    Settings; EOE_KEK is validated at app construction (E0.11)."""
+    return base64.b64encode(os.urandom(32)).decode()
 
 
 def docker_cli() -> str:

@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -80,6 +80,31 @@ class AuditLog(Base):
     scope: Mapped[uuid.UUID | None] = mapped_column(index=True, default=None)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     request_id: Mapped[str] = mapped_column(String(64), default="-")
+
+
+class Secret(Base):
+    """Envelope-encrypted secret at rest (task E0.11; spec 12.4).
+
+    Only ciphertext ever touches this table: the per-secret DEK encrypts the
+    value, the platform KEK (EOE_KEK) wraps the DEK, and kek_fingerprint
+    records which KEK did the wrapping so rotation can find its rows. All
+    access goes through app.secrets.SecretStore; nothing else reads or writes
+    here (rule R2).
+    """
+
+    __tablename__ = "secret"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    wrapped_dek: Mapped[bytes] = mapped_column(LargeBinary)
+    dek_nonce: Mapped[bytes] = mapped_column(LargeBinary)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary)
+    kek_fingerprint: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class UserSession(Base):

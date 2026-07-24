@@ -63,6 +63,8 @@ Do not build any of the following; a later epic owns each. Hierarchy entities an
 
 > **Addendum PHASE0-4-02 (2026-07-23, ref project-changes #4):** The citation "spec 12.1" in E0.8 is a typo: the audit-log requirement derives from spec sections 14.1 (immutable audit log of every mutation and config push) and 13 (`GET /audit`); section 12.1 covers tenancy.
 
+> **Addendum PHASE0-4-03 (2026-07-24, ref project-changes #5):** E0.11 is implemented before E0.10: the TOTP secret is a secret, and the cross-phase convention that secrets move only through `SecretStore` (handbook section 3) requires the store to exist first. Task content unchanged.
+
 ## 5. Definition of done
 
 `docker compose up` on a clean machine yields a running API and frontend. An owner logs in (with TOTP if enrolled), creates users, and assigns roles. Every mutation writes an audit row. RBAC blocks and allows correctly across all four roles with tests proving it. The secrets envelope round-trips and rotates under test. CI runs the full check suite. The frontend shell renders entirely through the token sheet.

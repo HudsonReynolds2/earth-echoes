@@ -5,6 +5,18 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #5 (2026-07-24): E0.11 lands before E0.10
+
+- **What changed:** The implementation order of the last two build tasks swaps: E0.11
+  (platform secrets envelope encryption) precedes E0.10 (optional TOTP). Task content is
+  unchanged; gate tags stay bound to task ids (gate-11 completes before gate-10 in
+  history).
+- **Why:** A TOTP secret is a secret, and the cross-phase convention (rule R2, handbook
+  section 3) requires secrets to move only through `SecretStore`. Building TOTP first would
+  either violate that convention or store the secret plaintext and re-encrypt later.
+- **Affects:** project_planning/phase-0-foundations.md section 4 (E0.10, E0.11)
+- **Addendum:** PHASE0-4-03
+
 ## #4 (2026-07-23): E0.8 spec citation corrected
 
 - **What changed:** The phase document's E0.8 task cites "spec 12.1" as the source of the

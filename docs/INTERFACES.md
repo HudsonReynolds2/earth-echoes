@@ -171,9 +171,22 @@ owner role (409). List follows D7 with `email` (icontains) and `is_active` filte
 `UsersQuery` pattern. Admin UI at `/users` behind `<Can permission="manage_users">`;
 sidebar link hidden for non-owners.
 
-### SecretStore interface (E0.11; placeholder)
+### SecretStore interface (E0.11)
 
-Platform-side envelope encryption per spec section 12.4 (KEK from `EOE_KEK`, data keys per
-secret, rotation by re-wrap). Consumers: E4 (device-facing bundle secrets), E5 (service
-credentials). NOT the device-facing scheme of spec section 8.4, which E4 owns. Details land
-with E0.11.
+- **THE ONLY PATH FOR SECRETS AT REST** (rule R2). `app/secrets.py::SecretStore`, reachable
+  as `app.state.secret_store`; ciphertext lives in the `secret` table (migration
+  `3f3b87c6623f`), which nothing else reads or writes.
+- **Scheme (spec 12.4):** fresh 256-bit DEK per write encrypts the value (AES-256-GCM); the
+  platform KEK (`EOE_KEK`, base64 of exactly 32 bytes, validated fail-loud at app
+  construction) wraps the DEK; `kek_fingerprint` records the wrapping KEK.
+  `rotate_kek(new)` re-wraps every DEK without touching values — E8.1 automates this
+  against a secret manager behind the same interface.
+- **API:** `put(name, plaintext)` (upsert), `get(name)`, `exists(name)`, `delete(name)`,
+  `rotate_kek(new_kek_b64) -> count`. Names are namespaced by convention:
+  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`.
+- **Guarantees (tested):** plaintext never in the database, logs, or error messages; GCM
+  authentication rejects tampering; a KEK mismatch fails loudly with fingerprints, not
+  values.
+- **Consumers:** E4 (device-facing bundle secrets held before the separate spec-8.4
+  firmware encryption is applied at export — the two schemes nest, they do not compete),
+  E5 (deployment service credentials), E0.10 (TOTP secrets).

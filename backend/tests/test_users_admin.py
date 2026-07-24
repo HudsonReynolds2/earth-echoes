@@ -9,6 +9,7 @@ deactivation, and the self-lockout guard.
 import uuid
 
 import pytest
+from conftest import make_kek
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from test_auth import PASSWORD, pg_url  # noqa: F401  (module fixture reuse)
@@ -27,7 +28,7 @@ def admin_app(pg_url):  # noqa: F811
         Settings(
             database_url=pg_url,
             session_secret="gate9-test-secret",
-            kek="gate9-test-kek",
+            kek=make_kek(),
             cors_origins="",
         )
     )

@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 import yaml
-from conftest import REPO_ROOT, docker_cli, docker_env, run_git
+from conftest import REPO_ROOT, docker_cli, docker_env, make_kek, run_git
 from gate_runner import GateGuard, enforce
 
 __all__ = ["compose_env", "docker_cli", "docker_env"]  # re-exported for peer suites
@@ -42,7 +42,7 @@ def compose_env() -> dict[str, str]:
         "POSTGRES_DB": "eoe",
         "DATABASE_URL": f"postgresql+psycopg://eoe:{password}@postgres:5432/eoe",
         "EOE_SESSION_SECRET": uuid.uuid4().hex,
-        "EOE_KEK": uuid.uuid4().hex,
+        "EOE_KEK": make_kek(),  # must be base64 of 32 bytes (E0.11 validates at startup)
         "REDIS_URL": "redis://redis:6379/0",
     }
 

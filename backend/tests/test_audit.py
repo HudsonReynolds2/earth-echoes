@@ -9,7 +9,7 @@ correlation, and the filterable owner-gated read surface.
 import uuid
 
 import pytest
-from conftest import REPO_ROOT
+from conftest import REPO_ROOT, make_kek
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from test_auth import PASSWORD, pg_url  # noqa: F401  (module fixture reuse)
@@ -31,7 +31,7 @@ def audit_app(pg_url):  # noqa: F811
         Settings(
             database_url=pg_url,
             session_secret="gate8-test-secret",
-            kek="gate8-test-kek",
+            kek=make_kek(),
             cors_origins="",
         )
     )

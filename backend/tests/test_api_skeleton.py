@@ -8,6 +8,7 @@ logs), CORS with credentials, and the security-header baseline.
 import logging
 
 import pytest
+from conftest import make_kek
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -35,7 +36,7 @@ def make_settings() -> Settings:
     return Settings(
         database_url="postgresql+psycopg://nobody:x@localhost:9/nowhere",
         session_secret="test-secret",
-        kek="test-kek",
+        kek=make_kek(),
         cors_origins=ALLOWED_ORIGIN,
     )
 

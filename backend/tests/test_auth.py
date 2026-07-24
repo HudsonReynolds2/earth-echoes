@@ -10,7 +10,7 @@ import logging
 import uuid
 
 import pytest
-from conftest import ephemeral_postgres
+from conftest import ephemeral_postgres, make_kek
 from fastapi.testclient import TestClient
 
 from app.auth.cookies import (
@@ -45,7 +45,7 @@ def app(pg_url):
         Settings(
             database_url=pg_url,
             session_secret="gate6-test-secret",
-            kek="gate6-test-kek",
+            kek=make_kek(),
             cors_origins="",
         )
     )

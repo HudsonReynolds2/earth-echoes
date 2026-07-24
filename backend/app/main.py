@@ -15,6 +15,7 @@ from app.api.users import router as users_router
 from app.db import create_session_factory
 from app.errors import install_error_handlers
 from app.middleware import RequestIdMiddleware, SecurityHeadersMiddleware, configure_logging
+from app.secrets import SecretStore
 from app.settings import Settings
 
 API_PREFIX = "/api/v1"
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine, session_factory = create_session_factory(resolved.database_url)
     app.state.db_engine = engine
     app.state.session_factory = session_factory
+    app.state.secret_store = SecretStore(session_factory, resolved.kek)
 
     # Order matters: security headers wrap everything, request id inside them,
     # CORS innermost so its headers survive on error responses too.
