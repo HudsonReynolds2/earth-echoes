@@ -71,6 +71,14 @@
                                          * 3.4:1, so never the only carrier of meaning. */
   --eoe-color-border-strong: #c6bfb2; /* control and input borders */
   --eoe-color-overlay: rgb(30 35 33 / 0.46);
+  /* Page backdrop scrim. Near-opaque ON PURPOSE: the forest photograph sits
+   * behind every page as texture, not as an image, and content (page titles,
+   * eyebrows, table text) reads directly on it. At 0.93 the effective
+   * background stays within a hair of --eoe-color-bg, so every contrast ratio
+   * quoted above still holds. The login hero deliberately overrides this with
+   * the much lighter --eoe-color-overlay: there, the only content is an opaque
+   * card, so the photo can carry the screen. */
+  --eoe-color-backdrop-scrim: rgb(247 245 241 / 0.93);
 
   /* ── border width ─────────────────────────────────────────────────────
    * app.css writes "border: var(--eoe-space-1) solid" for want of a width

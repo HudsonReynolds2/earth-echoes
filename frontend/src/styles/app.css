@@ -141,11 +141,24 @@ body {
   font-weight: var(--eoe-font-weight-bold);
 }
 
+/* The forest photograph backs every page below the top bar. It is decorative
+ * texture, not an image: --eoe-color-backdrop-scrim is near-opaque, so content
+ * reads against what is effectively --eoe-color-bg and a missing image file
+ * degrades to that flat color rather than to unreadable. background-attachment
+ * pins it to the viewport so it does not slide or tile as a long page scrolls.
+ * The login hero overrides this with a much lighter scrim (see .login-page). */
 .shell-content {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background-color: var(--eoe-color-bg);
+  background-image:
+    linear-gradient(var(--eoe-color-backdrop-scrim), var(--eoe-color-backdrop-scrim)),
+    url("/images/forest-background.jpg");
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
 }
 
 /* ── context band ──────────────────────────────────────────────────────── */

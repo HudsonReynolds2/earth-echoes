@@ -1,5 +1,37 @@
 # Project Updates
 
+## 2026-07-30: Forest backdrop lands on every page (Gate 17 GREEN)
+
+- **Tasks closed:** DES.7 asset follow-up — the image gap the Gate 16 entry recorded as a
+  known deliberate gap is now closed (project-changes #9, amended)
+- **Gate:** 17, GREEN
+- **Tests:** backend 172 passed, vitest 37 passed, Playwright 4 passed; 0 failed / 0 skipped
+  / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `frontend/public/images/forest-background.jpg` is committed and now backs
+  **every** page through `.shell-content`, not just the login hero. One additive token
+  carries it: `--eoe-color-backdrop-scrim` in `tokens.ext.css` (0.93) with its night value in
+  `tokens.ext.alt.css` (0.94), held a notch heavier because a daylight forest photo is far
+  brighter than `--eoe-color-bg`. The scrim is near-opaque on purpose — the photo reads as
+  texture, the effective background stays within a hair of `--eoe-color-bg`, and every
+  contrast ratio the token sheets document still holds. `.login-page` keeps the much lighter
+  `--eoe-color-overlay` and lets the photograph carry the screen, since its only content is
+  an opaque card. Both treatments paint a `background-color` first, so a missing file
+  degrades to a flat token color rather than to unreadable text. `public/images/README.md`
+  documents the two treatments and the resize command.
+- **Asset decision:** the file is committed web-sized — 1920×1280, ~925 KB, EXIF stripped —
+  rather than as the 6000×4000 / 24 MB camera original supplied. It is fetched on every page
+  now, not one, and git keeps binaries forever. `-strip` also drops the EXIF capture location
+  the original carried.
+- **Manual verification:** `make gate` was run to completion by the project owner and
+  reported green. **Not done at this gate:** per-route screenshots of the new backdrop in
+  both themes. The change is CSS-only and fails safe (flat token color) if the asset is
+  missing, but the scrim values are a visual judgement that has not been eyeballed across all
+  eight routes — carry it into DES.8's usability review.
+- **Known gaps, unchanged from Gate 16:** the map engine is not built (E6 owns it). Fonts are
+  not vendored, so IBM Plex and Source Serif 4 render in their fallback stacks, and the
+  `sleeping` glyph (`◐`, U+25D0) still wants re-checking once they are.
+
 ## 2026-07-30: DES.7 applied — V2 shell, night theme, page skeletons (Gate 16 GREEN)
 
 - **Tasks closed:** DES.7 for the shell and frame (project-changes #9; addendum DES-7-01);

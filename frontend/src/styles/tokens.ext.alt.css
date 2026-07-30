@@ -63,4 +63,9 @@
   --eoe-color-text-subtle: #7a847e;
   --eoe-color-border-strong: #46514a;
   --eoe-color-overlay: rgb(0 0 0 / 0.62);
+  /* Night backdrop scrim: the same photograph, dropped to the dark bg. Held a
+   * notch heavier than the light sheet (0.94) because a daylight forest photo
+   * is far brighter than --eoe-color-bg, so an equal alpha would lift the
+   * whole page and cost the text its ratio. */
+  --eoe-color-backdrop-scrim: rgb(18 22 20 / 0.94);
 }

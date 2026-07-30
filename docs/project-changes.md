@@ -26,8 +26,14 @@ referenced planning document; an entry with no addendum is incomplete.
   vendoring** is also deferred — `tokens.css` names IBM Plex Sans/Mono and Source Serif 4
   with a fallback stack, and the woff2 files are not yet in `frontend/public/fonts/`, so the
   product currently renders in the fallbacks. **Image assets** land in
-  `frontend/public/images/`: `forest-background.jpg` is wired to the login backdrop and
-  degrades to a flat token color while absent.
+  `frontend/public/images/`: `forest-background.jpg` is present and backs **every** page via
+  `.shell-content`, scrimmed by the new additive token `--eoe-color-backdrop-scrim` (0.93
+  light / 0.94 dark) so it reads as texture and every documented contrast ratio still holds;
+  the login hero keeps the far lighter `--eoe-color-overlay` and lets the photograph carry
+  the screen. Both treatments paint a `background-color` first, so a missing file degrades to
+  a flat token color rather than to unreadable text. The asset is committed web-sized
+  (1920×1280, ~925 KB, EXIF stripped) rather than as the 6000×4000 / 24 MB camera original:
+  it is fetched on every page, and git keeps binaries forever.
 - **Also deferred:** the v1 bulk-edit modal (S4) and services onboarding wizard (S5) are
   flows nested inside Inventory and Provisioning, not top-level destinations in v2. They get
   built with E2.8 and E5.12 rather than being stubbed now.
