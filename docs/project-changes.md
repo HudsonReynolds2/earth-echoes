@@ -5,6 +5,49 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #7 (2026-07-24): Top-level guide/ directory and the deployment verifier (Gate 14)
+
+- **What changed:** The fixed repository layout gains a top-level `guide/` directory: the
+  clearly demarcated, GitHub-prominent home for every client-facing artifact (operator
+  quickstart, seed-script instructions with implications, deployment-verifier
+  instructions). E0.12's deliverable also gains `backend/app/verify.py`
+  (`uv run python -m app.verify`): a shippable owner-journey verifier that drives every E0
+  subsystem through a temporary owner account over real HTTP and then deletes the
+  account (audit rows deliberately survive with a nulled actor — immutability holds).
+  No API surface changes; the locked route/table contracts are untouched.
+- **Why:** Project-owner directive: client-facing parts must live in one demarcated,
+  easy-to-find group, with USER instructions for the seed script, and epic-wide
+  verification through a seeded owner account that is removed afterwards.
+- **Affects:** project_planning/phase-0-foundations.md section 2 (repository layout)
+- **Addendum:** PHASE0-2-01
+
+## #6 (2026-07-24): E0 readiness flight added (Gate 13)
+
+- **What changed:** A cross-cutting readiness suite (`backend/tests/test_e0_readiness.py`,
+  Gate 13) verifies E0.1 through E0.11 as a whole: the exact public surface (routes and
+  tables) as a locked contract, env-var parity between documentation and Settings, the
+  seams later epics consume (E1's un-FK'd scope columns and MAC-wide entity ids, E3/E5's
+  SecretStore name shapes, E8.5's session-minting seam for OIDC), a data-seeded migration
+  round trip, and production posture (prod frontend image actually serves; API container
+  runs non-root). Two defects found and fixed in the process: the compose frontend lacked
+  `VITE_API_BASE_URL`, and the API image ran as root.
+- **Why:** Project-owner directive: verify the platform is production-poised and that the
+  infrastructure later epics build on is genuinely ready, not just unit-tested.
+- **Affects:** project_planning/phase-0-foundations.md section 5 (definition of done)
+- **Addendum:** PHASE0-5-01
+
+## #5 (2026-07-24): E0.11 lands before E0.10
+
+- **What changed:** The implementation order of the last two build tasks swaps: E0.11
+  (platform secrets envelope encryption) precedes E0.10 (optional TOTP). Task content is
+  unchanged; gate tags stay bound to task ids (gate-11 completes before gate-10 in
+  history).
+- **Why:** A TOTP secret is a secret, and the cross-phase convention (rule R2, handbook
+  section 3) requires secrets to move only through `SecretStore`. Building TOTP first would
+  either violate that convention or store the secret plaintext and re-encrypt later.
+- **Affects:** project_planning/phase-0-foundations.md section 4 (E0.10, E0.11)
+- **Addendum:** PHASE0-4-03
+
 ## #4 (2026-07-23): E0.8 spec citation corrected
 
 - **What changed:** The phase document's E0.8 task cites "spec 12.1" as the source of the

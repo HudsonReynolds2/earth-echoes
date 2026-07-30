@@ -8,21 +8,23 @@ E0.9's /users list is the first real consumer; until then the throwaway model
 in the test suite exercises it.
 """
 
-from typing import Annotated
+from typing import Any
 
-from fastapi import Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Select, UnaryExpression
 from sqlalchemy.orm import InstrumentedAttribute
 
 from app.errors import AppError
 
-SortableColumns = dict[str, "InstrumentedAttribute[object]"]
+SortableColumns = dict[str, "InstrumentedAttribute[Any]"]
 
 
 class PageParams(BaseModel):
-    limit: Annotated[int, Query(ge=1, le=500)] = 50
-    offset: Annotated[int, Query(ge=0)] = 0
+    """Bindable standalone or as a FastAPI query-parameter model; constraints
+    are plain pydantic Field bounds so both paths validate identically."""
+
+    limit: int = Field(default=50, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
     sort: str | None = None
 
 
@@ -33,7 +35,7 @@ class ListResponse[ItemT](BaseModel):
     offset: int
 
 
-def parse_sort(sort: str | None, allowed: SortableColumns) -> list[UnaryExpression[object]]:
+def parse_sort(sort: str | None, allowed: SortableColumns) -> list[UnaryExpression[Any]]:
     """Translate the D7 sort grammar into ORDER BY clauses.
 
     Unknown fields raise the envelope's validation_error rather than being
@@ -41,7 +43,7 @@ def parse_sort(sort: str | None, allowed: SortableColumns) -> list[UnaryExpressi
     """
     if not sort:
         return []
-    clauses: list[UnaryExpression[object]] = []
+    clauses: list[UnaryExpression[Any]] = []
     for raw in sort.split(","):
         token = raw.strip()
         if not token:
@@ -60,11 +62,11 @@ def parse_sort(sort: str | None, allowed: SortableColumns) -> list[UnaryExpressi
     return clauses
 
 
-def apply_page(
-    statement: Select[tuple[object, ...]],
+def apply_page[RowT](
+    statement: Select[tuple[RowT]],
     params: PageParams,
     allowed: SortableColumns,
-) -> Select[tuple[object, ...]]:
+) -> Select[tuple[RowT]]:
     """Apply D7 sorting and windowing to a Select."""
     clauses = parse_sort(params.sort, allowed)
     if clauses:

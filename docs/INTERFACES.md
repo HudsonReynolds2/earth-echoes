@@ -12,11 +12,14 @@ phase-doc tasks) are given so a fresh session can verify any entry at its source
 ### Repository layout (E0.1; phase-0 section 2)
 
 ```
+/guide          client-facing group (PHASE0-2-01): quickstart, seed script,
+                deployment verification; new operator-facing material goes HERE
 /backend        FastAPI app (package name: app), alembic/, tests/
 /frontend       Vite React TS app
 /deploy         docker-compose.yml and env templates (stack templates arrive in E5)
 /sim            reserved for the simulation harness (SIM epic)
-/docs           INTERFACES.md, DECISIONS.md, project logs, migration conventions
+/docs           engineering-internal: INTERFACES.md, DECISIONS.md, project logs,
+                migration conventions
 ```
 
 Dev ports: API 8000, frontend dev server 5173, Postgres 5432, Redis 6379.
@@ -92,26 +95,108 @@ The merge watchtower for every later phase. Design contract:
   DECISIONS D15). Rule R0 applies inside CI: `backend-tests` runs `tests/gate_runner.py`,
   so skipped/xfailed/deselected tests fail the pipeline.
 
-### Auth and session mechanics (E0.6; placeholder)
+### Auth and session mechanics (E0.6)
 
-Decided ahead (D1): DB-backed `session` rows; signed opaque session id in an
-`HttpOnly; SameSite=Lax` cookie; double-submit CSRF token (D4). Details land with E0.6.
+- **Tables:** `user` (id UUID, email unique+indexed, password_hash Argon2id, is_active,
+  created_at) and `session` (opaque 43-char id PK, user_id FK, csrf_token, created_at,
+  expires_at, revoked_at, user_agent, ip) — migration `c07e17281417`. Model classes:
+  `app.models.User`, `app.models.UserSession`.
+- **Cookies:** `eoe_session` = `<session_id>.<hmac-sha256(session_id, EOE_SESSION_SECRET)>`,
+  HttpOnly, SameSite=Lax, Secure on https (D1); `eoe_csrf` = per-session token, JS-readable
+  by design (double-submit, D4). TTL from `EOE_SESSION_TTL_SECONDS` (default 43200).
+- **Endpoints:** `POST /api/v1/auth/login` (one indistinguishable 401 for any bad
+  credential; response carries id/email/is_active, never a password or hash),
+  `POST /api/v1/auth/logout` (requires session + `X-CSRF-Token`; revokes the row
+  immediately; 204), `GET /api/v1/auth/me` (`/me` is an E0 addition to the spec-13 surface
+  for frontend session state).
+- **Dependencies for later phases** (`app/auth/deps.py`): `get_db` yields a SQLAlchemy
+  session from `app.state.session_factory`; `require_session` (SessionDep) validates the
+  signed cookie and loads a live row; `require_csrf` (CsrfSessionDep) enforces the
+  double-submit header on mutations. E0.7's RBAC dependency composes on top of
+  `require_session`; every later mutating endpoint uses `CsrfSessionDep` (or its RBAC
+  wrapper) plus the E0.8 audit hook when it lands.
+- **Password hashing:** `app/auth/passwords.py`, argon2-cffi defaults; plaintext exists
+  only inside the login request scope; never logged (tested).
+- **TOTP (E0.10, optional, off by default):** `POST /auth/totp/enroll` (session+CSRF;
+  returns the secret and otpauth URL exactly once; secret stored ONLY as SecretStore
+  `totp:{user_id}`) then `POST /auth/totp/confirm {code}` flips `user.totp_enabled`
+  (migration `0dd2c6d5b1d2`). Login for enrolled users requires `totp_code`; a missing code
+  returns 401 with `detail: {totp_required: true}` (the login page reveals the code field
+  on that signal); a wrong code is indistinguishable from bad credentials. Both mutations
+  audit (`auth.totp_enroll`, `auth.totp_enabled`).
 
-### RBAC roles and the permission dependency (E0.7; placeholder)
+### RBAC roles and the permission dependency (E0.7)
 
-Roles fixed by spec section 12.3: `owner`, `deployment_operator`, `field_tech`, `viewer`.
-Deployment-scoped assignment with a nullable scope column until E1 adds the foreign key.
-Details land with E0.7.
+- **Canonical module:** `backend/app/auth/rbac.py` — `Role` (spec 12.3: `owner`,
+  `deployment_operator`, `field_tech`, `viewer`), `Permission` (platform verbs; extend the
+  enum and `ROLE_PERMISSIONS` together, deliberately), `has_permission` (pure decision
+  core), `require_permission` (dependency factory).
+- **Assignment model:** `role_assignment` (migration `658a7e1ad594`): user_id FK, role
+  string, `deployment_id` UUID **nullable and un-FK'd until E1 adds the deployment table**
+  (phase-0 E0.7). **NULL scope = organization-wide grant**; a scoped grant applies only to
+  its deployment; an org-level check is satisfied only by an org-wide grant. Unique on
+  (user_id, role, deployment_id).
+- **Usage on every later endpoint** (spec 12.3: checked at the API layer on every request):
+  `Depends(require_permission(Permission.X))` for org-level,
+  `Depends(require_permission(Permission.X, "deployment_id"))` to scope by a path
+  parameter. Composes `require_session`; mutations still add CSRF (E0.6) and the E0.8
+  audit hook when it lands.
+- **`GET /auth/me` returns `assignments`** (`[{role, deployment_id}]`) for the frontend.
+- **Frontend helper:** `src/lib/rbac.ts` (`can`, `meCan`) plus `src/components/Can.tsx`
+  (`<Can>`, `useCan`) hide or disable actions by role. The TS map mirrors the Python
+  canon; `frontend/tests/rbac.test.tsx` parses `rbac.py` and fails the gate on divergence.
+- **TEST-CRITICAL:** `backend/tests/test_rbac.py` is the RBAC contract (spec 14.5); no
+  later session may weaken it.
 
-### Audit hook usage (E0.8; placeholder)
+### Audit hook usage (E0.8)
 
-Table columns fixed by phase-0 section 4: id, at, actor_user_id, action, entity_type,
-entity_id, scope, detail JSONB, request_id. Every mutation endpoint calls the write hook.
-Details land with E0.8.
+- **Hook:** `app.audit.record_audit(db, *, action, entity_type, entity_id, actor_user_id,
+  scope, detail)` — stages the row on the caller's session and **never commits**; the
+  endpoint's single commit seals the mutation and its audit row atomically. Call it in
+  every mutation endpoint (universal DoD). The request id binds automatically from the
+  middleware contextvar.
+- **Caution:** `audit_log.actor_user_id` is a plain FK with no ORM relationship, so the
+  unit of work will NOT order inserts — commit a newly created user before auditing with
+  their id.
+- **Action naming:** `<area>.<verb>` (`auth.login`, `auth.logout`, `user.create`, ...).
+  `entity_type`/`entity_id` are free strings (MAC-keyed Listeners fit later); `scope` is a
+  deployment UUID, NULL = organization-wide.
+- **Immutability:** no update/delete path in application code (tested), plus the migration
+  revokes UPDATE/DELETE at the DB layer (D3; binds fully in prod topologies with a
+  non-owner app role — E8.7 revisits).
+- **Read surface:** `GET /api/v1/audit` behind `Permission.VIEW_AUDIT` (owner-only for
+  now), filters `action`, `actor`, `scope`, D7 envelope, default sort `-at`.
+- **List-endpoint pattern (binding):** extend `PageParams` with the endpoint's filters into
+  one query model (`AuditQuery` style) — FastAPI does not expand a query model mixed with
+  loose query params.
 
-### SecretStore interface (E0.11; placeholder)
+### User administration (E0.9)
 
-Platform-side envelope encryption per spec section 12.4 (KEK from `EOE_KEK`, data keys per
-secret, rotation by re-wrap). Consumers: E4 (device-facing bundle secrets), E5 (service
-credentials). NOT the device-facing scheme of spec section 8.4, which E4 owns. Details land
-with E0.11.
+`GET/POST /api/v1/users`, `PATCH /api/v1/users/{id}` — owner-only
+(`Permission.MANAGE_USERS`), mutations require CSRF and audit (`user.create`,
+`user.update` with changed-field names only, never values). Assignments replace
+wholesale on PATCH. Deactivation revokes the target's live sessions immediately (D1).
+Self-lockout guarded: an owner cannot deactivate themselves or drop their own org-wide
+owner role (409). List follows D7 with `email` (icontains) and `is_active` filters via the
+`UsersQuery` pattern. Admin UI at `/users` behind `<Can permission="manage_users">`;
+sidebar link hidden for non-owners.
+
+### SecretStore interface (E0.11)
+
+- **THE ONLY PATH FOR SECRETS AT REST** (rule R2). `app/secrets.py::SecretStore`, reachable
+  as `app.state.secret_store`; ciphertext lives in the `secret` table (migration
+  `3f3b87c6623f`), which nothing else reads or writes.
+- **Scheme (spec 12.4):** fresh 256-bit DEK per write encrypts the value (AES-256-GCM); the
+  platform KEK (`EOE_KEK`, base64 of exactly 32 bytes, validated fail-loud at app
+  construction) wraps the DEK; `kek_fingerprint` records the wrapping KEK.
+  `rotate_kek(new)` re-wraps every DEK without touching values — E8.1 automates this
+  against a secret manager behind the same interface.
+- **API:** `put(name, plaintext)` (upsert), `get(name)`, `exists(name)`, `delete(name)`,
+  `rotate_kek(new_kek_b64) -> count`. Names are namespaced by convention:
+  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`.
+- **Guarantees (tested):** plaintext never in the database, logs, or error messages; GCM
+  authentication rejects tampering; a KEK mismatch fails loudly with fingerprints, not
+  values.
+- **Consumers:** E4 (device-facing bundle secrets held before the separate spec-8.4
+  firmware encryption is applied at export — the two schemes nest, they do not compete),
+  E5 (deployment service credentials), E0.10 (TOTP secrets).

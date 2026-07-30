@@ -5,16 +5,16 @@ hygiene, compose topology and ports, README step budget, and proof that the
 R0 gate guard machinery actually fails on a skipped test.
 """
 
-import os
 import re
-import shutil
 import subprocess
 import uuid
 
 import pytest
 import yaml
-from conftest import REPO_ROOT, run_git
+from conftest import REPO_ROOT, docker_cli, docker_env, make_kek, run_git
 from gate_runner import GateGuard, enforce
+
+__all__ = ["compose_env", "docker_cli", "docker_env"]  # re-exported for peer suites
 
 DEPLOY = REPO_ROOT / "deploy"
 CORE_ENV_VARS = ("DATABASE_URL", "EOE_SESSION_SECRET", "EOE_KEK", "REDIS_URL")
@@ -32,29 +32,6 @@ SECRET_PATTERNS = (
 )
 
 
-def docker_cli() -> str:
-    """Locate docker, tolerating a PATH captured before Docker Desktop installed."""
-    found = shutil.which("docker")
-    if found:
-        return found
-    fallback = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
-    if os.path.exists(fallback):
-        return fallback
-    raise AssertionError("docker not found; Docker is a hard gate prerequisite (rule R0)")
-
-
-def docker_env() -> dict[str, str]:
-    """Process env with the docker CLI's directory appended to PATH.
-
-    Docker Desktop's credential helper (docker-credential-desktop) lives beside
-    docker.exe; a shell whose environment predates the install cannot resolve
-    it, which fails every pull (DECISIONS D12).
-    """
-    env = dict(os.environ)
-    env["PATH"] = env.get("PATH", "") + os.pathsep + os.path.dirname(docker_cli())
-    return env
-
-
 def compose_env() -> dict[str, str]:
     """Throwaway per-run values for compose interpolation; never committed."""
     password = uuid.uuid4().hex
@@ -65,7 +42,7 @@ def compose_env() -> dict[str, str]:
         "POSTGRES_DB": "eoe",
         "DATABASE_URL": f"postgresql+psycopg://eoe:{password}@postgres:5432/eoe",
         "EOE_SESSION_SECRET": uuid.uuid4().hex,
-        "EOE_KEK": uuid.uuid4().hex,
+        "EOE_KEK": make_kek(),  # must be base64 of 32 bytes (E0.11 validates at startup)
         "REDIS_URL": "redis://redis:6379/0",
     }
 
@@ -81,6 +58,7 @@ def test_fixed_repository_layout():
         "deploy",
         "sim",
         "docs",
+        "guide",  # client-facing group (project-changes #7, PHASE0-2-01)
     ):
         assert (REPO_ROOT / relative).is_dir(), f"missing fixed directory: {relative}"
     assert (REPO_ROOT / "backend" / "Dockerfile").is_file()
@@ -114,7 +92,10 @@ def test_env_file_is_gitignored():
 
 
 def test_no_committed_secret_patterns():
-    tracked = run_git("ls-files").splitlines()
+    # --others --exclude-standard includes untracked files, closing the gap
+    # where a new file escaped the scan until after its introducing gate's
+    # close-out commit (DECISIONS D18).
+    tracked = run_git("ls-files", "--cached", "--others", "--exclude-standard").splitlines()
     for name in tracked:
         path = REPO_ROOT / name
         if not path.is_file():

@@ -4,11 +4,60 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D20 (2026-07-24): Verifier cleanup semantics and httpx promotion
+
+- **Decision:** The deployment verifier (`app/verify.py`) deletes the temporary accounts it
+  creates via direct database operations (the API deliberately has no user-delete surface,
+  spec 13), in FK order: sessions, role assignments, the `totp:{id}` secret row, then the
+  user. **Audit rows are never deleted**: the `ondelete=SET NULL` actor FK clears their
+  actor reference and the verification trail remains permanently — immutability outranks
+  tidiness, and the guide documents this as an implication. `httpx` moves from the dev
+  group to main dependencies (the shipped verifier needs it).
+- **Rationale:** "Delete the specific account we create" (owner directive) is satisfied at
+  the account level while preserving the audit invariant every other part of the platform
+  enforces.
+- **Reference:** project-changes #7; guide/verify-deployment.md; spec sections 13, 14.1.
+
+## D19 (2026-07-24): Pre-E8 hardening pulled forward by the readiness flight
+
+- **Decision:** Two production-posture fixes land with the E0-R readiness flight rather
+  than waiting for E8.7: the API image runs as a fixed non-root user (UID 10001), and the
+  compose frontend service now receives `VITE_API_BASE_URL` (default
+  `http://localhost:8000`, overridable via `EOE_FRONTEND_API_URL`).
+- **Rationale:** Owner directive to verify a production-poised platform. The missing
+  frontend env var was a genuine defect: inside the compose stack the browser app could
+  never reach the API (only the Playwright config set the variable, out-of-band). Root
+  containers are a needless posture risk with a two-line fix.
+- **Reference:** project-changes #6; E8.7 still performs the full security review.
+
+## D18 (2026-07-24): Secret scan covers untracked files; fixture credentials are generated
+
+- **Decision:** Two changes after CI (correctly) went red on the E0.6 push while the local
+  gate had passed. (1) Test fixture credentials are generated per run
+  (`PASSWORD = f"pw-{uuid4().hex}"`), never committed as literals; the scanner's flag on
+  `correct-horse-battery` was upheld, not allowlisted. (2) The secret scan now walks
+  `git ls-files --cached --others --exclude-standard`, so untracked files are covered at
+  the gate that introduces them instead of only after their close-out commit.
+- **Rationale:** Rule R0 requires recording test changes at a red gate; both changes
+  strengthen the check. The local/CI divergence existed because gates run before the
+  close-out commit while CI runs after it: new files were invisible to a tracked-only scan
+  locally.
+- **Reference:** rule R2 (secrets never in fixtures); CI run on `e0-batch-3` at gate-6;
+  backend/tests/test_repo_layout.py, backend/tests/test_auth.py.
+
 ## D17 (2026-07-24): Branch protection pending repository-owner action
 
 - **Decision:** The API attempt to require the `ci-green` status check on `main` returned
   404 (GitHub's masking of missing admin rights; the working account has WRITE). The
   pipeline is fully functional without it; hard merge-blocking waits on the repo owner.
+- **Verified empirically (same day, after E0.12):** `main` reports `protected: false`; the
+  working account's permissions are `admin: false, maintain: false, push: true`; and a
+  scratch draft PR (#4, since closed, branch deleted) with deliberately red checks —
+  `backend-quality`, `backend-tests`, and `ci-green` all FAILURE — reported
+  `mergeStateStatus: UNSTABLE, mergeable: MERGEABLE`. **GitHub would currently allow a red
+  PR to merge.** Detection works end to end; enforcement is the single missing piece and it
+  is exactly the one-checkbox owner action below. Until it is applied, merge discipline is
+  procedural (rule R3: never merge a red PR).
 - **Action for the repository owner (HudsonReynolds2):** Settings → Branches → Add branch
   protection rule → branch pattern `main` → enable "Require status checks to pass before
   merging" → select **`ci-green`** (only this one; it fans in every stage, so newly added

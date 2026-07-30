@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
     cors_origins: str = Field(default="", validation_alias="EOE_CORS_ORIGINS")
     build_sha: str = Field(default="dev", validation_alias="EOE_BUILD_SHA")
+    session_ttl_seconds: int = Field(default=43200, validation_alias="EOE_SESSION_TTL_SECONDS")
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -25,6 +25,7 @@ Fixed choices for this phase:
   /sim            reserved for the simulation harness (SIM epic)
   /docs           INTERFACES.md, DECISIONS.md
   ```
+> **Addendum PHASE0-2-01 (2026-07-24, ref project-changes #7):** The monorepo layout gains a top-level `guide/` directory holding every client-facing artifact (operator quickstart, seed-script usage and implications, deployment-verifier instructions), kept deliberately separate from the engineering-internal `docs/`. E0.12 additionally ships `backend/app/verify.py`, a client-facing owner-journey verifier documented there.
 - **Ports (dev):** API 8000, frontend dev server 5173, Postgres 5432, Redis 6379.
 - **Core environment variables:** `DATABASE_URL`, `EOE_SESSION_SECRET`, `EOE_KEK` (base64, platform key-encryption key), `REDIS_URL` (optional). No secret defaults committed; `deploy/.env.example` documents them.
 - **API conventions:** versioned prefix `/api/v1`, health at `GET /api/v1/health`, JSON error envelope `{"error": {"code": string, "message": string, "detail": object|null}}`, all list endpoints accept `limit`, `offset`, `sort`, and filter params (spec 13).
@@ -63,7 +64,11 @@ Do not build any of the following; a later epic owns each. Hierarchy entities an
 
 > **Addendum PHASE0-4-02 (2026-07-23, ref project-changes #4):** The citation "spec 12.1" in E0.8 is a typo: the audit-log requirement derives from spec sections 14.1 (immutable audit log of every mutation and config push) and 13 (`GET /audit`); section 12.1 covers tenancy.
 
+> **Addendum PHASE0-4-03 (2026-07-24, ref project-changes #5):** E0.11 is implemented before E0.10: the TOTP secret is a secret, and the cross-phase convention that secrets move only through `SecretStore` (handbook section 3) requires the store to exist first. Task content unchanged.
+
 ## 5. Definition of done
+
+> **Addendum PHASE0-5-01 (2026-07-24, ref project-changes #6):** The definition of done additionally includes a cross-cutting readiness suite (`backend/tests/test_e0_readiness.py`) locking the public surface (exact route and table sets), proving env-var documentation parity, exercising the seams later epics consume (E1 scope columns, E3/E5 SecretStore name shapes, E8.5 session-minting), running a data-seeded migration round trip, and verifying production posture (prod frontend image serves; API container non-root; the compose frontend carries `VITE_API_BASE_URL`).
 
 `docker compose up` on a clean machine yields a running API and frontend. An owner logs in (with TOTP if enrolled), creates users, and assigns roles. Every mutation writes an audit row. RBAC blocks and allows correctly across all four roles with tests proving it. The secrets envelope round-trips and rotates under test. CI runs the full check suite. The frontend shell renders entirely through the token sheet.
 

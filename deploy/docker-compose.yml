@@ -27,6 +27,10 @@ services:
       target: dev
     ports:
       - "5173:5173"
+    environment:
+      # Browser-perspective API URL (decision D2: no proxy, cross-origin by
+      # design). Readiness flight E0-R fixed this missing plumbing (D19).
+      VITE_API_BASE_URL: ${EOE_FRONTEND_API_URL:-http://localhost:8000}
 
   postgres:
     image: postgres:16-alpine

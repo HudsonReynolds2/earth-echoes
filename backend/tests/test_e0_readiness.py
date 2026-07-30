@@ -1,0 +1,365 @@
+"""E0-R readiness flight (Gate 13; project-changes #6; addendum PHASE0-5-01).
+
+The E0 exit-exam: verifies E0.1 through E0.11 as a production-poised whole and
+proves every seam later epics consume, grouped by consumer. Each test names
+the future task that depends on it — this suite is executable handoff
+documentation for E1 through E8 sessions, and its locked-surface contracts are
+extended CONSCIOUSLY by later epics, never bypassed.
+"""
+
+import re
+import subprocess
+import sys
+import uuid
+
+import pytest
+import yaml
+from conftest import REPO_ROOT, docker_cli, docker_env, ephemeral_postgres, make_kek
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, inspect
+
+from app.audit import record_audit
+from app.auth.passwords import hash_password
+from app.auth.service import create_session
+from app.db import NAMING_CONVENTION, create_session_factory, metadata
+from app.main import API_PREFIX, create_app
+from app.models import RoleAssignment, User
+from app.secrets import SecretStore
+from app.settings import Settings
+
+BACKEND = REPO_ROOT / "backend"
+DEPLOY = REPO_ROOT / "deploy"
+
+# The exact public surface E0 ships. Later epics EXTEND these sets in this
+# file, deliberately, alongside their INTERFACES.md updates.
+E0_ROUTES = {
+    ("GET", f"{API_PREFIX}/health"),
+    ("POST", f"{API_PREFIX}/auth/login"),
+    ("POST", f"{API_PREFIX}/auth/logout"),
+    ("GET", f"{API_PREFIX}/auth/me"),
+    ("POST", f"{API_PREFIX}/auth/totp/enroll"),
+    ("POST", f"{API_PREFIX}/auth/totp/confirm"),
+    ("GET", f"{API_PREFIX}/audit"),
+    ("GET", f"{API_PREFIX}/users"),
+    ("POST", f"{API_PREFIX}/users"),
+    ("PATCH", f"{API_PREFIX}/users/{{user_id}}"),
+}
+
+E0_TABLES = {"user", "session", "role_assignment", "audit_log", "secret", "alembic_version"}
+
+
+@pytest.fixture(scope="module")
+def pg_url():
+    with ephemeral_postgres() as url:
+        yield url
+
+
+@pytest.fixture(scope="module")
+def app(pg_url):
+    return create_app(
+        Settings(
+            database_url=pg_url,
+            session_secret="gate13-readiness",
+            kek=make_kek(),
+            cors_origins="",
+        )
+    )
+
+
+# =========================================================================
+# A. Locked surface contracts
+# =========================================================================
+
+
+def _openapi(app) -> dict:
+    client = TestClient(app, raise_server_exceptions=False)
+    return client.get(f"{API_PREFIX}/openapi.json").json()
+
+
+@pytest.mark.integration
+def test_route_surface_is_exactly_the_e0_contract(app):
+    schema = _openapi(app)
+    actual = {
+        (method.upper(), path)
+        for path, operations in schema["paths"].items()
+        for method in operations
+    }
+    assert actual == E0_ROUTES, (
+        f"public surface drifted; added={actual - E0_ROUTES} removed={E0_ROUTES - actual}. "
+        "Later epics extend E0_ROUTES here deliberately, with INTERFACES.md."
+    )
+
+
+@pytest.mark.integration
+def test_table_set_is_exactly_the_e0_contract(pg_url):
+    engine = create_engine(pg_url)
+    try:
+        actual = set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+    assert actual == E0_TABLES, (
+        f"schema drifted; added={actual - E0_TABLES} removed={E0_TABLES - actual}. "
+        "A neighboring phase's table appearing early is scope creep (rule R2)."
+    )
+
+
+def test_env_example_and_settings_agree():
+    documented = {
+        line.split("=")[0]
+        for line in (DEPLOY / ".env.example").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    settings_aliases = {
+        field.validation_alias for field in Settings.model_fields.values() if field.validation_alias
+    }
+    compose_text = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
+    postgres_bootstrap = {"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"}
+    # Every documented name is really consumed somewhere.
+    for name in documented:
+        consumed = (
+            name in settings_aliases or name in postgres_bootstrap or f"${{{name}" in compose_text
+        )
+        assert consumed, f".env.example documents {name}, which nothing consumes"
+    # Every Settings alias is documented (EOE_BUILD_SHA and EOE_CONFIG_FILE are
+    # injection/runtime mechanisms, not deployment configuration).
+    for alias in settings_aliases - {"EOE_BUILD_SHA"}:
+        assert alias in documented, f"Settings consumes {alias}, undocumented in .env.example"
+
+
+@pytest.mark.integration
+def test_every_operation_declares_responses(app):
+    schema = _openapi(app)
+    for path, operations in schema["paths"].items():
+        for method, operation in operations.items():
+            assert operation.get("responses"), f"no responses declared: {method} {path}"
+
+
+# =========================================================================
+# B. Seams for E1 (hierarchy and inventory)
+# =========================================================================
+
+
+@pytest.mark.integration
+def test_scope_columns_are_uuid_nullable_and_not_yet_foreign_keys(pg_url):
+    """E1.1 adds the deployment table and points these columns at it; until
+    then they must be plain nullable UUIDs (phase-0 E0.7, spec 12.1)."""
+    engine = create_engine(pg_url)
+    try:
+        inspector = inspect(engine)
+        for table, column_name in (("role_assignment", "deployment_id"), ("audit_log", "scope")):
+            column = next(c for c in inspector.get_columns(table) if c["name"] == column_name)
+            assert column["nullable"] is True, f"{table}.{column_name} must be nullable"
+            assert "UUID" in str(column["type"]).upper()
+            fk_columns = {
+                name
+                for fk in inspector.get_foreign_keys(table)
+                for name in fk["constrained_columns"]
+            }
+            assert column_name not in fk_columns, (
+                f"{table}.{column_name} already has a foreign key; that seam belongs to E1.1"
+            )
+    finally:
+        engine.dispose()
+
+
+def test_audit_entity_id_fits_a_mac_address():
+    """E1 keys Listeners by MAC (spec 4.2); audit rows must hold one."""
+    entity_id = next(c for c in metadata.tables["audit_log"].columns if c.name == "entity_id")
+    assert entity_id.type.length is not None and entity_id.type.length >= 17
+
+
+def test_naming_convention_intact_for_e1_autogenerate():
+    assert set(NAMING_CONVENTION) == {"ix", "uq", "ck", "fk", "pk"}
+    assert metadata.naming_convention == NAMING_CONVENTION
+
+
+# =========================================================================
+# C. Seams for E3 / E4 / E5 (SecretStore consumers; redis readiness)
+# =========================================================================
+
+
+@pytest.mark.integration
+def test_secret_store_round_trips_every_consumer_name_shape(pg_url):
+    """E3.2 (broker credentials), E5.1 (service credentials), E4.5 (bundle
+    secrets pre-firmware-encryption) all store under these name shapes
+    (INTERFACES.md, SecretStore section)."""
+    _, factory = create_session_factory(pg_url)
+    store = SecretStore(factory, make_kek())
+    deployment = uuid.uuid4()
+    bundle = uuid.uuid4()
+    shapes = {
+        f"deployment:{deployment}:mqtt_password": f"v-{uuid.uuid4().hex}",
+        f"deployment:{deployment}:s3_secret_key": f"v-{uuid.uuid4().hex}",
+        f"deployment:{deployment}:influx_token": f"v-{uuid.uuid4().hex}",
+        f"bundle:{bundle}:wifi_psk": f"v-{uuid.uuid4().hex}",
+        f"bundle:{bundle}:stream_key": f"v-{uuid.uuid4().hex}",
+    }
+    for name, value in shapes.items():
+        store.put(name, value)
+    for name, value in shapes.items():
+        assert store.get(name) == value
+
+
+def test_redis_stays_optional_until_e3():
+    settings = Settings(
+        database_url="postgresql+psycopg://x:x@localhost:9/x",
+        session_secret="s",
+        kek=make_kek(),
+    )
+    assert settings.redis_url is None  # absent-safe; E3.12/E7.3 turn it on
+
+
+# =========================================================================
+# D. Seam for E8.5 (OIDC pluggability, spec 12.2)
+# =========================================================================
+
+
+@pytest.mark.integration
+def test_sessions_mint_independently_of_password_auth(app):
+    """An OIDC provider (E8.5) authenticates externally and then mints a
+    platform session; nothing in the session layer may depend on the
+    password path. Executable proof of 'the auth interface is pluggable'."""
+    factory = app.state.session_factory
+    with factory() as db:
+        user = User(
+            email=f"oidc-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash="!external-identity-no-password",  # never verifiable
+        )
+        user.role_assignments.append(RoleAssignment(role="viewer", deployment_id=None))
+        db.add(user)
+        db.flush()
+        session = create_session(db, user, ttl_seconds=300)
+        db.commit()
+        session_id = session.id
+
+    from app.auth.cookies import SESSION_COOKIE, sign_session_id
+
+    client = TestClient(app, raise_server_exceptions=False)
+    client.cookies.set(
+        SESSION_COOKIE, sign_session_id(session_id, app.state.settings.session_secret)
+    )
+    me = client.get(f"{API_PREFIX}/auth/me")
+    assert me.status_code == 200
+    assert me.json()["assignments"] == [{"role": "viewer", "deployment_id": None}]
+
+
+# =========================================================================
+# E. Production posture
+# =========================================================================
+
+
+@pytest.mark.integration
+def test_migrations_reverse_with_real_data_present():
+    """The chain round-trips on EMPTY tables at Gate 2; production rollbacks
+    happen with rows. Seed every table, then downgrade to base and back."""
+    with ephemeral_postgres() as url:
+        _, factory = create_session_factory(url)
+        with factory() as db:
+            user = User(email="rollback@example.com", password_hash=hash_password("x" * 12))
+            user.role_assignments.append(RoleAssignment(role="owner", deployment_id=None))
+            db.add(user)
+            db.flush()
+            create_session(db, user, ttl_seconds=60)
+            record_audit(
+                db,
+                action="probe.rollback",
+                entity_type="probe",
+                entity_id="x",
+                actor_user_id=user.id,
+            )
+            db.commit()
+        SecretStore(factory, make_kek()).put("probe:rollback", "v")
+
+        env = {**docker_env(), "DATABASE_URL": url}
+        for direction in (("downgrade", "base"), ("upgrade", "head")):
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", *direction],
+                cwd=BACKEND,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=180,
+            )
+            assert result.returncode == 0, f"{direction} with data failed:\n{result.stderr}"
+
+
+@pytest.mark.integration
+def test_prod_frontend_image_actually_serves_the_app():
+    """The nginx prod target has only ever been BUILT; production poise means
+    it serves the shell (D2: CDN-shaped static delivery for E8)."""
+    env = docker_env()
+    build = subprocess.run(
+        [docker_cli(), "build", "-q", "--target", "prod", str(REPO_ROOT / "frontend")],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=600,
+    )
+    assert build.returncode == 0, build.stderr
+    image = build.stdout.strip()
+    name = f"eoe-prod-serve-{uuid.uuid4().hex[:8]}"
+    run = subprocess.run(
+        [docker_cli(), "run", "-d", "--name", name, "-p", "127.0.0.1:0:80", image],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert run.returncode == 0, run.stderr
+    try:
+        ports = subprocess.run(
+            [docker_cli(), "port", name, "80/tcp"], capture_output=True, text=True, env=env
+        )
+        host_port = ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1]
+        import time
+        import urllib.request
+
+        html = ""
+        for _ in range(20):
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{host_port}/", timeout=3) as resp:
+                    html = resp.read().decode("utf-8")
+                break
+            except Exception:
+                time.sleep(0.5)
+        assert 'id="root"' in html, "prod image did not serve the app shell"
+        assert re.search(r"/assets/[^\"]+\.js", html), "built JS bundle not referenced"
+    finally:
+        subprocess.run([docker_cli(), "rm", "-f", name], capture_output=True, env=env)
+
+
+@pytest.mark.integration
+def test_api_image_runs_as_non_root():
+    """Production posture (D19): UID 10001, never root."""
+    env = docker_env()
+    build = subprocess.run(
+        [docker_cli(), "build", "-q", str(REPO_ROOT / "backend")],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=600,
+    )
+    assert build.returncode == 0, build.stderr
+    result = subprocess.run(
+        [docker_cli(), "run", "--rm", build.stdout.strip(), "id", "-u"],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "10001", f"api container uid: {result.stdout.strip()}"
+
+
+def test_compose_declares_healthchecks_and_frontend_api_url():
+    compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))
+    for service in ("api", "frontend", "postgres", "redis"):
+        definition = compose["services"][service]
+        has_healthcheck = "healthcheck" in definition or service in ("api", "frontend")
+        # api and frontend healthchecks live in their Dockerfiles.
+        assert has_healthcheck, f"{service} has no health signal"
+    frontend_env = compose["services"]["frontend"].get("environment", {})
+    assert "VITE_API_BASE_URL" in frontend_env, (
+        "compose frontend must receive the browser-perspective API URL (D19)"
+    )
+    for dockerfile in ("backend/Dockerfile", "frontend/Dockerfile"):
+        assert "HEALTHCHECK" in (REPO_ROOT / dockerfile).read_text(encoding="utf-8")
