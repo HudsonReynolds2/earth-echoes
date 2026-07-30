@@ -1,18 +1,22 @@
 /**
  * Night theme. Mirrors the EXACT key set of tokens.css — same 30 custom
- * properties, same order — so tests/tokens.test.ts check 6 passes and
- * e2e/theme-swap.spec.ts proves the swap.
+ * properties, same order — so tests/tokens.test.ts check 6 passes.
  *
  * DES.4 v2: this is now a FINISHED theme, not a test fixture. Same hue
  * families as the light sheet, relit rather than inverted: the warm paper
  * becomes warm charcoal, and every status color is lightened to hold 4.5:1
  * against the dark surface. Contrast was re-checked per pair, not scaled.
  *
- * Ship it behind prefers-color-scheme plus a manual override; the manual
- * override matters because field staff read this outdoors in daylight where
- * the OS setting is wrong.
+ * DES.7 (DECISIONS D24) shipped it: main.tsx imports this sheet
+ * unconditionally and lib/theme.ts flips
+ * document.documentElement.dataset.theme. The selector below — not import
+ * order — is what makes that safe. Resolution is prefers-color-scheme plus a
+ * persisted manual override, and the override is not optional: field staff
+ * read this outdoors in daylight where the OS setting is wrong.
+ *
+ * tokens.ext.alt.css carries the same treatment for the D21 extension keys.
  */
-:root {
+:root[data-theme="dark"] {
   /* --eoe-color-* */
   --eoe-color-bg: #121614;
   --eoe-color-surface: #1a201d;

@@ -4,6 +4,74 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D26 (2026-07-30): Test fixes at Gate (DES.7 batch)
+
+Rule R0 requires recording tests changed at a red gate. All four are corrections, not
+weakenings.
+
+- **`tokens.test.ts` check 1** matched named colors anywhere in a declaration, so
+  `white-space: nowrap` failed. Now scans the value only; `color: white` still fails.
+- **`tokens.test.ts` check 5** forbids components *importing* a night sheet, but matched the
+  filename in prose too, tripping on `lib/theme.ts`'s own header comment. Now matches
+  `import "…tokens.alt.css"`.
+- **`tests/setup.ts` stubs `window.matchMedia`** — jsdom has no media queries, so
+  `lib/theme.ts`'s `prefers-color-scheme` probe threw. Reports "not dark". No coverage lost:
+  real resolution, override, and persistence are checked in `e2e/theme-swap.spec.ts`.
+- **`auth.test.tsx`** asserts the account by accessible name, not text: D25's top bar shows
+  an initials avatar and the email is now `aria-label`/`title`. Same invariant, stronger
+  form — it checks what a screen reader announces.
+- **Reference:** rule R0 on_failure; `frontend-tests` gate run, DES.7 batch.
+
+## D25 (2026-07-30): DES.7 shell restructure — dark top bar, and primary nav lists every destination
+
+- **Decision:** `Shell.tsx` becomes V2·S1's dark top bar with horizontal nav over an optional
+  context band, replacing E0.4's left sidebar.
+  `project_planning/DES-track-handoff.md` item 4 names this DES.7's one structural change:
+  the map needs full viewport width and the breadcrumb needs a permanent home. `shell-sidebar`
+  → `shell-topbar`; regions, `aria-label="Primary"`, and routes otherwise unchanged. New
+  shared components: `ContextBar`, `PageHeader`, `StatusChip`/`StatusLegend`, `EmptyState`,
+  `ThemeToggle`.
+- **The consequential half: primary nav lists every destination for every role,** rather than
+  hiding entries behind `<Can>` as the E0.7 sidebar did. Hiding a section teaches a wrong map
+  of the product and makes a permissions problem look like a missing feature. Pages gate their
+  own contents instead (`UsersAdmin` already did), and backend RBAC remains the authority.
+  An affordance change, not a security one — no endpoint's protection depended on a hidden link.
+- **The four new skeleton pages carry no gate,** deliberately: they display no data, only which
+  epic brings the surface. Each gets its gate in that epic.
+- **Rejected:** rendering unpermitted entries visibly disabled (the handoff's read of spec
+  §12.3). Right once roles are routinely exercised; during the skeleton phase every entry would
+  render disabled for a signed-out reviewer. Revisit at DES.8.
+
+## D24 (2026-07-30): Night theme ships — D21's dark-palette gap closed, selector-scoped
+
+- **Decision:** D21 left one gap open — nothing carried dark values for the extension keys, so
+  a dark marker, badge, or table cell rendered a near-black status color on a near-black
+  surface. `frontend/src/styles/tokens.ext.alt.css` closes it. `tokens.alt.css` stops being a
+  test fixture: `main.tsx` imports both night sheets unconditionally and `lib/theme.ts` sets
+  `document.documentElement.dataset.theme`.
+- **Selector, not import order:** both night sheets are scoped to `:root[data-theme="dark"]`,
+  outranking the light sheets' plain `:root`. Reordering imports cannot change which theme
+  wins, and nothing is injected or disabled at runtime. Check 10 fails the gate on a bare
+  `:root` in either night sheet.
+- **Resolution:** a stored choice wins and pins the theme; otherwise `prefers-color-scheme`
+  decides and keeps deciding. The manual override is not optional — field staff read this
+  outdoors in daylight, where the OS setting is wrong.
+- **Color keys only.** Glyphs, spacing, type, density, motion, and border widths are
+  theme-independent. Check 9 fails if the night sheet defines a key the light extension does
+  not (it would resolve in dark, be undefined in light); check 8 mirrors check 7 so
+  `danger`/`success`/`warning` cannot drift from their status aliases in either theme. Every
+  status color was contrast-verified per pair against its tint, `surface`, and `bg`; lowest in
+  the set is 4.8:1.
+- **New keys in `tokens.ext.css`, same D21 terms (nothing renamed or repointed):**
+  `--eoe-color-action-contrast-muted`, `-action-raised`, `-accent-on-action`, `-brand-mark` —
+  the chrome is `--eoe-color-action` in *both* themes, so anything sitting on it needs an
+  on-dark pair; `--eoe-radius-pill`/`-round` (shape constants, not ramp points);
+  `--eoe-height-topbar`/`-contextbar` (new `--eoe-height-*` namespace for fixed app furniture,
+  which is not a control height).
+- **Rejected:** toggling `<link disabled>` at runtime (flash of wrong theme, not statically
+  analyzable); a `prefers-color-scheme` media block (no manual override, the requirement that
+  matters most here).
+
 ## D23 (2026-07-30): Test fix at Gate (DES batch), planning-doc governance check scoped to the actual baseline set
 
 - **Decision:** `backend/tests/test_governance.py::test_planning_documents_unmodified_except_appended_addenda`

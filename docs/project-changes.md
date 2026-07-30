@@ -5,6 +5,35 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #9 (2026-07-30): DES.7 applied — shell restructured, night theme shipped, page skeletons ahead of their epics
+
+- **What changed:** DES.7 ("apply the design system") is done for the shell and the frame.
+  `Shell.tsx` becomes V2·S1's dark top bar (DECISIONS D25); the night theme ships behind a
+  manual toggle plus `prefers-color-scheme`, closing D21's recorded gap (D24); `app.css` is
+  rewritten against V2 with shared `ContextBar`, `PageHeader`, `StatusChip`/`StatusLegend`,
+  and `EmptyState` components. Routes and v2-styled skeletons were added for Map, Inventory,
+  Configuration, and Provisioning **ahead of the epics that own their data** (E6, E1, E2, E4)
+  — each renders only a header and a panel naming the epic that fills it. No mock devices,
+  rows, or wizard steps: the point is that E1/E2/E4/E6 drop real data into a settled frame,
+  not that the app looks finished.
+- **Why it deviates:** the plan sequences DES.7 "after DES.4/DES.5 and the E2 UI". Only E0
+  exists, so this batch does the half that does not need data — tokens, shell, theme,
+  components — and stops at the boundary where invented content would start.
+- **Deferred, noted here so it is not re-decided:** the **map engine** is not implemented.
+  Direction is Google Maps satellite via the official JS API when online, an
+  operator-supplied local image for air-gapped hosts (spec §15.1), ESRI later; E6 owns it.
+  `Map.tsx` reserves the region and ships the real status legend around it. **Font
+  vendoring** is also deferred — `tokens.css` names IBM Plex Sans/Mono and Source Serif 4
+  with a fallback stack, and the woff2 files are not yet in `frontend/public/fonts/`, so the
+  product currently renders in the fallbacks. **Image assets** land in
+  `frontend/public/images/`: `forest-background.jpg` is wired to the login backdrop and
+  degrades to a flat token color while absent.
+- **Also deferred:** the v1 bulk-edit modal (S4) and services onboarding wizard (S5) are
+  flows nested inside Inventory and Provisioning, not top-level destinations in v2. They get
+  built with E2.8 and E5.12 rather than being stubbed now.
+- **Affects:** project_planning/DES-track-handoff.md ("DES.7 work items" 4-6, open question 2)
+- **Addendum:** DES-7-01
+
 ## #8 (2026-07-30): DES.4 v2 tokens land; token namespaces gain an additive status/border/density extension
 
 - **What changed:** `frontend/src/styles/tokens.css` and `tokens.alt.css` take the DES.4 v2

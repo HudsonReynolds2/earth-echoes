@@ -1,6 +1,11 @@
-/* Shell styles (task E0.4). Every value routes through the token sheet;
- * no color, spacing, radius, or shadow literals may appear here (enforced
- * by tests/tokens.test.ts). */
+/* Application styles. Every value routes through the token sheet; no color,
+ * spacing, radius, or shadow literals may appear here (enforced by
+ * tests/tokens.test.ts).
+ *
+ * Layout is V2 "field notebook" (DES.7, DECISIONS D25): a dark top bar with
+ * horizontal nav over an optional context band, replacing the E0.4 sidebar.
+ * Both themes are the same markup — only token values differ.
+ */
 
 * {
   box-sizing: border-box;
@@ -15,62 +20,263 @@ body {
   font-weight: var(--eoe-font-weight-normal);
 }
 
+/* ── shell ─────────────────────────────────────────────────────────────── */
+
 .shell {
   display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-.shell-sidebar {
-  width: 14rem;
-  flex-shrink: 0;
-  background: var(--eoe-color-surface);
-  border-right: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
-  padding: var(--eoe-space-4);
+/* The chrome is --eoe-color-action in BOTH themes, so everything inside it
+ * uses the on-action pairs rather than the page-level text colors. */
+.shell-topbar {
+  height: var(--eoe-height-topbar);
+  flex: none;
+  background: var(--eoe-color-action);
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--eoe-space-6);
+  padding: 0 var(--eoe-space-6);
 }
 
 .shell-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-3);
+  color: var(--eoe-color-action-contrast);
+  font-family: var(--eoe-font-family-display);
   font-size: var(--eoe-font-size-lg);
   font-weight: var(--eoe-font-weight-bold);
-  padding: var(--eoe-space-2);
+  white-space: nowrap;
+}
+
+.brand-mark {
+  width: 1.375rem;
+  height: 1.375rem;
+  flex: none;
+  border-radius: var(--eoe-radius-round);
+  border: var(--eoe-border-width-emphasis) solid var(--eoe-color-brand-mark);
+  position: relative;
+}
+
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0.25rem;
+  border-radius: var(--eoe-radius-round);
+  background: var(--eoe-color-accent-on-action);
 }
 
 .shell-nav {
   display: flex;
-  flex-direction: column;
-  gap: var(--eoe-space-1);
+  align-items: center;
+  height: 100%;
 }
 
 .shell-nav a {
-  color: var(--eoe-color-text-muted);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--eoe-space-4);
+  color: var(--eoe-color-action-contrast-muted);
   text-decoration: none;
-  padding: var(--eoe-space-2) var(--eoe-space-3);
-  border-radius: var(--eoe-radius-md);
   font-size: var(--eoe-font-size-md);
+  white-space: nowrap;
 }
 
 .shell-nav a:hover {
-  background: var(--eoe-color-surface-raised);
-  color: var(--eoe-color-text);
+  color: var(--eoe-color-action-contrast);
+  background: var(--eoe-color-action-raised);
 }
 
+/* Active nav is marked by weight and an underline, not by color alone. */
 .shell-nav a.active {
-  background: var(--eoe-color-accent);
-  color: var(--eoe-color-accent-contrast);
+  color: var(--eoe-color-action-contrast);
+  font-weight: var(--eoe-font-weight-medium);
+  box-shadow: inset 0 calc(-1 * var(--eoe-border-width-selected)) 0
+    var(--eoe-color-accent-on-action);
 }
 
-.shell-nav a:focus-visible {
-  outline: var(--eoe-border-width-hairline) solid var(--eoe-color-focus);
+.shell-auth {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-3);
+}
+
+.chrome-button {
+  height: var(--eoe-control-height-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  padding: 0 var(--eoe-space-3);
+  background: var(--eoe-color-action-raised);
+  color: var(--eoe-color-action-contrast);
+  border: none;
+  border-radius: var(--eoe-radius-md);
+  font-family: var(--eoe-font-family);
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-normal);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chrome-button:hover {
+  background: var(--eoe-color-action-hover);
+}
+
+.avatar {
+  width: var(--eoe-control-height-sm);
+  height: var(--eoe-control-height-sm);
+  flex: none;
+  border-radius: var(--eoe-radius-round);
+  background: var(--eoe-color-brand-mark);
+  color: var(--eoe-color-action);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-bold);
 }
 
 .shell-content {
   flex: 1;
-  padding: var(--eoe-space-8);
+  min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* ── context band ──────────────────────────────────────────────────────── */
+
+.context-bar {
+  height: var(--eoe-height-contextbar);
+  flex: none;
+  background: var(--eoe-color-surface);
+  border-bottom: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  display: flex;
+  align-items: center;
   gap: var(--eoe-space-4);
+  padding: 0 var(--eoe-space-6);
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  font-size: var(--eoe-font-size-md);
+}
+
+.breadcrumb-separator {
+  color: var(--eoe-color-border-strong);
+  padding: 0 var(--eoe-space-2);
+}
+
+.breadcrumb-link {
+  color: var(--eoe-color-accent);
+}
+
+.breadcrumb-current {
+  color: var(--eoe-color-text);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.context-divider {
+  width: var(--eoe-border-width-hairline);
+  height: var(--eoe-space-6);
+  flex: none;
+  background: var(--eoe-color-border);
+}
+
+.tab-group {
+  display: flex;
+  gap: var(--eoe-space-1);
+  padding: var(--eoe-space-1);
+  background: var(--eoe-color-surface-raised);
+  border-radius: var(--eoe-radius-md);
+}
+
+.tab {
+  height: var(--eoe-control-height-sm);
+  padding: 0 var(--eoe-space-3);
+  background: none;
+  border: none;
+  border-radius: var(--eoe-radius-sm);
+  color: var(--eoe-color-text-muted);
+  font-family: var(--eoe-font-family);
+  font-size: var(--eoe-font-size-md);
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  background: var(--eoe-color-surface);
+  color: var(--eoe-color-text);
+  font-weight: var(--eoe-font-weight-medium);
+  box-shadow: var(--eoe-shadow-sm);
+}
+
+.context-bar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-3);
+}
+
+/* ── page body ─────────────────────────────────────────────────────────── */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-8);
+  padding: var(--eoe-space-8) var(--eoe-space-10);
+}
+
+.page-header {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--eoe-space-10);
+}
+
+.page-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-3);
+}
+
+.page-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-3);
+}
+
+.eyebrow {
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-2xs);
+  font-weight: var(--eoe-font-weight-bold);
+  letter-spacing: var(--eoe-letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--eoe-color-text-subtle);
+}
+
+h1,
+h2 {
+  font-family: var(--eoe-font-family-display);
+  font-weight: var(--eoe-font-weight-bold);
+  letter-spacing: var(--eoe-letter-spacing-tight);
+  line-height: var(--eoe-line-height-tight);
+}
+
+h1 {
+  font-size: var(--eoe-font-size-xl);
+}
+
+h2 {
+  font-size: var(--eoe-font-size-lg);
 }
 
 .card {
@@ -79,16 +285,41 @@ body {
   border-radius: var(--eoe-radius-lg);
   box-shadow: var(--eoe-shadow-sm);
   padding: var(--eoe-space-6);
-  max-width: 40rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-4);
+  align-items: flex-start;
 }
 
 .card h1 {
-  font-size: var(--eoe-font-size-xl);
-  margin-bottom: var(--eoe-space-3);
+  margin-bottom: var(--eoe-space-2);
+}
+
+.empty-state {
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-lg);
+  padding: var(--eoe-space-12) var(--eoe-space-10);
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-3);
+  align-items: center;
+  text-align: center;
+}
+
+.empty-state p {
+  max-width: 34rem;
+  color: var(--eoe-color-text-muted);
+  line-height: var(--eoe-line-height-body);
 }
 
 .muted {
   color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.mono {
+  font-family: var(--eoe-font-family-mono);
   font-size: var(--eoe-font-size-sm);
 }
 
@@ -102,22 +333,140 @@ body {
   font-weight: var(--eoe-font-weight-bold);
 }
 
-.mono {
-  font-family: var(--eoe-font-family-mono);
+/* ── status vocabulary ─────────────────────────────────────────────────── */
+
+/* Color + glyph + label, always all three. The per-status block sets local
+ * custom properties so the chip itself has one rule; --status-glyph feeds the
+ * ::before, which is what keeps the palette readable in greyscale. */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  height: var(--eoe-control-height-sm);
+  padding: 0 var(--eoe-space-3);
+  border-radius: var(--eoe-radius-pill);
+  background: var(--status-tint);
+  color: var(--status-color);
   font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-medium);
+  white-space: nowrap;
 }
 
-.shell-auth {
-  margin-top: auto;
+.status-glyph::before {
+  content: var(--status-glyph);
+}
+
+.status-chip[data-status="healthy"] {
+  --status-color: var(--eoe-color-status-healthy);
+  --status-tint: var(--eoe-color-status-healthy-tint);
+  --status-glyph: var(--eoe-color-status-healthy-glyph);
+}
+
+.status-chip[data-status="sleeping"] {
+  --status-color: var(--eoe-color-status-sleeping);
+  --status-tint: var(--eoe-color-status-sleeping-tint);
+  --status-glyph: var(--eoe-color-status-sleeping-glyph);
+}
+
+.status-chip[data-status="degraded"] {
+  --status-color: var(--eoe-color-status-degraded);
+  --status-tint: var(--eoe-color-status-degraded-tint);
+  --status-glyph: var(--eoe-color-status-degraded-glyph);
+}
+
+.status-chip[data-status="offline"] {
+  --status-color: var(--eoe-color-status-offline);
+  --status-tint: var(--eoe-color-status-offline-tint);
+  --status-glyph: var(--eoe-color-status-offline-glyph);
+}
+
+.status-chip[data-status="alerting"] {
+  --status-color: var(--eoe-color-status-alerting);
+  --status-tint: var(--eoe-color-status-alerting-tint);
+  --status-glyph: var(--eoe-color-status-alerting-glyph);
+}
+
+.status-chip[data-status="drifted"] {
+  --status-color: var(--eoe-color-status-drifted);
+  --status-tint: var(--eoe-color-status-drifted-tint);
+  --status-glyph: var(--eoe-color-status-drifted-glyph);
+}
+
+.status-legend {
   display: flex;
   flex-direction: column;
+  gap: var(--eoe-space-3);
+  padding: var(--eoe-space-4);
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-md);
+}
+
+.status-legend-items {
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--eoe-space-2);
+}
+
+/* ── map surface ───────────────────────────────────────────────────────── */
+
+/* The real map engine lands with E6; this reserves its band so the shell,
+ * context bar, and legend are settled around it. */
+.map-region {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--eoe-space-8);
+  background: var(--eoe-color-surface-raised);
+}
+
+.map-legend-slot {
+  position: absolute;
+  left: var(--eoe-space-6);
+  bottom: var(--eoe-space-6);
+}
+
+/* ── forms and controls ────────────────────────────────────────────────── */
+
+/* Primary action is INK, not accent: a colored button in a product whose map
+ * uses color for status would teach the operator the wrong thing. */
+button {
+  background: var(--eoe-color-action);
+  color: var(--eoe-color-action-contrast);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-action);
+  border-radius: var(--eoe-radius-md);
+  height: var(--eoe-control-height-md);
+  padding: 0 var(--eoe-space-4);
+  font-family: var(--eoe-font-family);
+  font-size: var(--eoe-font-size-md);
+  font-weight: var(--eoe-font-weight-medium);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--eoe-color-action-hover);
+}
+
+button:disabled {
+  background: var(--eoe-color-border);
+  border-color: var(--eoe-color-border);
+  color: var(--eoe-color-text-muted);
+  cursor: default;
+}
+
+:focus-visible {
+  outline: var(--eoe-border-width-emphasis) solid var(--eoe-color-focus);
+  outline-offset: var(--eoe-border-width-emphasis);
 }
 
 .auth-form {
   display: flex;
   flex-direction: column;
   gap: var(--eoe-space-4);
+  width: 100%;
   max-width: 24rem;
 }
 
@@ -129,49 +478,55 @@ body {
   color: var(--eoe-color-text-muted);
 }
 
-.auth-form input {
-  border: 1px solid var(--eoe-color-border);
+.auth-form input,
+.auth-form select {
+  height: var(--eoe-control-height-md);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
   border-radius: var(--eoe-radius-md);
-  padding: var(--eoe-space-2) var(--eoe-space-3);
+  padding: 0 var(--eoe-space-3);
   font-family: var(--eoe-font-family);
   font-size: var(--eoe-font-size-md);
   background: var(--eoe-color-surface);
   color: var(--eoe-color-text);
 }
 
-.auth-form input:focus-visible,
-button:focus-visible {
-  outline: var(--eoe-border-width-hairline) solid var(--eoe-color-focus);
+/* ── login ─────────────────────────────────────────────────────────────── */
+
+/* The photograph is decorative: the overlay guarantees the card's contrast, so
+ * a missing image file degrades to the flat token color, never to unreadable. */
+.login-page {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--eoe-space-10);
+  background-color: var(--eoe-color-action);
+  background-image:
+    linear-gradient(var(--eoe-color-overlay), var(--eoe-color-overlay)),
+    url("/images/forest-background.jpg");
+  background-size: cover;
+  background-position: center;
 }
 
-button {
-  background: var(--eoe-color-accent);
-  color: var(--eoe-color-accent-contrast);
-  border: none;
-  border-radius: var(--eoe-radius-md);
-  padding: var(--eoe-space-2) var(--eoe-space-4);
-  font-family: var(--eoe-font-family);
-  font-size: var(--eoe-font-size-md);
-  font-weight: var(--eoe-font-weight-bold);
-  cursor: pointer;
+.login-card {
+  width: 100%;
+  max-width: 26rem;
+  box-shadow: var(--eoe-shadow-md);
 }
 
-button:disabled {
-  background: var(--eoe-color-border);
-  cursor: default;
-}
+/* ── tables ────────────────────────────────────────────────────────────── */
 
 .admin-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: var(--eoe-space-6);
 }
 
 .admin-table th,
 .admin-table td {
   text-align: left;
-  padding: var(--eoe-space-2) var(--eoe-space-3);
-  border-bottom: 1px solid var(--eoe-color-border);
+  height: var(--eoe-row-height-compact);
+  padding: 0 var(--eoe-space-3);
+  border-bottom: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
   font-size: var(--eoe-font-size-md);
 }
 
@@ -181,12 +536,6 @@ button:disabled {
   font-weight: var(--eoe-font-weight-bold);
 }
 
-.auth-form select {
-  border: 1px solid var(--eoe-color-border);
-  border-radius: var(--eoe-radius-md);
-  padding: var(--eoe-space-2) var(--eoe-space-3);
-  font-family: var(--eoe-font-family);
-  font-size: var(--eoe-font-size-md);
-  background: var(--eoe-color-surface);
-  color: var(--eoe-color-text);
+.admin-table tbody tr:hover {
+  background: var(--eoe-color-surface-raised);
 }

@@ -1,5 +1,38 @@
 # Project Updates
 
+## 2026-07-30: DES.7 applied — V2 shell, night theme, page skeletons (Gate 16 GREEN)
+
+- **Tasks closed:** DES.7 for the shell and frame (project-changes #9; addendum DES-7-01);
+  D24 (night theme ships, D21's dark-palette gap closed); D25 (shell restructure; primary nav
+  lists every destination); D26 (four test fixes at this gate)
+- **Gate:** 16, GREEN
+- **Tests:** backend 172 passed, vitest 37 passed (10 in `tokens.test.ts`, including new
+  checks 8-10), Playwright 4 passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `Shell.tsx` is now V2·S1's dark top bar with horizontal nav, replacing the
+  E0.4 sidebar (`shell-sidebar` → `shell-topbar`); `app.css` is rewritten against the v2
+  direction, still literal-free. New shared components: `ContextBar`, `PageHeader`,
+  `StatusChip`/`StatusLegend`, `EmptyState`, `ThemeToggle`. The night theme ships:
+  `tokens.alt.css` stops being a fixture and the new `tokens.ext.alt.css` carries dark values
+  for every extension color key, both scoped to `:root[data-theme="dark"]` so specificity —
+  not import order — decides the theme; `lib/theme.ts` resolves a persisted manual override
+  ahead of `prefers-color-scheme`. New keys in `tokens.ext.css` on D21's terms:
+  `--eoe-color-action-contrast-muted`/`-action-raised`/`-accent-on-action`/`-brand-mark`,
+  `--eoe-radius-pill`/`-round`, `--eoe-height-topbar`/`-contextbar`. Routes and v2-styled
+  skeletons added for Map, Inventory, Configuration, and Provisioning, each naming the epic
+  that fills it — no mock data. `docs/INTERFACES.md` documents the fourth sheet and the shell
+  shape.
+- **Manual verification:** all eight routes screenshotted at 1440×900 in Chromium in both
+  themes; no horizontal overflow on any page; theme toggle, its persistence across reload,
+  and the relit status palette confirmed against computed styles.
+- **Known gaps, deliberate:** the map engine is not built (E6 owns it; Google Maps satellite
+  online / operator-supplied local image offline per spec §15.1, ESRI later). Fonts are not
+  vendored, so IBM Plex and Source Serif 4 render in their fallback stacks. The login
+  backdrop expects `frontend/public/images/forest-background.jpg`, absent today, and degrades
+  to a flat token color. **Caution:** the `sleeping` glyph (`◐`, U+25D0) rendered as a
+  hairline mark in headless Chromium's fallback font — the status vocabulary depends on the
+  glyph channel, so re-check it once the real fonts are vendored.
+
 ## 2026-07-30: DES.4 v2 tokens, DES-4-01 additive extension accepted (Gate 15 GREEN)
 
 - **Tasks closed:** DES.4 (v2 "field notebook" value set, plus the DES-4-01 additive

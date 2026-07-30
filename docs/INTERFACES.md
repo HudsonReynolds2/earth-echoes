@@ -69,9 +69,8 @@ Token namespaces (binding target format for DES.4): `--eoe-color-*`, `--eoe-spac
 `--eoe-font-*`, `--eoe-radius-*`, `--eoe-shadow-*`. The token sheet is the single file
 **`frontend/src/styles/tokens.css`** (DES.4 v2, "field notebook" direction, delivers a
 replacement value set for exactly these five namespaces' custom-property names; nothing
-renamed). `frontend/src/styles/tokens.alt.css` is a test-only fixture proving the swap and
-must mirror the exact key set of `tokens.css` — it now holds real night-theme values but is
-not yet imported by application code (DES.7 wires the theme toggle). Every component styles
+renamed). `frontend/src/styles/tokens.alt.css` is the shipped night theme (DES.7, D24) and
+must mirror the exact key set of `tokens.css`. Every component styles
 through `var(--eoe-*)`; color, spacing, radius, and shadow literals outside the token sheets
 fail the gate (`frontend/tests/tokens.test.ts`). The theme-swap browser test
 (`frontend/e2e/theme-swap.spec.ts`) is DES.7's regression guarantee.
@@ -83,14 +82,30 @@ adds new keys to `--eoe-color-*`/`--eoe-space-*`/`--eoe-font-*` plus five new na
 `--eoe-ease`. Nothing in the original five namespaces is renamed, removed, or repointed.
 `tokens.test.ts` treats `tokens.ext.css` as a third application-owned sheet (not a literal
 leak); its keys must stay defined for anything that references them via `var(--eoe-*)`.
+DES.7 added `--eoe-radius-pill`/`-round` and a `--eoe-height-*` namespace on the same terms.
+
+**Night theme (DECISIONS D24, 2026-07-30).** Four sheets, not three: `tokens.alt.css` and
+`frontend/src/styles/tokens.ext.alt.css` are both scoped to `:root[data-theme="dark"]` and
+are imported unconditionally by `main.tsx`, so specificity — never import order — decides
+which theme wins. `frontend/src/lib/theme.ts` owns the attribute; **no component may import
+a theme sheet** (gate-checked). Resolution is a persisted manual override first,
+`prefers-color-scheme` otherwise. `tokens.ext.alt.css` overrides color keys only and must
+stay a strict subset of `tokens.ext.css`. Gate checks 8/9/10 enforce the alias parity, the
+subset rule, and the attribute scoping respectively.
+
+**Shell layout (DECISIONS D25).** A dark top bar (`data-testid="shell-topbar"`) with a
+horizontal `aria-label="Primary"` nav over an optional `ContextBar`, replacing the E0.4
+sidebar. The primary nav lists every destination for every role; pages gate their own
+contents and the backend RBAC dependency stays the authority.
 
 **Status vocabulary (closed, spec §9.3/§6.2):** exactly six device states —
 `streaming/healthy`, `sleeping`, `degraded`, `offline`, `alerting`, `drifted` — each with a
 color, a tint, and a glyph token (`--eoe-color-status-{name}`, `-tint`, `-glyph`). The
 locked `--eoe-color-danger`/`-success`/`-warning` alias to `status-alerting`/`-healthy`/
 `-degraded` respectively and must never be restated with their own hex value, so the two
-vocabularies cannot drift apart. **Known gap:** `tokens.alt.css` does not yet carry dark-mode
-equivalents of the extended keys (D21) — do not assume a dark status palette exists.
+vocabularies cannot drift apart. D21's known gap is **closed** (D24): both themes carry the
+full status palette. Render all three channels — a chip showing only the color is not
+accessible; `src/components/StatusChip.tsx` is the canonical implementation.
 
 ### CI pipeline (E0.5; .github/workflows/ci.yml)
 

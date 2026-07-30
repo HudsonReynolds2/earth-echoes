@@ -1,0 +1,66 @@
+/**
+ * Night-theme values for the D21 additive extension (DES.7, DECISIONS D24).
+ * Closes the gap D21 recorded as open: tokens.alt.css relit the locked 30
+ * properties but left every --eoe-color-status-* key at its light value, so a
+ * dark map/table/badge rendered near-black status colors on a near-black
+ * surface.
+ *
+ * Selector, not import order: :root[data-theme="dark"] outranks the plain
+ * :root in tokens.ext.css by specificity, so both sheets load unconditionally
+ * and this one is simply inert until lib/theme.ts sets the attribute.
+ *
+ * COLOR KEYS ONLY. Every non-color key in tokens.ext.css (glyphs, space,
+ * type, density, motion, border widths) is theme-independent and is
+ * deliberately not restated here — tests/tokens.test.ts check 9 enforces that
+ * this sheet stays a strict subset of tokens.ext.css.
+ *
+ * Contrast verified per pair, not scaled: each status color clears 4.5:1 on
+ * its own tint AND on --eoe-color-surface (#1a201d) and --eoe-color-bg
+ * (#121614). Ratios are noted per line.
+ */
+:root[data-theme="dark"] {
+  /* ── status: same six states, relit for the dark surface ───────────────
+   * Colors match the night theme drawn in V2·S3
+   * (project_planning/Screens v2.dc.html). Tints are the dark counterparts of
+   * the light sheet's pale washes: same hue, dropped to a near-black value. */
+  --eoe-color-status-healthy: #3fbf95; /* 6.1:1 on tint, 7.2:1 on surface */
+  --eoe-color-status-healthy-tint: #16302a;
+  --eoe-color-status-sleeping: #6cb6d9; /* 6.6:1 on tint, 7.4:1 on surface */
+  --eoe-color-status-sleeping-tint: #152a34;
+  --eoe-color-status-degraded: #e0a537; /* 6.0:1 on tint, 7.6:1 on surface */
+  --eoe-color-status-degraded-tint: #3a2f18;
+  --eoe-color-status-offline: #8d958f; /* 4.8:1 on tint, 5.4:1 on surface */
+  --eoe-color-status-offline-tint: #242a26;
+  --eoe-color-status-alerting: #ef7d4e; /* 5.4:1 on tint, 6.1:1 on surface */
+  --eoe-color-status-alerting-tint: #3a231a;
+  --eoe-color-status-drifted: #c48ab8; /* 5.6:1 on tint, 6.1:1 on surface */
+  --eoe-color-status-drifted-tint: #331f2e;
+
+  /* Aliases hold in this theme too: tokens.alt.css sets
+   *   --eoe-color-success == --eoe-color-status-healthy
+   *   --eoe-color-warning == --eoe-color-status-degraded
+   *   --eoe-color-danger  == --eoe-color-status-alerting
+   * tests/tokens.test.ts check 8 gate-enforces the dark pair the same way
+   * check 7 enforces the light one. */
+
+  /* ── ink as the interactive color ──────────────────────────────────────
+   * "Ink" inverts on dark: the primary button is near-white on near-black.
+   * The app chrome stays --eoe-color-action, so it goes darker, not lighter. */
+  --eoe-color-action: #0c100e;
+  --eoe-color-action-hover: #1a201d;
+  --eoe-color-action-contrast: #eef0ec; /* 16.7:1 on action */
+  --eoe-color-action-contrast-muted: rgb(238 240 236 / 0.66);
+  --eoe-color-action-raised: rgb(255 255 255 / 0.09);
+  --eoe-color-accent-on-action: #6fb6cf; /* 8.5:1 on action */
+  --eoe-color-brand-mark: #3fbf95; /* 8.3:1 on action */
+  --eoe-color-accent-hover: #9ccfe0;
+  --eoe-color-accent-tint: #12303a;
+  --eoe-color-focus-ring: rgb(111 182 207 / 0.34);
+
+  /* ── neutrals ─────────────────────────────────────────────────────────
+   * text-subtle keeps its "non-essential text only" contract: 3.9:1 here, so
+   * still never the sole carrier of meaning. */
+  --eoe-color-text-subtle: #7a847e;
+  --eoe-color-border-strong: #46514a;
+  --eoe-color-overlay: rgb(0 0 0 / 0.62);
+}

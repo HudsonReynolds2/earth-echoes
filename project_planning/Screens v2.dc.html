@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>
+html,body{margin:0;padding:0}
+body{background:#e8e4dc;font-family:'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#1e2321;-webkit-font-smoothing:antialiased}
+a{color:#10566b}a:hover{color:#0b414f}
+*{box-sizing:border-box}
+</style></helmet>
+
+<div style="padding:46px 52px 0;display:flex;flex-direction:column;gap:56px;width:1560px">
+
+<header style="display:flex;flex-direction:column;gap:14px;border-bottom:1px solid #c6bfb2;padding-bottom:26px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Echoes of Earth &middot; DES.4 v2 &middot; DES.6</span>
+<h1 style="font:600 34px/1.15 'Source Serif 4',Georgia,serif;margin:0;letter-spacing:-.015em">Screens, second pass</h1>
+<p style="margin:0;max-width:860px;font:400 16px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e;text-wrap:pretty">Rebuilt against your six notes. New palette and type, status colors from the Okabe&ndash;Ito colorblind-safe set with a glyph on every badge, fewer panels and bigger gutters, everything one step larger, one obvious focal point per screen, the device drawer made unmistakable, and the night theme finished.</p>
+</header>
+
+<section style="display:flex;flex-direction:column;gap:22px">
+<div style="display:flex;flex-direction:column;gap:7px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">What changed</span>
+<h2 style="font:600 24px/1.2 'Source Serif 4',Georgia,serif;margin:0;letter-spacing:-.015em">Your six notes, answered</h2>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px">
+
+<div style="background:#fff;border:1px solid #dfd9cf;border-radius:8px;padding:22px;display:flex;flex-direction:column;gap:12px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#10566b">Palette &amp; fonts</span>
+<p style="margin:0;font:400 14.5px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">Warm paper neutrals instead of cool grey, taking the cue from the forest photography and editorial rhythm on your site. Headings are <strong style="font-weight:600">Source Serif 4</strong>; UI and tables are <strong style="font-weight:600">IBM Plex Sans</strong>; identifiers stay mono. All three vendored as woff2 in the repo, so &sect;15.1 air-gapped hosts still render correctly.</p>
+<p style="margin:0;font:400 14.5px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><strong style="font-weight:600">Buttons are ink, not color.</strong> Primary actions are near-black. That hands the whole color budget to status, so nothing on screen competes with a firing alert.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #dfd9cf;border-radius:8px;padding:22px;display:flex;flex-direction:column;gap:12px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#10566b">Colorblind safety</span>
+<p style="margin:0;font:400 14.5px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">The old red/green pair was the real failure. Statuses now come from Okabe&ndash;Ito, ordered by lightness so the set also reads as a ramp in greyscale, and <strong style="font-weight:600">every badge carries a shape-distinct glyph and a text label</strong>. Color is a third channel, never the only one.</p>
+<p style="margin:0;font:400 14.5px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">Map markers encode level as shape, status as glyph, and alerts as a badge with its own outline. A deuteranopic operator loses nothing.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #dfd9cf;border-radius:8px;padding:22px;display:flex;flex-direction:column;gap:12px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#10566b">Clutter, size, focus</span>
+<p style="margin:0;font:400 14.5px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">Body type went 13&nbsp;&rarr;&nbsp;15px, grid rows 28&nbsp;&rarr;&nbsp;36px, nothing renders below 12px. The dashboard dropped from four metric tiles and two side panels to <strong style="font-weight:600">one hero number and two panels</strong>, and the pod table lost three columns.</p>
+<p style="margin:0;font:400 14.5px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">Each screen now has exactly one thing at display size. On the dashboard it is the online count; everywhere else it is the page title. Eyebrow labels above sections give the eye a path.</p>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:22px">
+<div style="display:flex;flex-direction:column;gap:7px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">DES.4 v2</span>
+<h2 style="font:600 24px/1.2 'Source Serif 4',Georgia,serif;margin:0;letter-spacing:-.015em">The status system</h2>
+<p style="margin:2px 0 0;max-width:800px;font:400 15px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Six states, three channels each. The greyscale column is the test: if two rows read the same there, the palette has failed.</p>
+</div>
+
+<div style="background:#fff;border:1px solid #dfd9cf;border-radius:8px;overflow:hidden">
+<div style="display:grid;grid-template-columns:190px 150px 150px 110px 1fr;background:#efece5;border-bottom:1px solid #dfd9cf">
+<div style="padding:12px 18px;font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.09em;text-transform:uppercase;color:#5a635e">State</div>
+<div style="padding:12px 18px;font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.09em;text-transform:uppercase;color:#5a635e">Badge</div>
+<div style="padding:12px 18px;font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.09em;text-transform:uppercase;color:#5a635e">Greyscale</div>
+<div style="padding:12px 18px;font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.09em;text-transform:uppercase;color:#5a635e">Marker</div>
+<div style="padding:12px 18px;font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.09em;text-transform:uppercase;color:#5a635e">Means</div>
+</div>
+
+<div style="display:grid;grid-template-columns:190px 150px 150px 110px 1fr;align-items:center;border-bottom:1px solid #efece5">
+<div style="padding:13px 18px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">healthy</div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#e2f0eb;color:#00604a;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#9679;</span>Streaming</span></div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#e9e9e9;color:#4a4a4a;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#9679;</span>Streaming</span></div>
+<div style="padding:13px 18px"><span style="display:inline-block;width:18px;height:18px;background:#007a5e;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 3px rgba(30,35,33,.3)"></span></div>
+<div style="padding:13px 18px;font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Online, streaming, revision applied, service verified</div>
+</div>
+
+<div style="display:grid;grid-template-columns:190px 150px 150px 110px 1fr;align-items:center;border-bottom:1px solid #efece5">
+<div style="padding:13px 18px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">sleeping</div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#e5eef4;color:#2f6786;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#9680;</span>Sleeping</span></div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#e5e5e5;color:#5e5e5e;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#9680;</span>Sleeping</span></div>
+<div style="padding:13px 18px"><span style="display:inline-block;width:18px;height:18px;background:#3d7ea8;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 3px rgba(30,35,33,.3)"></span></div>
+<div style="padding:13px 18px;font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Declared an off-window. Healthy: the gap is expected (&sect;6.5)</div>
+</div>
+
+<div style="display:grid;grid-template-columns:190px 150px 150px 110px 1fr;align-items:center;border-bottom:1px solid #efece5">
+<div style="padding:13px 18px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">degraded</div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#f6ecd9;color:#7d4e00;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9650;</span>Degraded</span></div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#eaeaea;color:#666;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9650;</span>Degraded</span></div>
+<div style="padding:13px 18px"><span style="display:inline-block;width:18px;height:18px;background:#9c6100;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 3px rgba(30,35,33,.3)"></span></div>
+<div style="padding:13px 18px;font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Falling behind, revision pending, data stale, service untested</div>
+</div>
+
+<div style="display:grid;grid-template-columns:190px 150px 150px 110px 1fr;align-items:center;border-bottom:1px solid #efece5">
+<div style="padding:13px 18px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">offline</div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#eceeeb;color:#4f564f;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9632;</span>Offline</span></div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#ececec;color:#525252;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9632;</span>Offline</span></div>
+<div style="padding:13px 18px"><span style="display:inline-block;width:18px;height:18px;background:#6b736d;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 3px rgba(30,35,33,.3)"></span></div>
+<div style="padding:13px 18px;font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">No signal. Grey, not red: absence is not an error</div>
+</div>
+
+<div style="display:grid;grid-template-columns:190px 150px 150px 110px 1fr;align-items:center;border-bottom:1px solid #efece5">
+<div style="padding:13px 18px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">alerting</div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#f8e7de;color:#95360b;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#10005;</span>Alerting</span></div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#e7e7e7;color:#5a5a5a;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#10005;</span>Alerting</span></div>
+<div style="padding:13px 18px"><span style="display:inline-block;width:18px;height:18px;background:#b8430e;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 3px rgba(30,35,33,.3)"></span></div>
+<div style="padding:13px 18px;font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Firing Grafana alert, failed revision, failed connection test</div>
+</div>
+
+<div style="display:grid;grid-template-columns:190px 150px 150px 110px 1fr;align-items:center">
+<div style="padding:13px 18px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">drifted</div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#f2e7f0;color:#743f6c;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9670;</span>Drifted</span></div>
+<div style="padding:13px 18px"><span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#e8e8e8;color:#575757;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9670;</span>Drifted</span></div>
+<div style="padding:13px 18px"><span style="display:inline-block;width:18px;height:18px;background:#8f4f86;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 1px 3px rgba(30,35,33,.3)"></span></div>
+<div style="padding:13px 18px;font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Reported diverges from desired. Its own hue, on purpose</div>
+</div>
+</div>
+
+<div style="display:flex;gap:18px;flex-wrap:wrap">
+<div style="flex:1 1 380px;background:#fff;border:1px solid #dfd9cf;border-radius:8px;padding:22px;display:flex;flex-direction:column;gap:16px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Type scale</span>
+<div style="display:flex;flex-direction:column;gap:15px">
+<div style="display:flex;align-items:baseline;gap:16px;border-bottom:1px solid #efece5;padding-bottom:14px"><span style="font:400 12px/1 'IBM Plex Mono',monospace;color:#8a9089;width:140px;flex:none">2xl &middot; 34 &middot; serif</span><span style="font:600 34px/1.2 'Source Serif 4',Georgia,serif;letter-spacing:-.015em">28 / 31</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;border-bottom:1px solid #efece5;padding-bottom:14px"><span style="font:400 12px/1 'IBM Plex Mono',monospace;color:#8a9089;width:140px;flex:none">xl &middot; 26 &middot; serif</span><span style="font:600 26px/1.2 'Source Serif 4',Georgia,serif;letter-spacing:-.015em">Organization overview</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;border-bottom:1px solid #efece5;padding-bottom:14px"><span style="font:400 12px/1 'IBM Plex Mono',monospace;color:#8a9089;width:140px;flex:none">lg &middot; 19 &middot; 600</span><span style="font:600 19px/1.3 'IBM Plex Sans',Helvetica,Arial,sans-serif">Cascade Basin</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;border-bottom:1px solid #efece5;padding-bottom:14px"><span style="font:400 12px/1 'IBM Plex Mono',monospace;color:#8a9089;width:140px;flex:none">md &middot; 15 &middot; 400</span><span style="font:400 15px/1.55 'IBM Plex Sans',Helvetica,Arial,sans-serif">Body, table cells, controls. Was 13.</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;border-bottom:1px solid #efece5;padding-bottom:14px"><span style="font:400 12px/1 'IBM Plex Mono',monospace;color:#8a9089;width:140px;flex:none">sm &middot; 13 &middot; mono</span><span style="font:400 13px/1.45 'IBM Plex Mono',monospace">AA:BB:CC:DD:EE:F1</span></div>
+<div style="display:flex;align-items:baseline;gap:16px"><span style="font:400 12px/1 'IBM Plex Mono',monospace;color:#8a9089;width:140px;flex:none">2xs &middot; 12 &middot; label</span><span style="font:600 12px/1.3 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Effective configuration</span></div>
+</div>
+<span style="font:400 13px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089;border-top:1px solid #efece5;padding-top:14px">12px is the floor, and only for uppercase eyebrows. The serif is display-only: page titles and the single hero number per screen. Never body, never tables.</span>
+</div>
+
+<div style="flex:1 1 380px;background:#fff;border:1px solid #dfd9cf;border-radius:8px;padding:22px;display:flex;flex-direction:column;gap:16px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Actions are ink</span>
+<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+<button style="height:38px;padding:0 17px;background:#1e2321;color:#fff;border:1px solid #1e2321;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer" style-hover="background:#333b37">Publish revision</button>
+<button style="height:38px;padding:0 17px;background:#fff;color:#1e2321;border:1px solid #c6bfb2;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer" style-hover="background:#efece5">Preview</button>
+<button style="height:38px;padding:0 13px;background:transparent;color:#5a635e;border:1px solid transparent;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer" style-hover="background:#efece5;color:#1e2321">Cancel</button>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+<button style="height:38px;padding:0 17px;background:#1e2321;color:#fff;border:1px solid #1e2321;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;box-shadow:0 0 0 3px rgba(16,86,107,.34);cursor:pointer">Focus ring</button>
+<button style="height:38px;padding:0 17px;background:#efece5;color:#a8a49c;border:1px solid #dfd9cf;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:not-allowed">Disabled</button>
+<button style="height:38px;padding:0 17px;background:#fff;color:#95360b;border:1px solid #e3bda9;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer">Revoke</button>
+</div>
+<span style="font:400 13px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089;border-top:1px solid #efece5;padding-top:14px">Teal is for links, selection, and the focus ring only. No button uses a status color, so a red button can never be confused with a red alert. Controls are 38px, up from 32.</span>
+<div style="display:flex;flex-direction:column;gap:9px;border-top:1px solid #efece5;padding-top:14px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Surfaces</span>
+<div style="display:flex;gap:10px">
+<div style="flex:1;height:52px;background:#f7f5f1;border:1px solid #dfd9cf;border-radius:6px;display:flex;align-items:flex-end;padding:6px 8px"><span style="font:400 11px/1 'IBM Plex Mono',monospace;color:#8a9089">bg</span></div>
+<div style="flex:1;height:52px;background:#fff;border:1px solid #dfd9cf;border-radius:6px;display:flex;align-items:flex-end;padding:6px 8px"><span style="font:400 11px/1 'IBM Plex Mono',monospace;color:#8a9089">surface</span></div>
+<div style="flex:1;height:52px;background:#efece5;border:1px solid #dfd9cf;border-radius:6px;display:flex;align-items:flex-end;padding:6px 8px"><span style="font:400 11px/1 'IBM Plex Mono',monospace;color:#8a9089">raised</span></div>
+<div style="flex:1;height:52px;background:#1e2321;border:1px solid #1e2321;border-radius:6px;display:flex;align-items:flex-end;padding:6px 8px"><span style="font:400 11px/1 'IBM Plex Mono',monospace;color:#a8b2ac">text</span></div>
+<div style="flex:1;height:52px;background:#10566b;border:1px solid #10566b;border-radius:6px;display:flex;align-items:flex-end;padding:6px 8px"><span style="font:400 11px/1 'IBM Plex Mono',monospace;color:#cfe4ea">accent</span></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;align-items:baseline;gap:13px"><span style="font:600 12px/1 'IBM Plex Mono',monospace;padding:5px 9px;background:#1e2321;color:#fff;border-radius:5px">V2&middot;S1</span><span style="font:600 16px/1.2 'IBM Plex Sans',Helvetica,Arial,sans-serif">Owner dashboard</span><span style="font:400 14px/1.2 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">one hero number, two panels, three columns gone from the pod table</span></div>
+
+<div style="width:1440px;height:900px;background:#f7f5f1;border:1px solid #c6bfb2;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 8px rgba(30,35,33,.1)">
+<div style="height:58px;background:#1e2321;display:flex;align-items:center;padding:0 24px;gap:26px;flex:none">
+<div style="display:flex;align-items:center;gap:11px"><div style="width:22px;height:22px;border-radius:50%;border:2.5px solid #3fbf95;position:relative"><div style="position:absolute;inset:4.5px;border-radius:50%;background:#6fb6cf"></div></div><span style="font:600 16px/1 'Source Serif 4',Georgia,serif;color:#fff">Echoes of Earth</span></div>
+<nav style="display:flex;align-items:center;gap:4px">
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#fff;box-shadow:inset 0 -3px 0 #6fb6cf">Overview</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Map</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Inventory</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Configuration</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Provisioning</span>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+<div style="width:232px;height:34px;background:rgba(255,255,255,.09);border-radius:7px;display:flex;align-items:center;padding:0 12px;gap:9px"><span style="font:400 13px/1 'IBM Plex Mono',monospace;color:rgba(255,255,255,.5)">&#9906;</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.5)">Search</span><span style="margin-left:auto;font:500 12px/1 'IBM Plex Mono',monospace;color:rgba(255,255,255,.38)">&#8984;K</span></div>
+<span style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.09);display:flex;align-items:center;justify-content:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.72)">&#9789;</span>
+<div style="width:32px;height:32px;border-radius:50%;background:#3fbf95;color:#12160f;display:flex;align-items:center;justify-content:center;font:600 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">HR</div>
+</div>
+</div>
+
+<div style="flex:1;padding:34px 40px;display:flex;flex-direction:column;gap:32px;overflow:hidden">
+
+<div style="display:flex;align-items:flex-end;gap:40px;flex:none">
+<div style="display:flex;flex-direction:column;gap:10px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Cascadia Bioacoustics</span>
+<h1 style="font:600 26px/1.2 'Source Serif 4',Georgia,serif;margin:0;letter-spacing:-.015em">Organization overview</h1>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;margin-left:auto;align-items:flex-end">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Devices online</span>
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 46px/1 'Source Serif 4',Georgia,serif;letter-spacing:-.02em">28</span><span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#8a9089">/ 31</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px;padding-bottom:6px">
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">1 deployment &middot; 3 pods &middot; 4.21 TB collected</span>
+<div style="display:flex;align-items:center;gap:10px"><span style="display:inline-flex;align-items:center;gap:7px;font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089"><span style="width:7px;height:7px;border-radius:50%;background:#007a5e"></span>cached 24s ago</span><span style="font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b">Refresh</span></div>
+</div>
+<button style="height:38px;padding:0 17px;background:#1e2321;color:#fff;border:1px solid #1e2321;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer;flex:none">New deployment</button>
+</div>
+
+<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:26px;flex:1;min-height:0">
+
+<div style="display:flex;flex-direction:column;gap:14px;min-height:0">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Deployment</span>
+<div style="background:#fff;border:1px solid #dfd9cf;border-radius:14px;padding:26px 28px;display:flex;flex-direction:column;gap:24px">
+
+<div style="display:flex;align-items:flex-start;gap:16px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:11px">
+<span style="font:600 19px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">Cascade Basin</span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#f6ecd9;color:#7d4e00;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9650;</span>Degraded</span>
+</div>
+<span style="font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">31 listeners across 3 pods &middot; <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">kvm-01.cascadia.internal</span></span>
+</div>
+<div style="margin-left:auto;display:flex;gap:9px;flex:none">
+<button style="height:36px;padding:0 15px;background:#fff;border:1px solid #c6bfb2;border-radius:8px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer">Open map</button>
+<button style="height:36px;padding:0 15px;background:#fff;border:1px solid #c6bfb2;border-radius:8px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer">Manage</button>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;height:12px;border-radius:4px;overflow:hidden;background:#efece5">
+<div style="width:61%;background:#007a5e"></div><div style="width:19%;background:#3d7ea8"></div><div style="width:7%;background:#8f4f86"></div><div style="width:6%;background:#b8430e"></div><div style="width:7%;background:#6b736d"></div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:18px">
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#007a5e;font-size:11px">&#9679;</span>19 streaming</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#3d7ea8;font-size:11px">&#9680;</span>6 sleeping</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#8f4f86;font-size:10px">&#9670;</span>2 drifted</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#b8430e;font-size:11px">&#10005;</span>2 alerting</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#6b736d;font-size:10px">&#9632;</span>2 offline</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px;border-top:1px solid #efece5;padding-top:22px">
+<div style="display:flex;align-items:center;gap:12px"><span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Services</span><span style="font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#7d4e00">1 of 5 failing</span><span style="margin-left:auto;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b">Re-run tests</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:9px">
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#e2f0eb;color:#00604a;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#9679;</span>mosquitto</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#e2f0eb;color:#00604a;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#9679;</span>influxdb3</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#f8e7de;color:#95360b;border:1px solid #e3bda9;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#10005;</span>prometheus</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#e2f0eb;color:#00604a;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#9679;</span>grafana</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#f6ecd9;color:#7d4e00;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:10px">&#9650;</span>minio</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:2px;border-top:1px solid #efece5;padding-top:22px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089;margin-bottom:8px">Pods</span>
+<div style="display:grid;grid-template-columns:24px 1fr 108px 88px;align-items:center;gap:14px;height:44px;border-bottom:1px solid #f4f1ea">
+<span style="color:#007a5e;font-size:12px;text-align:center">&#9679;</span>
+<span style="font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">Pod 01 &middot; Alder Creek</span>
+<span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">11 listeners</span>
+<span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b;text-align:right">Open</span>
+</div>
+<div style="display:grid;grid-template-columns:24px 1fr 108px 88px;align-items:center;gap:14px;height:44px;border-bottom:1px solid #f4f1ea">
+<span style="color:#b8430e;font-size:12px;text-align:center">&#10005;</span>
+<div style="display:flex;align-items:center;gap:11px"><span style="font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">Pod 02 &middot; Ridge Line</span><span style="font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#95360b">aggregator falling behind</span></div>
+<span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">12 listeners</span>
+<span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b;text-align:right">Open</span>
+</div>
+<div style="display:grid;grid-template-columns:24px 1fr 108px 88px;align-items:center;gap:14px;height:44px">
+<span style="color:#9c6100;font-size:11px;text-align:center">&#9650;</span>
+<div style="display:flex;align-items:center;gap:11px"><span style="font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">Pod 03 &middot; Tarn Meadow</span><span style="font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#7d4e00">1 bundle awaiting flash</span></div>
+<span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">8 listeners</span>
+<span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b;text-align:right">Open</span>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px;min-height:0">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Needs attention</span><span style="margin-left:auto;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b">All alerts</span></div>
+<div style="background:#fff;border:1px solid #dfd9cf;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+
+<div style="padding:20px 22px;border-bottom:1px solid #efece5;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:10px"><span style="color:#b8430e;font-size:13px">&#10005;</span><span style="font:600 16px/1.25 'IBM Plex Sans',Helvetica,Arial,sans-serif">Aggregator falling behind</span></div>
+<span style="font:400 14px/1.55 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e"><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">agg-ridge-02</span> has held <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">stream:analyze</span> at 1,204 for 12 minutes.</span>
+<div style="display:flex;align-items:center;gap:12px"><span style="font:400 13px/1 'IBM Plex Mono',monospace;color:#8a9089">firing 41m &middot; Pod 02</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b">Open device</span></div>
+</div>
+
+<div style="padding:20px 22px;border-bottom:1px solid #efece5;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:10px"><span style="color:#9c6100;font-size:12px">&#9650;</span><span style="font:600 16px/1.25 'IBM Plex Sans',Helvetica,Arial,sans-serif">Listener missed its wake window</span></div>
+<span style="font:400 14px/1.55 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e"><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">alder-creek-04</span> promised 12:05:00Z and the 30s grace has elapsed.</span>
+<div style="display:flex;align-items:center;gap:12px"><span style="font:400 13px/1 'IBM Plex Mono',monospace;color:#8a9089">firing 9m &middot; Pod 01</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b">Open device</span></div>
+</div>
+
+<div style="padding:20px 22px;border-bottom:1px solid #efece5;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:10px"><span style="color:#8f4f86;font-size:12px">&#9670;</span><span style="font:600 16px/1.25 'IBM Plex Sans',Helvetica,Arial,sans-serif">2 devices have drifted</span></div>
+<span style="font:400 14px/1.55 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Reported config no longer matches desired. Re-publishing sends revision <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">r-1f4c</span> again.</span>
+<button style="align-self:flex-start;height:36px;padding:0 15px;background:#fff;border:1px solid #c6bfb2;border-radius:8px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer">Re-publish both</button>
+</div>
+
+<div style="padding:20px 22px;margin-top:auto;display:flex;flex-direction:column;gap:12px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Recent</span>
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;gap:12px;align-items:baseline"><span style="font:400 13px/1.4 'IBM Plex Mono',monospace;color:#8a9089;flex:none">12:04</span><span style="font:400 14px/1.45 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">hudson published <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">r-1f4c</span> to 12 listeners</span></div>
+<div style="display:flex;gap:12px;align-items:baseline"><span style="font:400 13px/1.4 'IBM Plex Mono',monospace;color:#8a9089;flex:none">10:31</span><span style="font:400 14px/1.45 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">dana generated bundle <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">bnd-07</span></span></div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+</div>
+
+
+<div style="padding:56px 52px 0;display:flex;flex-direction:column;gap:56px;width:1560px">
+
+<section style="display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;align-items:baseline;gap:13px"><span style="font:600 12px/1 'IBM Plex Mono',monospace;padding:5px 9px;background:#1e2321;color:#fff;border-radius:5px">V2&middot;S2</span><span style="font:600 16px/1.2 'IBM Plex Sans',Helvetica,Arial,sans-serif">Map with the device drawer open</span><span style="font:400 14px/1.2 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">this is the panel you could not find &mdash; it now announces itself four ways</span></div>
+
+<div style="background:#fff;border:1px solid #dfd9cf;border-radius:8px;padding:20px 24px;display:flex;gap:32px;align-items:flex-start">
+<div style="display:flex;flex-direction:column;gap:8px;flex:1">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Why you missed it before</span>
+<p style="margin:0;font:400 14.5px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">In v1 the drawer was a white column with a hairline border sitting flush against a white map panel. Nothing said "this opened", nothing said "this belongs to that marker", and nothing said how to close it. Four fixes, all visible below.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px;width:520px;flex:none">
+<div style="display:flex;gap:11px;align-items:baseline"><span style="font:600 12px/1.4 'IBM Plex Mono',monospace;color:#10566b;flex:none">01</span><span style="font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">The map dims behind it and the selected marker keeps a halo, so the drawer clearly belongs to one device.</span></div>
+<div style="display:flex;gap:11px;align-items:baseline"><span style="font:600 12px/1.4 'IBM Plex Mono',monospace;color:#10566b;flex:none">02</span><span style="font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">A leader line runs from the marker to the drawer edge.</span></div>
+<div style="display:flex;gap:11px;align-items:baseline"><span style="font:600 12px/1.4 'IBM Plex Mono',monospace;color:#10566b;flex:none">03</span><span style="font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">A real deep shadow plus a 3px accent edge lifts it off the map instead of butting against it.</span></div>
+<div style="display:flex;gap:11px;align-items:baseline"><span style="font:600 12px/1.4 'IBM Plex Mono',monospace;color:#10566b;flex:none">04</span><span style="font:400 14px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844">A titled header with an explicit Close button and an <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">Esc</span> hint.</span></div>
+</div>
+</div>
+
+<div style="width:1440px;height:900px;background:#f7f5f1;border:1px solid #c6bfb2;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 8px rgba(30,35,33,.1)">
+<div style="height:58px;background:#1e2321;display:flex;align-items:center;padding:0 24px;gap:26px;flex:none">
+<div style="display:flex;align-items:center;gap:11px"><div style="width:22px;height:22px;border-radius:50%;border:2.5px solid #3fbf95;position:relative"><div style="position:absolute;inset:4.5px;border-radius:50%;background:#6fb6cf"></div></div><span style="font:600 16px/1 'Source Serif 4',Georgia,serif;color:#fff">Echoes of Earth</span></div>
+<nav style="display:flex;align-items:center;gap:4px">
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Overview</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#fff;box-shadow:inset 0 -3px 0 #6fb6cf">Map</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Inventory</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Configuration</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.66)">Provisioning</span>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+<span style="width:34px;height:34px;border-radius:7px;background:rgba(255,255,255,.09);display:flex;align-items:center;justify-content:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:rgba(255,255,255,.72)">&#9789;</span>
+<div style="width:32px;height:32px;border-radius:50%;background:#3fbf95;color:#12160f;display:flex;align-items:center;justify-content:center;font:600 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">HR</div>
+</div>
+</div>
+
+<div style="height:56px;background:#fff;border-bottom:1px solid #dfd9cf;display:flex;align-items:center;padding:0 28px;gap:18px;flex:none">
+<div style="display:flex;align-items:center;gap:9px;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">
+<span style="color:#10566b">Organization</span><span style="color:#c6bfb2">/</span><span style="color:#10566b">Cascade Basin</span><span style="color:#c6bfb2">/</span><span style="color:#1e2321;font-weight:600">Pod 01 &middot; Alder Creek</span>
+</div>
+<div style="height:22px;width:1px;background:#dfd9cf"></div>
+<div style="display:flex;gap:2px;background:#efece5;border-radius:8px;padding:3px">
+<span style="height:30px;padding:0 13px;display:flex;align-items:center;background:#fff;border-radius:6px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#1e2321;box-shadow:0 1px 2px rgba(30,35,33,.09)">Status</span>
+<span style="height:30px;padding:0 13px;display:flex;align-items:center;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Reconciliation</span>
+<span style="height:30px;padding:0 13px;display:flex;align-items:center;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Alerts</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;background:#efece5;border-radius:7px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">OSM <span style="font:400 10px/1 'IBM Plex Mono',monospace;color:#8a9089">&#9660;</span></span>
+<span style="display:inline-flex;align-items:center;gap:9px;height:32px;padding:0 12px;background:#efece5;border-radius:7px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">GPS-less <span style="width:30px;height:17px;border-radius:999px;background:#007a5e;position:relative;display:inline-block"><span style="position:absolute;top:2px;left:15px;width:13px;height:13px;border-radius:50%;background:#fff"></span></span></span>
+</div>
+</div>
+
+<div style="flex:1;display:flex;min-height:0;position:relative">
+
+<div style="flex:1;position:relative;background:#dfe3d8;overflow:hidden">
+<div style="position:absolute;inset:0;background-image:linear-gradient(#d3d9cb 1px,transparent 1px),linear-gradient(90deg,#d3d9cb 1px,transparent 1px);background-size:72px 72px;opacity:.8"></div>
+<div style="position:absolute;inset:0;background:radial-gradient(ellipse 46% 40% at 30% 40%,#ccd8bf 0%,rgba(204,216,191,0) 70%),radial-gradient(ellipse 32% 28% at 64% 72%,#c6d6d3 0%,rgba(198,214,211,0) 70%)"></div>
+
+<div style="position:absolute;top:16px;left:16px;display:flex;flex-direction:column;background:rgba(255,255,255,.95);border:1px solid #c6bfb2;border-radius:8px;overflow:hidden">
+<span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;font:400 17px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#1e2321;border-bottom:1px solid #efece5">+</span>
+<span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;font:400 17px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#1e2321">&minus;</span>
+</div>
+
+<div style="position:absolute;inset:0;background:rgba(30,35,33,.22)"></div>
+
+<div style="position:absolute;top:20%;left:23%;display:flex;flex-direction:column;align-items:center">
+<div style="width:44px;height:44px;border-radius:11px;background:#fff;border:2.5px solid #10566b;display:flex;align-items:center;justify-content:center;font:600 15px/1 'IBM Plex Mono',monospace;color:#10566b;box-shadow:0 3px 10px rgba(30,35,33,.3)">11</div>
+<span style="margin-top:7px;font:600 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#1e2321;background:rgba(255,255,255,.92);padding:3px 8px;border-radius:5px">Pod 01</span>
+</div>
+<div style="position:absolute;top:17%;left:31%;width:18px;height:18px;background:#007a5e;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 5px rgba(30,35,33,.35)"></div>
+<div style="position:absolute;top:26%;left:32.5%;width:18px;height:18px;background:#007a5e;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 5px rgba(30,35,33,.35)"></div>
+<div style="position:absolute;top:13%;left:18.5%;width:18px;height:18px;background:#3d7ea8;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 5px rgba(30,35,33,.35)"></div>
+
+<div style="position:absolute;top:52.5%;left:35%;width:74px;height:74px;border-radius:50%;background:rgba(16,86,107,.22);border:2px solid #6fb6cf"></div>
+<div style="position:absolute;top:57%;left:37.4%;display:flex;flex-direction:column;align-items:center">
+<div style="width:26px;height:26px;background:#6b736d;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 4px 12px rgba(30,35,33,.45)"></div>
+</div>
+<div style="position:absolute;top:56.4%;left:39.6%;width:16px;height:16px;border-radius:50%;background:#b8430e;border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;font:600 8px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#fff">1</div>
+<div style="position:absolute;top:62.5%;left:33.5%;background:#1e2321;padding:5px 10px;border-radius:6px"><span style="font:500 13px/1 'IBM Plex Mono',monospace;color:#fff">alder-creek-04</span></div>
+
+<div style="position:absolute;top:60.2%;left:44%;right:0;height:2px;background:linear-gradient(90deg,#6fb6cf 0%,#6fb6cf 100%)"></div>
+
+<div style="position:absolute;top:70%;left:52%;display:flex;flex-direction:column;align-items:center">
+<div style="width:40px;height:40px;border-radius:11px;background:#fff;border:2.5px solid #b8430e;display:flex;align-items:center;justify-content:center;font:600 15px/1 'IBM Plex Mono',monospace;color:#95360b;box-shadow:0 3px 10px rgba(30,35,33,.3);position:relative">12<span style="position:absolute;top:-7px;right:-7px;width:17px;height:17px;border-radius:50%;background:#b8430e;border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;font:600 9px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#fff">1</span></div>
+<span style="margin-top:7px;font:600 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#1e2321;background:rgba(255,255,255,.92);padding:3px 8px;border-radius:5px">Pod 02</span>
+</div>
+
+<div style="position:absolute;bottom:18px;left:16px;background:rgba(255,255,255,.96);border:1px solid #c6bfb2;border-radius:8px;padding:15px 17px;display:flex;flex-direction:column;gap:11px">
+<span style="font:600 11.5px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Legend</span>
+<div style="display:grid;grid-template-columns:auto auto;gap:8px 20px">
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#007a5e;font-size:11px">&#9679;</span>streaming</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#3d7ea8;font-size:11px">&#9680;</span>sleeping</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#9c6100;font-size:10px">&#9650;</span>degraded</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#6b736d;font-size:10px">&#9632;</span>offline</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#b8430e;font-size:11px">&#10005;</span>alerting</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#3f4844"><span style="color:#8f4f86;font-size:10px">&#9670;</span>drifted</span>
+</div>
+<span style="font:400 12.5px/1.45 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089;max-width:168px;border-top:1px solid #efece5;padding-top:10px">Square marker = pod. Pin = listener. Badge = active alert.</span>
+</div>
+</div>
+
+<div style="width:440px;background:#fff;border-left:3px solid #10566b;display:flex;flex-direction:column;flex:none;box-shadow:-18px 0 48px -12px rgba(30,35,33,.4),-2px 0 6px rgba(30,35,33,.12);z-index:2">
+
+<div style="padding:20px 24px;background:#efece5;border-bottom:1px solid #dfd9cf;display:flex;align-items:center;gap:14px;flex:none">
+<div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+<span style="font:600 11.5px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Device detail</span>
+<span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Listener &middot; Pod 01 Alder Creek</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px;flex:none">
+<span style="font:400 12.5px/1 'IBM Plex Mono',monospace;color:#8a9089">Esc</span>
+<button style="height:34px;padding:0 14px;background:#fff;border:1px solid #c6bfb2;border-radius:8px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#1e2321;cursor:pointer;display:flex;align-items:center;gap:8px"><span style="font-size:13px">&#10005;</span>Close</button>
+</div>
+</div>
+
+<div style="padding:24px 24px 20px;border-bottom:1px solid #dfd9cf;display:flex;flex-direction:column;gap:14px;flex:none">
+<h2 style="font:600 26px/1.2 'Source Serif 4',Georgia,serif;margin:0;letter-spacing:-.015em">alder-creek-04</h2>
+<span style="font:400 14px/1 'IBM Plex Mono',monospace;color:#5a635e">AA:BB:CC:DD:EE:F4</span>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<span style="display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;background:#eceeeb;color:#4f564f;border-radius:999px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9632;</span>Offline</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;background:#f8e7de;color:#95360b;border-radius:999px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#10005;</span>1 alert</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px;background:#e2f0eb;color:#00604a;border-radius:999px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:11px">&#9679;</span>Config applied</span>
+</div>
+</div>
+
+<div style="display:flex;gap:4px;padding:0 24px;border-bottom:1px solid #dfd9cf;flex:none">
+<span style="padding:13px 10px;font:600 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b;box-shadow:inset 0 -3px 0 #10566b">Status</span>
+<span style="padding:13px 10px;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Config</span>
+<span style="padding:13px 10px;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Timeline</span>
+<span style="padding:13px 10px;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">Card</span>
+</div>
+
+<div style="flex:1;padding:22px 24px;display:flex;flex-direction:column;gap:24px;overflow:hidden">
+
+<div style="border-left:3px solid #b8430e;background:#f8e7de;border-radius:0 8px 8px 0;padding:16px 18px;display:flex flex-direction:column;flex-direction:column;display:flex;gap:8px">
+<div style="display:flex;align-items:center;gap:10px"><span style="color:#95360b;font-size:13px">&#10005;</span><span style="font:600 15px/1.3 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#95360b">Missed wake window</span></div>
+<span style="font:400 14px/1.55 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#7d3a12">It declared a wake at 12:05:00Z. The 30 second grace has elapsed with no resumed stream, so <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">agg-alder-01</span> reported it offline.</span>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:13px">
+<span style="font:600 11.5px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Liveness</span>
+<div style="display:grid;grid-template-columns:auto 1fr;gap:11px 20px">
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">State</span><span style="font:500 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif">offline &middot; missed window</span>
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">Last audio</span><span style="font:400 14px/1.4 'IBM Plex Mono',monospace">11:58:04Z</span>
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">Expected wake</span><span style="font:400 14px/1.4 'IBM Plex Mono',monospace">12:05:00Z</span>
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">Grace</span><span style="font:400 14px/1.4 'IBM Plex Mono',monospace">30s <span style="font-family:'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">inherited</span></span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:13px">
+<span style="font:600 11.5px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Placement</span>
+<div style="display:grid;grid-template-columns:auto 1fr;gap:11px 20px">
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">GPS</span><span style="font:400 14px/1.4 'IBM Plex Mono',monospace">47.6412, &minus;121.8871</span>
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">Aggregator</span><span style="font:400 14px/1.4 'IBM Plex Mono',monospace;color:#10566b">agg-alder-01</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:center;gap:11px"><span style="font:600 11.5px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#8a9089">Effective config</span><span style="margin-left:auto;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#10566b">Edit</span></div>
+<div style="display:flex;flex-direction:column;gap:0;border-top:1px solid #efece5">
+<div style="display:grid;grid-template-columns:1fr 78px 100px;align-items:center;height:36px;border-bottom:1px solid #f4f1ea"><span style="font:400 13.5px/1 'IBM Plex Mono',monospace">sample_rate_hz</span><span style="font:500 13.5px/1 'IBM Plex Mono',monospace">48000</span><span style="font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089;text-align:right">Deployment</span></div>
+<div style="display:grid;grid-template-columns:1fr 78px 100px;align-items:center;height:36px;border-bottom:1px solid #f4f1ea"><span style="font:400 13.5px/1 'IBM Plex Mono',monospace">capture.mode</span><span style="font:500 13.5px/1 'IBM Plex Mono',monospace">duty</span><span style="font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089;text-align:right">Org</span></div>
+<div style="display:grid;grid-template-columns:1fr 78px 100px;align-items:center;height:36px;border-bottom:1px solid #f4f1ea;background:#e4eef2;box-shadow:inset 3px 0 0 #10566b;padding-left:9px"><span style="font:500 13.5px/1 'IBM Plex Mono',monospace;color:#0b414f">duty_on_seconds</span><span style="font:500 13.5px/1 'IBM Plex Mono',monospace;color:#0b414f">90</span><span style="font:500 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#0b414f;text-align:right">This device</span></div>
+<div style="display:grid;grid-template-columns:1fr 78px 100px;align-items:center;height:36px"><span style="font:400 13.5px/1 'IBM Plex Mono',monospace">wifi_ssid</span><span style="font:500 13.5px/1 'IBM Plex Mono',monospace">eoe-alder</span><span style="font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089;text-align:right">Pod</span></div>
+</div>
+<span style="font:400 13px/1.5 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">Tinted row is overridden here. 17 more keys.</span>
+</div>
+</div>
+
+<div style="padding:18px 24px;border-top:1px solid #dfd9cf;display:flex;gap:10px;flex:none">
+<button style="flex:1;height:40px;background:#1e2321;color:#fff;border:1px solid #1e2321;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer">Open in Grafana</button>
+<button style="height:40px;padding:0 15px;background:#fff;border:1px solid #c6bfb2;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer">Resync</button>
+</div>
+</div>
+
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;align-items:baseline;gap:13px"><span style="font:600 12px/1 'IBM Plex Mono',monospace;padding:5px 9px;background:#1e2321;color:#fff;border-radius:5px">V2&middot;S3</span><span style="font:600 16px/1.2 'IBM Plex Sans',Helvetica,Arial,sans-serif">Night theme</span><span style="font:400 14px/1.2 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#8a9089">finished, not a fixture &mdash; same 30 token names, relit per pair for contrast</span></div>
+
+<div style="width:1440px;height:760px;background:#121614;border:1px solid #333c37;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 8px rgba(30,35,33,.18)">
+<div style="height:58px;background:#0c100e;border-bottom:1px solid #333c37;display:flex;align-items:center;padding:0 24px;gap:26px;flex:none">
+<div style="display:flex;align-items:center;gap:11px"><div style="width:22px;height:22px;border-radius:50%;border:2.5px solid #3fbf95;position:relative"><div style="position:absolute;inset:4.5px;border-radius:50%;background:#6fb6cf"></div></div><span style="font:600 16px/1 'Source Serif 4',Georgia,serif;color:#eef0ec">Echoes of Earth</span></div>
+<nav style="display:flex;align-items:center;gap:4px">
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec;box-shadow:inset 0 -3px 0 #6fb6cf">Overview</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac">Map</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac">Inventory</span>
+<span style="padding:0 14px;height:58px;display:flex;align-items:center;font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac">Configuration</span>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+<span style="height:34px;padding:0 12px;border-radius:7px;background:#232a26;display:flex;align-items:center;gap:9px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac"><span style="font-size:14px">&#9788;</span>Night</span>
+<div style="width:32px;height:32px;border-radius:50%;background:#3fbf95;color:#0c100e;display:flex;align-items:center;justify-content:center;font:600 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif">HR</div>
+</div>
+</div>
+
+<div style="flex:1;padding:34px 40px;display:flex;flex-direction:column;gap:30px;overflow:hidden">
+
+<div style="display:flex;align-items:flex-end;gap:40px;flex:none">
+<div style="display:flex;flex-direction:column;gap:10px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#7a847e">Cascadia Bioacoustics</span>
+<h2 style="font:600 26px/1.2 'Source Serif 4',Georgia,serif;margin:0;letter-spacing:-.015em;color:#eef0ec">Organization overview</h2>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;margin-left:auto;align-items:flex-end">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#7a847e">Devices online</span>
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 46px/1 'Source Serif 4',Georgia,serif;letter-spacing:-.02em;color:#eef0ec">28</span><span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#7a847e">/ 31</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px;padding-bottom:6px">
+<span style="font:400 14px/1.4 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac">1 deployment &middot; 3 pods &middot; 4.21 TB collected</span>
+<span style="display:inline-flex;align-items:center;gap:7px;font:400 13px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#7a847e"><span style="width:7px;height:7px;border-radius:50%;background:#3fbf95"></span>cached 24s ago</span>
+</div>
+<button style="height:38px;padding:0 17px;background:#eef0ec;color:#0c100e;border:1px solid #eef0ec;border-radius:8px;font:500 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;cursor:pointer;flex:none">New deployment</button>
+</div>
+
+<div style="display:grid;grid-template-columns:1.5fr 1fr;gap:26px;flex:1;min-height:0">
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#7a847e">Deployment</span>
+<div style="background:#1a201d;border:1px solid #333c37;border-radius:14px;padding:26px 28px;display:flex;flex-direction:column;gap:24px">
+<div style="display:flex;align-items:center;gap:12px">
+<span style="font:600 19px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec">Cascade Basin</span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;background:#3a2f18;color:#e0a537;border-radius:999px;font:500 13.5px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif"><span style="font-size:10px">&#9650;</span>Degraded</span>
+<span style="margin-left:auto;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#6fb6cf">Open map</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;height:12px;border-radius:4px;overflow:hidden;background:#232a26">
+<div style="width:61%;background:#3fbf95"></div><div style="width:19%;background:#6cb6d9"></div><div style="width:7%;background:#c48ab8"></div><div style="width:6%;background:#ef7d4e"></div><div style="width:7%;background:#8d958f"></div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:18px">
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#c8d0cb"><span style="color:#3fbf95;font-size:11px">&#9679;</span>19 streaming</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#c8d0cb"><span style="color:#6cb6d9;font-size:11px">&#9680;</span>6 sleeping</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#c8d0cb"><span style="color:#c48ab8;font-size:10px">&#9670;</span>2 drifted</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#c8d0cb"><span style="color:#ef7d4e;font-size:11px">&#10005;</span>2 alerting</span>
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#c8d0cb"><span style="color:#8d958f;font-size:10px">&#9632;</span>2 offline</span>
+</div>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:9px;border-top:1px solid #2a322d;padding-top:22px">
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#16302a;color:#3fbf95;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#9679;</span>mosquitto</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#16302a;color:#3fbf95;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#9679;</span>influxdb3</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#3a231a;color:#ef7d4e;border:1px solid #5e3527;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#10005;</span>prometheus</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#16302a;color:#3fbf95;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:11px">&#9679;</span>grafana</span>
+<span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 13px;background:#3a2f18;color:#e0a537;border-radius:8px;font:500 14px/1 'IBM Plex Mono',monospace"><span style="font-size:10px">&#9650;</span>minio</span>
+</div>
+<div style="display:flex;flex-direction:column;border-top:1px solid #2a322d;padding-top:14px">
+<div style="display:grid;grid-template-columns:24px 1fr 108px 76px;align-items:center;gap:14px;height:44px;border-bottom:1px solid #232a26"><span style="color:#3fbf95;font-size:12px;text-align:center">&#9679;</span><span style="font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec">Pod 01 &middot; Alder Creek</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac">11 listeners</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#6fb6cf;text-align:right">Open</span></div>
+<div style="display:grid;grid-template-columns:24px 1fr 108px 76px;align-items:center;gap:14px;height:44px;border-bottom:1px solid #232a26"><span style="color:#ef7d4e;font-size:12px;text-align:center">&#10005;</span><span style="font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec">Pod 02 &middot; Ridge Line</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac">12 listeners</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#6fb6cf;text-align:right">Open</span></div>
+<div style="display:grid;grid-template-columns:24px 1fr 108px 76px;align-items:center;gap:14px;height:44px"><span style="color:#e0a537;font-size:11px;text-align:center">&#9650;</span><span style="font:400 15px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec">Pod 03 &middot; Tarn Meadow</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac">8 listeners</span><span style="font:400 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#6fb6cf;text-align:right">Open</span></div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<span style="font:600 12px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:#7a847e">Needs attention</span>
+<div style="background:#1a201d;border:1px solid #333c37;border-radius:14px;display:flex;flex-direction:column;overflow:hidden">
+<div style="padding:20px 22px;border-bottom:1px solid #2a322d;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:10px"><span style="color:#ef7d4e;font-size:13px">&#10005;</span><span style="font:600 16px/1.25 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec">Aggregator falling behind</span></div>
+<span style="font:400 14px/1.55 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac"><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">agg-ridge-02</span> has held <span style="font-family:'IBM Plex Mono',monospace;font-size:13px">stream:analyze</span> at 1,204 for 12 minutes.</span>
+<span style="font:400 13px/1 'IBM Plex Mono',monospace;color:#7a847e">firing 41m &middot; Pod 02</span>
+</div>
+<div style="padding:20px 22px;border-bottom:1px solid #2a322d;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:10px"><span style="color:#e0a537;font-size:12px">&#9650;</span><span style="font:600 16px/1.25 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec">Listener missed its wake window</span></div>
+<span style="font:400 14px/1.55 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#a8b2ac"><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">alder-creek-04</span> promised 12:05:00Z and the grace has elapsed.</span>
+<span style="font:400 13px/1 'IBM Plex Mono',monospace;color:#7a847e">firing 9m &middot; Pod 01</span>
+</div>
+<div style="padding:20px 22px;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:10px"><span style="color:#c48ab8;font-size:12px">&#9670;</span><span style="font:600 16px/1.25 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec">2 devices have drifted</span></div>
+<button style="align-self:flex-start;height:36px;padding:0 15px;background:#232a26;border:1px solid #46514a;border-radius:8px;font:500 14px/1 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#eef0ec;cursor:pointer">Re-publish both</button>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:16px;border-top:1px solid #c6bfb2;padding-top:34px;padding-bottom:110px">
+<h2 style="font:600 24px/1.2 'Source Serif 4',Georgia,serif;margin:0;letter-spacing:-.015em">Not yet redrawn in v2</h2>
+<p style="margin:0;max-width:840px;font:400 15px/1.6 'IBM Plex Sans',Helvetica,Arial,sans-serif;color:#5a635e">The config editor, bulk-edit modal, services wizard, and provisioning board are still v1 in <a href="#">Screens.dc.html</a>. Their <em>structure</em> holds; only the palette, type sizes, status badges, and row heights need the same treatment, which is mechanical once you sign off on this pass. Say go and I convert them.</p>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1560},&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Handoff&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return { showNotes: this.props.showNotes ?? true };
+  }
+}
+</script>
+</body>
+</html>

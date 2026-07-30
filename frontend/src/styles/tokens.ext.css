@@ -8,8 +8,10 @@
  * token, so no status is distinguished by hue alone. Row heights and control
  * heights are all larger than the E0.4 baseline.
  *
- * Known gap (D21): tokens.alt.css does not yet carry dark-mode equivalents
- * of these keys. Do not assume a dark status palette exists.
+ * D21's known gap is closed (DES.7, D24): tokens.ext.alt.css now carries the
+ * dark-mode value of every COLOR key defined here, under
+ * :root[data-theme="dark"]. Non-color keys below are theme-independent by
+ * design and are deliberately not restated there.
  */
 :root {
   /* ── status: six device states (spec 9.3, 6.2) ─────────────────────────
@@ -52,6 +54,14 @@
   --eoe-color-action: #1e2321;
   --eoe-color-action-hover: #333b37;
   --eoe-color-action-contrast: #ffffff;
+  /* The app chrome (top bar) is --eoe-color-action in BOTH themes, so anything
+   * sitting on it needs its own on-dark pair — the light theme's accent and
+   * muted text are illegible there. All verified >= 4.5:1 on #1e2321 (light)
+   * and #0c100e (dark). */
+  --eoe-color-action-contrast-muted: rgb(255 255 255 / 0.66);
+  --eoe-color-action-raised: rgb(255 255 255 / 0.09);
+  --eoe-color-accent-on-action: #6fb6cf;
+  --eoe-color-brand-mark: #3fbf95;
   --eoe-color-accent-hover: #0b414f;
   --eoe-color-accent-tint: #e4eef2; /* selected row, active tab, selected marker halo */
   --eoe-color-focus-ring: rgb(16 86 107 / 0.34);
@@ -68,6 +78,13 @@
   --eoe-border-width-hairline: 1px;
   --eoe-border-width-emphasis: 2px;
   --eoe-border-width-selected: 3px; /* selected tree/table row inset bar */
+
+  /* ── radius: the two shape constants the ramp cannot express ──────────
+   * Not points on the sm/md/lg ramp — these are geometry. A status chip is a
+   * pill at any size and an avatar is a circle at any size, so neither may be
+   * spelled as a length that a theme could later "improve". */
+  --eoe-radius-pill: 999px;
+  --eoe-radius-round: 50%;
 
   /* ── space: rungs the 4px scale is missing in practice ─────────────── */
   --eoe-space-5: 1.25rem;
@@ -92,6 +109,10 @@
   --eoe-control-height-sm: 30px;
   --eoe-control-height-md: 38px;
   --eoe-control-height-lg: 44px; /* touch target floor for tablet */
+
+  /* ── chrome bands: fixed-height app furniture, not controls ─────────── */
+  --eoe-height-topbar: 58px;
+  --eoe-height-contextbar: 56px;
 
   /* ── motion ─────────────────────────────────────────────────────────── */
   --eoe-duration-fast: 120ms;

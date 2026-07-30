@@ -75,6 +75,8 @@ redrawn yet, and their layout is still correct.
 3. **Is the config editor ever used on tablet?** It is the one screen I would leave
    desktop-only.
 
+> **Addendum DES-7-01 (2026-07-30, ref project-changes #9):** Items 4 and 5 are done — the shell is V2·S1's dark top bar (DECISIONS D25), and the night theme ships behind a manual toggle plus `prefers-color-scheme`, with `tokens.ext.alt.css` closing D21's dark-palette gap (D24). Item 6 is **not** done as written: rather than restyle the four v1 screens with invented content, Map, Inventory, Configuration, and Provisioning ship as routed, v2-styled skeletons naming the epic that brings their data. Open question 2 (does a Field Tech see telemetry?) is superseded for navigation purposes by D25 — the primary nav lists every destination for every role and pages gate their own contents; the disabled-tab treatment is deferred to DES.8. Open question 3 (config editor on tablet) is still open. Also deferred: the map engine (E6 owns it; direction recorded in project-changes #9) and font vendoring — the woff2 files named in "The three rules" are still absent, so the product renders in the fallback stack.
+
 ## Known caveat
 
 None of these mockups has been visually QA'd in-tool: the preview screenshot bridge in my
