@@ -24,7 +24,7 @@ body {
   width: 14rem;
   flex-shrink: 0;
   background: var(--eoe-color-surface);
-  border-right: var(--eoe-space-1) solid var(--eoe-color-border);
+  border-right: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
   padding: var(--eoe-space-4);
   display: flex;
   flex-direction: column;
@@ -62,7 +62,7 @@ body {
 }
 
 .shell-nav a:focus-visible {
-  outline: var(--eoe-space-1) solid var(--eoe-color-focus);
+  outline: var(--eoe-border-width-hairline) solid var(--eoe-color-focus);
 }
 
 .shell-content {
@@ -75,7 +75,7 @@ body {
 
 .card {
   background: var(--eoe-color-surface);
-  border: var(--eoe-space-1) solid var(--eoe-color-border);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
   border-radius: var(--eoe-radius-lg);
   box-shadow: var(--eoe-shadow-sm);
   padding: var(--eoe-space-6);
@@ -141,7 +141,7 @@ body {
 
 .auth-form input:focus-visible,
 button:focus-visible {
-  outline: var(--eoe-space-1) solid var(--eoe-color-focus);
+  outline: var(--eoe-border-width-hairline) solid var(--eoe-color-focus);
 }
 
 button {

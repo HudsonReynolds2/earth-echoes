@@ -33,8 +33,8 @@ test("swapping token values visibly restyles the shell", async ({ page }) => {
       return {
         background: body.backgroundColor,
         color: body.color,
-        fontFamily: body.fontFamily,
-        sidebarPadding: sidebar.padding,
+        sidebarBackground: sidebar.backgroundColor,
+        sidebarBorderColor: sidebar.borderRightColor,
       };
     });
 
@@ -44,6 +44,6 @@ test("swapping token values visibly restyles the shell", async ({ page }) => {
 
   expect(after.background).not.toBe(before.background);
   expect(after.color).not.toBe(before.color);
-  expect(after.fontFamily).not.toBe(before.fontFamily);
-  expect(after.sidebarPadding).not.toBe(before.sidebarPadding);
+  expect(after.sidebarBackground).not.toBe(before.sidebarBackground);
+  expect(after.sidebarBorderColor).not.toBe(before.sidebarBorderColor);
 });

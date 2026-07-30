@@ -156,10 +156,18 @@ def _strip_addenda(text: str) -> str:
 
 
 def test_planning_documents_unmodified_except_appended_addenda():
-    for doc in sorted(PLANNING.glob("*.md")):
-        baseline = run_git("show", f"planning-baseline:project_planning/{doc.name}").replace(
-            "\r\n", "\n"
-        )
+    # Only the documents that existed at the planning-baseline tag are pinned:
+    # the fixed spec/plan/handbook/phase docs (implementation-handbook.md
+    # section 1's authority order). project_planning/ may gain other,
+    # non-baseline material later (track handoffs, working notes) that this
+    # invariant was never meant to cover — there is nothing in the baseline
+    # tree to diff a new file against, so it is simply not baseline-protected.
+    baseline_names = run_git(
+        "ls-tree", "--name-only", "planning-baseline", "project_planning/"
+    ).splitlines()
+    for name in baseline_names:
+        doc = PLANNING / name.split("/")[-1]
+        baseline = run_git("show", f"planning-baseline:{name}").replace("\r\n", "\n")
         assert _strip_addenda(_read(doc)) == baseline, (
             f"{doc.name} differs from planning-baseline beyond appended addendum blocks"
         )

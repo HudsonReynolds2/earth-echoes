@@ -66,6 +66,8 @@ Do not build any of the following; a later epic owns each. Hierarchy entities an
 
 > **Addendum PHASE0-4-03 (2026-07-24, ref project-changes #5):** E0.11 is implemented before E0.10: the TOTP secret is a secret, and the cross-phase convention that secrets move only through `SecretStore` (handbook section 3) requires the store to exist first. Task content unchanged.
 
+> **Addendum PHASE0-4-04 (2026-07-30, ref project-changes #8):** The five token namespaces this task fixes gain an additive, non-breaking extension (DECISIONS D21, DES-4-01): a third sheet, `frontend/src/styles/tokens.ext.css`, adds new keys to `--eoe-color-*`/`--eoe-space-*`/`--eoe-font-*` and introduces `--eoe-border-width-*`, `--eoe-row-height-*`, `--eoe-control-height-*`, `--eoe-duration-*`, `--eoe-ease`. No name from the original E0.4 set is renamed, removed, or repointed, so the acceptance criteria below continue to hold unchanged.
+
 ## 5. Definition of done
 
 > **Addendum PHASE0-5-01 (2026-07-24, ref project-changes #6):** The definition of done additionally includes a cross-cutting readiness suite (`backend/tests/test_e0_readiness.py`) locking the public surface (exact route and table sets), proving env-var documentation parity, exercising the seams later epics consume (E1 scope columns, E3/E5 SecretStore name shapes, E8.5 session-minting), running a data-seeded migration round trip, and verifying production posture (prod frontend image serves; API container non-root; the compose frontend carries `VITE_API_BASE_URL`).

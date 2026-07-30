@@ -15,6 +15,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = join(HERE, "..", "src");
 const TOKEN_SHEET = join(SRC, "styles", "tokens.css");
 const ALT_SHEET = join(SRC, "styles", "tokens.alt.css");
+// Additive extension accepted under DECISIONS D21 (DES-4-01): a third,
+// application-owned sheet, imported by main.tsx alongside tokens.css.
+const EXT_SHEET = join(SRC, "styles", "tokens.ext.css");
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -25,7 +28,9 @@ function walk(dir: string): string[] {
 
 const allFiles = walk(SRC);
 const styleAndCodeFiles = allFiles.filter((f) => /\.(css|ts|tsx)$/.test(f));
-const nonTokenFiles = styleAndCodeFiles.filter((f) => f !== TOKEN_SHEET && f !== ALT_SHEET);
+const nonTokenFiles = styleAndCodeFiles.filter(
+  (f) => f !== TOKEN_SHEET && f !== ALT_SHEET && f !== EXT_SHEET,
+);
 const nonTokenCss = nonTokenFiles.filter((f) => f.endsWith(".css"));
 
 const read = (f: string) => readFileSync(f, "utf-8");
@@ -64,11 +69,15 @@ describe("token discipline", () => {
     }
   });
 
-  // Check 3: every referenced --eoe-* variable is defined in the sheet.
+  // Check 3: every referenced --eoe-* variable is defined in the sheet
+  // (either the locked five-namespace sheet or the D21 additive extension).
   it("has a definition for every referenced token", () => {
     const defined = new Set(
       [...read(TOKEN_SHEET).matchAll(/--eoe-[a-z0-9-]+(?=\s*:)/g)].map((m) => m[0]),
     );
+    for (const match of read(EXT_SHEET).matchAll(/--eoe-[a-z0-9-]+(?=\s*:)/g)) {
+      defined.add(match[0]);
+    }
     for (const file of nonTokenFiles) {
       for (const match of read(file).matchAll(/var\((--eoe-[a-z0-9-]+)/g)) {
         expect(defined.has(match[1]), `undefined token ${match[1]} in ${rel(file)}`).toBe(true);
@@ -85,10 +94,16 @@ describe("token discipline", () => {
     }
   });
 
-  // Check 5: the sheet lives in exactly one file; the alt sheet is test-only.
-  it("defines tokens in exactly one application sheet", () => {
+  // Check 5: tokens are defined only in the three known sheets; the alt sheet
+  // stays test-only (D21's tokens.ext.css is application-owned, imported by
+  // main.tsx, so it is deliberately not held to the same "unreferenced" bar).
+  it("defines tokens in exactly the known application sheets", () => {
     const definers = styleAndCodeFiles.filter((f) => /--eoe-[a-z0-9-]+\s*:/.test(read(f)));
-    expect(definers.map(rel).sort()).toEqual(["styles/tokens.alt.css", "styles/tokens.css"]);
+    expect(definers.map(rel).sort()).toEqual([
+      "styles/tokens.alt.css",
+      "styles/tokens.css",
+      "styles/tokens.ext.css",
+    ]);
     for (const file of nonTokenFiles) {
       expect(read(file), `tokens.alt.css referenced by app code ${rel(file)}`).not.toContain(
         "tokens.alt",
@@ -101,5 +116,29 @@ describe("token discipline", () => {
     const keys = (sheet: string) =>
       [...read(sheet).matchAll(/--eoe-[a-z0-9-]+(?=\s*:)/g)].map((m) => m[0]).sort();
     expect(keys(ALT_SHEET)).toEqual(keys(TOKEN_SHEET));
+  });
+
+  // Check 7 (D21): danger/success/warning are documented as aliases of
+  // status-alerting/status-healthy/status-degraded, but the two sheets set
+  // them as separately hard-coded hex values (a cross-sheet var() reference
+  // isn't possible without coupling tokens.css to tokens.ext.css). Assert the
+  // values stay equal so "can never drift apart" is enforced, not aspirational.
+  it("keeps the locked danger/success/warning values in sync with their status aliases", () => {
+    const valueOf = (sheet: string, name: string) => {
+      const match = read(sheet).match(new RegExp(`${name}\\s*:\\s*([^;]+);`));
+      expect(match, `${name} not found in ${rel(sheet)}`).not.toBeNull();
+      return match![1].trim();
+    };
+    const pairs: [string, string][] = [
+      ["--eoe-color-danger", "--eoe-color-status-alerting"],
+      ["--eoe-color-success", "--eoe-color-status-healthy"],
+      ["--eoe-color-warning", "--eoe-color-status-degraded"],
+    ];
+    for (const [locked, status] of pairs) {
+      expect(
+        valueOf(TOKEN_SHEET, locked),
+        `${locked} (tokens.css) has drifted from its alias ${status} (tokens.ext.css)`,
+      ).toBe(valueOf(EXT_SHEET, status));
+    }
   });
 });

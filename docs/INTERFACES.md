@@ -67,12 +67,30 @@ constraint naming convention; all constraints are named through it.
 
 Token namespaces (binding target format for DES.4): `--eoe-color-*`, `--eoe-space-*`,
 `--eoe-font-*`, `--eoe-radius-*`, `--eoe-shadow-*`. The token sheet is the single file
-**`frontend/src/styles/tokens.css`** (neutral defaults; DES.4 delivers a replacement value
-set for exactly its custom-property names). `frontend/src/styles/tokens.alt.css` is a
-test-only fixture proving the swap and must mirror the exact key set. Every component
-styles through `var(--eoe-*)`; color, spacing, radius, and shadow literals outside the
-sheet fail the gate (`frontend/tests/tokens.test.ts`). The theme-swap browser test
+**`frontend/src/styles/tokens.css`** (DES.4 v2, "field notebook" direction, delivers a
+replacement value set for exactly these five namespaces' custom-property names; nothing
+renamed). `frontend/src/styles/tokens.alt.css` is a test-only fixture proving the swap and
+must mirror the exact key set of `tokens.css` — it now holds real night-theme values but is
+not yet imported by application code (DES.7 wires the theme toggle). Every component styles
+through `var(--eoe-*)`; color, spacing, radius, and shadow literals outside the token sheets
+fail the gate (`frontend/tests/tokens.test.ts`). The theme-swap browser test
 (`frontend/e2e/theme-swap.spec.ts`) is DES.7's regression guarantee.
+
+**Additive extension (DECISIONS D21, DES-4-01, 2026-07-30):** a third sheet,
+`frontend/src/styles/tokens.ext.css`, is imported by `main.tsx` alongside `tokens.css` and
+adds new keys to `--eoe-color-*`/`--eoe-space-*`/`--eoe-font-*` plus five new namespaces:
+`--eoe-border-width-*`, `--eoe-row-height-*`, `--eoe-control-height-*`, `--eoe-duration-*`,
+`--eoe-ease`. Nothing in the original five namespaces is renamed, removed, or repointed.
+`tokens.test.ts` treats `tokens.ext.css` as a third application-owned sheet (not a literal
+leak); its keys must stay defined for anything that references them via `var(--eoe-*)`.
+
+**Status vocabulary (closed, spec §9.3/§6.2):** exactly six device states —
+`streaming/healthy`, `sleeping`, `degraded`, `offline`, `alerting`, `drifted` — each with a
+color, a tint, and a glyph token (`--eoe-color-status-{name}`, `-tint`, `-glyph`). The
+locked `--eoe-color-danger`/`-success`/`-warning` alias to `status-alerting`/`-healthy`/
+`-degraded` respectively and must never be restated with their own hex value, so the two
+vocabularies cannot drift apart. **Known gap:** `tokens.alt.css` does not yet carry dark-mode
+equivalents of the extended keys (D21) — do not assume a dark status palette exists.
 
 ### CI pipeline (E0.5; .github/workflows/ci.yml)
 

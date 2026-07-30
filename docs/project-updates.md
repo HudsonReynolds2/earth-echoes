@@ -1,5 +1,40 @@
 # Project Updates
 
+## 2026-07-30: DES.4 v2 tokens, DES-4-01 additive extension accepted (Gate 15 GREEN)
+
+- **Tasks closed:** DES.4 (v2 "field notebook" value set, plus the DES-4-01 additive
+  extension) (project-changes #8; addendum PHASE0-4-04); D21 (DES-4-01 accepted); D22 and
+  D23 (test fixes at this gate)
+- **Gate:** 15, GREEN
+- **Tests:** backend 172 passed, vitest 33 passed (7 in `tokens.test.ts`, including new
+  check 7), Playwright 2 passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `frontend/src/styles/tokens.css` and `tokens.alt.css` take the DES.4 v2
+  value set (warm paper neutrals, Okabe–Ito status colors, IBM Plex type, real night theme)
+  — same 30 property names, same five namespaces, values only. `frontend/src/styles/
+  tokens.ext.css` (new, accepted under D21/DES-4-01) adds the six-state status vocabulary
+  with color/tint/glyph, plus `--eoe-border-width-*`, `--eoe-row-height-*`,
+  `--eoe-control-height-*`, `--eoe-duration-*`, `--eoe-ease`; imported in `main.tsx`.
+  `app.css`'s four `var(--eoe-space-1)` border/outline widths now use the new
+  `--eoe-border-width-hairline: 1px`, fixing a 4px-instead-of-1px rendering defect. `docs/
+  INTERFACES.md` "Design tokens" documents the extension; `project_planning/phase-0-
+  foundations.md` gets addendum PHASE0-4-04. Two test fixes at this gate, both recorded:
+  `frontend/e2e/theme-swap.spec.ts` no longer asserts on `fontFamily`/sidebar padding, which
+  the real (not synthetic) night theme deliberately keeps identical to the light theme (D22);
+  `backend/tests/test_governance.py`'s planning-doc immutability check now diffs only the
+  documents that were actually part of `planning-baseline`, not every file currently in
+  `project_planning/`, so new non-baseline material (the DES track's handoff docs, moved
+  there and renamed at the project owner's direction: `project_planning/DES.4-handoff.md`,
+  `project_planning/DES-track-handoff.md`) doesn't crash the check (D23). Known, explicitly
+  deferred gap: `tokens.alt.css` does not yet carry dark-mode equivalents of the D21
+  extension keys — real design work (per-pair contrast verification), not done in this batch.
+- **Manual verification:** full local gate run twice — first run surfaced the two test fixes
+  above plus an unrelated environmental port collision in `backend-tests`
+  (`test_compose_stack.py`, `test_verify_tool.py`) against an already-running dev Compose
+  stack on the same host ports; the project owner stopped that stack and reran themselves,
+  confirming green, before this final `make gate` run was captured for the record above with
+  no containers competing for ports.
+
 ## 2026-07-24: E0.12+ deployment verifier, USER guide, client-facing group (Gate 14 GREEN)
 
 - **Tasks closed:** E0.12 extension (project-changes #7; addendum PHASE0-2-01)

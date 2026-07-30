@@ -5,6 +5,27 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #8 (2026-07-30): DES.4 v2 tokens land; token namespaces gain an additive status/border/density extension
+
+- **What changed:** `frontend/src/styles/tokens.css` and `tokens.alt.css` take the DES.4 v2
+  ("field notebook") value set — same 30 property names, same five namespaces, values only.
+  A third sheet, `frontend/src/styles/tokens.ext.css`, is accepted (DECISIONS D21, DES-4-01)
+  and wired into `main.tsx`: it adds keys to the existing `--eoe-color-*`/`--eoe-space-*`/
+  `--eoe-font-*` namespaces and introduces five new ones (`--eoe-border-width-*`,
+  `--eoe-row-height-*`, `--eoe-control-height-*`, `--eoe-duration-*`, `--eoe-ease`), closing
+  the six-value status vocabulary spec §9.3/§6.2 requires. Nothing in the original E0.4 key
+  set is renamed, removed, or repointed. `frontend/tests/tokens.test.ts` now treats
+  `tokens.ext.css` as a third application-owned sheet. Separately, `app.css`'s four uses of
+  `var(--eoe-space-1)` as a border/outline width (rendering a 4px sidebar border, `.card`
+  border, and both focus outlines) now use the new `--eoe-border-width-hairline: 1px`.
+- **Why:** DES.4-handoff.md flagged this as a change to an E0-owned interface (rule R2) and
+  asked for a verdict before applying it; the project owner accepted it in this session to
+  finish the DES.4 deliverable. `tokens.alt.css` does not yet mirror the extended keys with
+  dark-mode equivalents — recorded as a known, deliberately deferred gap in D21, not silently
+  dropped.
+- **Affects:** project_planning/phase-0-foundations.md section 2 (E0.4 token namespaces)
+- **Addendum:** PHASE0-4-04
+
 ## #7 (2026-07-24): Top-level guide/ directory and the deployment verifier (Gate 14)
 
 - **What changed:** The fixed repository layout gains a top-level `guide/` directory: the
