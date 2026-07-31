@@ -103,6 +103,11 @@
    * The serif is display only: page titles and the one hero number per
    * screen. Never body, never tables. */
   --eoe-font-family-display: "Source Serif 4", Georgia, serif;
+  /* The status vocabulary's shape channel. Its six codepoints exist in none of
+   * the three text families, so they get their own vendored 568-byte subset
+   * (styles/fonts.css); the fallbacks keep shapes on screen if it is ever
+   * missing. Used by .status-glyph alone — never for text. */
+  --eoe-font-family-glyph: "EOE Status Glyphs", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif;
   --eoe-font-size-2xs: 0.75rem; /* 12px — uppercase eyebrows ONLY. Absolute floor. */
   --eoe-font-size-2xl: 2.125rem; /* 34px — the single hero metric per screen */
   --eoe-font-weight-medium: 500;

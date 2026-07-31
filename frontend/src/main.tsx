@@ -4,6 +4,9 @@ import { BrowserRouter } from "react-router-dom";
 
 import { App } from "./App";
 import { initTheme } from "./lib/theme";
+// Vendored @font-face declarations, first so the faces the token sheets name
+// are registered before anything asks for them. No CDN (spec §15.1).
+import "./styles/fonts.css";
 import "./styles/tokens.css";
 import "./styles/tokens.ext.css";
 // Night theme. Both sheets are scoped to :root[data-theme="dark"], so they are

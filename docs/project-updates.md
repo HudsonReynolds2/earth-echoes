@@ -1,5 +1,45 @@
 # Project Updates
 
+## 2026-07-31: Fonts vendored, DES track handed off to E1 (Gate 18 GREEN)
+
+- **Tasks closed:** DES.4 "three rules" item 3 (fonts vendored, never fetched) and the DES
+  track's handoff into E1 (project-changes #10; addendum DES-7-02); D27 (font vendoring and
+  the status-glyph subset)
+- **Gate:** 18, GREEN
+- **Tests:** backend 172 passed, vitest 43 passed (6 new in `fonts.test.ts`), Playwright 4
+  passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `frontend/public/fonts/` carries seven latin-subset woff2 files (~160 KB)
+  declared by the new `frontend/src/styles/fonts.css`: IBM Plex Sans 400/500/600, IBM Plex
+  Mono 400/600, Source Serif 4 600, and `eoe-status-glyphs.woff2`. Only weights the CSS
+  actually uses are vendored. `frontend/tests/fonts.test.ts` gate-enforces the rule that made
+  this a task at all — no `url(https:…)` or `@import` on any sheet, every `@font-face` src
+  resolving to a committed file, every first-choice family in a `--eoe-font-family*` token
+  supplied by a face, the glyph subset covering every status glyph token, and
+  `.status-glyph::before` still naming the glyph family. `docs/INTERFACES.md` gains "Frontend
+  composition and shared components": component contracts for `PageHeader`, `ContextBar`,
+  `StatusChip`/`StatusLegend`, `EmptyState`, and `Can`, the two page-composition shapes, and
+  the conventions E1.8 and E2 inherit. Each OFL license text ships beside the fonts.
+- **The finding that shaped it (D27):** none of the six status glyphs — `●` U+25CF, `◐`
+  U+25D0, `▲` U+25B2, `■` U+25A0, `✕` U+2715, `◆` U+25C6 — exists in IBM Plex Sans, IBM Plex
+  Mono, or Source Serif 4, verified with fontTools against the **complete** families, not just
+  these subsets. Vendoring the text faces alone would therefore have left the status
+  vocabulary's shape channel to system fallback, and to tofu on a minimal air-gapped host
+  (spec §15.1) — silently deleting one of the three channels status depends on. The shapes are
+  now vendored too: Noto Sans Symbols 2 (OFL) subsetted to exactly those six codepoints, 568
+  bytes, behind the additive token `--eoe-font-family-glyph`. This closes the Gate 16 caution
+  about `◐` rendering as a hairline.
+- **Manual verification:** the project owner ran `make gate` to completion (GREEN) and viewed
+  the running compose stack in a browser, confirming the vendored typography renders as
+  intended. **Not done at this gate:** a per-route screenshot pass in both themes, and any
+  programmatic assertion that the glyph subset's shapes render distinctly at chip size — the
+  gate checks the subset's declared coverage and wiring, not its rasterisation. Carry both
+  into DES.8.
+- **Known gaps:** the map engine is not built (E6 owns it). `Design System.dc.html` (the DES.1
+  surface inventory and DES.5 component library) is not in this repository; the component
+  contracts a session needs now live in `docs/INTERFACES.md` instead. DES.8's usability review
+  stays blocked on E4–E6.
+
 ## 2026-07-30: Forest backdrop lands on every page (Gate 17 GREEN)
 
 - **Tasks closed:** DES.7 asset follow-up — the image gap the Gate 16 entry recorded as a

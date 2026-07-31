@@ -4,6 +4,43 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D27 (2026-07-31): Fonts vendored, and the status glyphs get their own 568-byte subset
+
+- **Decision:** the three typefaces the token sheets name ship as latin-subset woff2 files in
+  `frontend/public/fonts/`, declared in the new `frontend/src/styles/fonts.css` — IBM Plex
+  Sans 400/500/600, IBM Plex Mono 400/600, Source Serif 4 600. Only weights the CSS uses are
+  vendored. A **seventh** file, `eoe-status-glyphs.woff2`, carries the six status glyphs, and
+  a new additive token `--eoe-font-family-glyph` (D21 terms) points `.status-glyph::before`
+  at it.
+- **Why the seventh file — the finding that forced it:** the six status glyphs are Geometric
+  Shapes and Dingbats codepoints (`●` U+25CF, `◐` U+25D0, `▲` U+25B2, `■` U+25A0, `✕` U+2715,
+  `◆` U+25C6), and **none of them exists in IBM Plex Sans, IBM Plex Mono, or Source Serif 4**
+  — verified against the *complete* families with fontTools, not merely against these
+  subsets. So vendoring the text faces alone would have left every status shape to whatever
+  the host happens to have installed. That is the failure the Gate 16 entry saw as a hairline
+  `◐` in headless Chromium, and on a minimal air-gapped host (spec §15.1) it degrades to tofu
+  — which silently deletes one of the three channels the status vocabulary is built on
+  (`docs/INTERFACES.md`, "Status vocabulary"). Shapes are load-bearing, so they are vendored
+  like everything else: Noto Sans Symbols 2 (OFL 1.1) subsetted to exactly those six
+  codepoints, 568 bytes.
+- **Alternatives considered:** (a) swap to glyphs the text families do cover — Plex offers
+  `◊`, `✓` and arrows, not six shapes that stay distinct at 10px, so the vocabulary would
+  have shrunk to fit the font; (b) draw the shapes in CSS with `clip-path` — no font
+  dependency, but it replaces one token per status with a rule per status and breaks the
+  `content: var(--…-glyph)` design the sheets already encode. Both were rejected as worse
+  than 568 bytes.
+- **Gate enforcement:** `frontend/tests/fonts.test.ts` — every `@font-face` src resolves to a
+  committed file; no `url(https:…)` or `@import` in any sheet (vendored means vendored); every
+  first-choice family in a `--eoe-font-family*` token has an `@font-face`; **the glyph
+  subset's `unicode-range` covers every status glyph token**, so a seventh status added later
+  without re-cutting the subset fails the gate instead of shipping as tofu; and
+  `.status-glyph::before` still names the glyph family.
+- **Licensing:** all three families are OFL 1.1; each license text ships beside the fonts as
+  the OFL requires (`LICENSE-ibm-plex.txt`, `LICENSE-source-serif-4.txt`,
+  `LICENSE-noto-sans-symbols-2.txt`). Whole set ≈160 KB.
+- **Reference:** `project_planning/DES-track-handoff.md` "The three rules" item 3; spec §15.1;
+  project-changes #10.
+
 ## D26 (2026-07-30): Test fixes at Gate (DES.7 batch)
 
 Rule R0 requires recording tests changed at a red gate. All four are corrections, not

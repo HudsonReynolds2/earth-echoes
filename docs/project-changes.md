@@ -5,6 +5,37 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #10 (2026-07-31): Fonts vendored and the DES track handed off to E1
+
+- **What changed:** The DES track's last open implementation item closes before E1 starts.
+  (1) **Fonts are vendored** rather than named-and-hoped: seven latin-subset woff2 files in
+  `frontend/public/fonts/` (~160 KB) declared by the new `frontend/src/styles/fonts.css`, with
+  `frontend/tests/fonts.test.ts` gate-enforcing that nothing is fetched from a CDN, that every
+  family a token names is actually supplied, and that the status glyph subset covers every
+  glyph token. (2) The seventh file exists because of a finding: **none of the six status
+  glyphs exists in IBM Plex Sans, IBM Plex Mono, or Source Serif 4** (checked against the
+  complete families), so the shape channel — one of the three channels the status vocabulary
+  requires — was resolving to system fallback and to tofu on a minimal air-gapped host. It now
+  ships as a 568-byte Noto Sans Symbols 2 subset behind the additive token
+  `--eoe-font-family-glyph` (DECISIONS D27). (3) `docs/INTERFACES.md` gains **"Frontend
+  composition and shared components"**: the props and use of `PageHeader`, `ContextBar`,
+  `StatusChip`/`StatusLegend`, `EmptyState`, and `Can`, the two page-composition shapes, and
+  the conventions later epics must follow (no literals, component CSS in `app.css`, serif is
+  display-only, mono for identifiers, density from the row/control-height tokens, `.admin-table`
+  as the pattern E1.8's TanStack tables generalise).
+- **Why:** E1.8 builds a hierarchy tree, device tables, entity forms, and a bulk-import result
+  grid — the first heavy consumer of the design system. An implementation session's inputs are
+  the spec, its phase document, `docs/INTERFACES.md`, and `docs/DECISIONS.md`; the component
+  library those sessions need was documented only in `Design System.dc.html`, which is **not in
+  this repository**. Without this, E1 would re-invent table, form, and status vocabulary and the
+  direction would drift on its first real use. Vendoring the fonts now also settles the type
+  metrics before dense tables are built against them.
+- **Also recorded:** open question 3 (config editor on tablet) stays open and belongs to E2, not
+  E1. DES.8 remains blocked on E4–E6.
+- **Affects:** project_planning/DES-track-handoff.md ("The three rules" item 3, status table,
+  open questions)
+- **Addendum:** DES-7-02
+
 ## #9 (2026-07-30): DES.7 applied — shell restructured, night theme shipped, page skeletons ahead of their epics
 
 - **What changed:** DES.7 ("apply the design system") is done for the shell and the frame.

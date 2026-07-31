@@ -2,6 +2,9 @@
 
 **Track:** DES · **Date:** 2026-07-30 · **Stage:** DES.1–DES.6 delivered, DES.7 ready to start
 
+> **Read the addendum at the foot of this document first (DES-7-02, 2026-07-31).** DES.7 has
+> since been applied and the fonts vendored; the table below is the state as of 2026-07-30.
+
 ## Where things stand
 
 | Task | State |
@@ -11,7 +14,7 @@
 | DES.4 token sheet | **Done, including DES-4-01.** `tokens.css`/`tokens.alt.css` v2 landed; the additive `tokens.ext.css` extension is accepted (`docs/DECISIONS.md` D21) and wired into `main.tsx`. Known gap: `tokens.alt.css` doesn't yet carry dark-mode equivalents of the extended keys. |
 | DES.5 component library | **Done for v1 values, v2 for the parts used in V2·S1–S3** — buttons, badges, markers, tree, grid, wizard steps, states |
 | DES.6 UX pass | **Owner dashboard, map + drawer, night theme at v2.** Config editor, bulk edit, services wizard, provisioning board exist at v1 and need the mechanical v2 restyle |
-| DES.7 apply to frontend | **Not started** — unblocked; this doc is the input |
+| DES.7 apply to frontend | **Applied** (Gates 16–18) — see addendum DES-7-01 and DES-7-02 |
 | DES.8 usability review of the built UI | Blocked on E4–E6 |
 
 ## Files to take
@@ -76,6 +79,25 @@ redrawn yet, and their layout is still correct.
    desktop-only.
 
 > **Addendum DES-7-01 (2026-07-30, ref project-changes #9):** Items 4 and 5 are done — the shell is V2·S1's dark top bar (DECISIONS D25), and the night theme ships behind a manual toggle plus `prefers-color-scheme`, with `tokens.ext.alt.css` closing D21's dark-palette gap (D24). Item 6 is **not** done as written: rather than restyle the four v1 screens with invented content, Map, Inventory, Configuration, and Provisioning ship as routed, v2-styled skeletons naming the epic that brings their data. Open question 2 (does a Field Tech see telemetry?) is superseded for navigation purposes by D25 — the primary nav lists every destination for every role and pages gate their own contents; the disabled-tab treatment is deferred to DES.8. Open question 3 (config editor on tablet) is still open. Also deferred: the map engine (E6 owns it; direction recorded in project-changes #9) and font vendoring — the woff2 files named in "The three rules" are still absent, so the product renders in the fallback stack.
+
+> **Addendum DES-7-02 (2026-07-31, ref project-changes #10):** Closing the DES track's
+> implementation batch before E1 starts. **Fonts are now vendored** — the "three rules" item 3
+> is satisfied: IBM Plex Sans 400/500/600, IBM Plex Mono 400/600 and Source Serif 4 600 ship
+> as latin-subset woff2 in `frontend/public/fonts/`, declared by `frontend/src/styles/fonts.css`,
+> with `frontend/tests/fonts.test.ts` failing the gate on any CDN URL. One finding changed the
+> design: the six status glyphs exist in **none** of the three text families (verified against
+> the complete families), so they ship as their own 568-byte Noto Sans Symbols 2 subset behind
+> `--eoe-font-family-glyph` — full reasoning in `docs/DECISIONS.md` D27. That closes the Gate 16
+> caution about `◐` rendering as a hairline. **`Design System.dc.html` (DES.1 inventory, DES.5
+> component library) is not in this repository** — only `Screens.dc.html` and
+> `Screens v2.dc.html` are — so a session needing the component library builds from
+> `docs/INTERFACES.md` "Frontend composition and shared components", which now carries the
+> component contracts, the composition rules, and the conventions E1.8 and E2 must follow.
+> **Open question 3 (config editor on tablet) remains open and belongs to E2**, not E1 —
+> nothing in E1's inventory tree or tables depends on the answer. DES.8 is still blocked on
+> E4–E6, and the un-eyeballed items it inherits are unchanged: the four v1 screens' mechanical
+> restyle (item 6, superseded by DES-7-01), the backdrop scrim across all eight routes in both
+> themes, and pixel-level QA of the `Screens v2.dc.html` frames.
 
 ## Known caveat
 

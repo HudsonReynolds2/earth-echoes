@@ -367,6 +367,9 @@ h2 {
 
 .status-glyph::before {
   content: var(--status-glyph);
+  /* Vendored shape subset, not the text face — none of the three text
+   * families carries these codepoints (styles/fonts.css). */
+  font-family: var(--eoe-font-family-glyph);
 }
 
 .status-chip[data-status="healthy"] {
