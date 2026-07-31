@@ -22,19 +22,40 @@ function renderAt(path: string) {
 }
 
 describe("shell and routing", () => {
-  it("renders sidebar and content regions", () => {
+  // D25 restructured the shell from a left sidebar to a dark top bar; the
+  // regions are the same two, under their new names.
+  it("renders top bar and content regions", () => {
     renderAt("/");
-    expect(screen.getByTestId("shell-sidebar")).toBeInTheDocument();
+    expect(screen.getByTestId("shell-topbar")).toBeInTheDocument();
     expect(screen.getByTestId("shell-content")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
   });
 
   it("renders each declared route", async () => {
-    renderAt("/");
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-    cleanup();
-    renderAt("/system");
-    expect(await screen.findByRole("heading", { name: "System" })).toBeInTheDocument();
+    for (const [path, heading] of [
+      ["/", "Overview"],
+      ["/system", "System"],
+      ["/inventory", "Inventory"],
+      ["/configuration", "Inheritance editor"],
+      ["/provisioning", "Provisioning"],
+    ]) {
+      renderAt(path);
+      expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+      cleanup();
+    }
+    renderAt("/map");
+    expect(await screen.findByTestId("map-region")).toBeInTheDocument();
+  });
+
+  // The legend is the accessibility contract for the whole status vocabulary:
+  // six states, each carrying a glyph as well as a color.
+  it("renders all six device statuses in the map legend", async () => {
+    renderAt("/map");
+    const legend = await screen.findByTestId("status-legend");
+    const statuses = [...legend.querySelectorAll("[data-status]")].map(
+      (element) => element.getAttribute("data-status") ?? "",
+    );
+    expect(statuses).toEqual(["healthy", "sleeping", "degraded", "offline", "alerting", "drifted"]);
   });
 
   it("renders the 404 view for unknown routes", () => {

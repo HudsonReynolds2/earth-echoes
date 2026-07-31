@@ -4,6 +4,207 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D27 (2026-07-31): Fonts vendored, and the status glyphs get their own 568-byte subset
+
+- **Decision:** the three typefaces the token sheets name ship as latin-subset woff2 files in
+  `frontend/public/fonts/`, declared in the new `frontend/src/styles/fonts.css` — IBM Plex
+  Sans 400/500/600, IBM Plex Mono 400/600, Source Serif 4 600. Only weights the CSS uses are
+  vendored. A **seventh** file, `eoe-status-glyphs.woff2`, carries the six status glyphs, and
+  a new additive token `--eoe-font-family-glyph` (D21 terms) points `.status-glyph::before`
+  at it.
+- **Why the seventh file — the finding that forced it:** the six status glyphs are Geometric
+  Shapes and Dingbats codepoints (`●` U+25CF, `◐` U+25D0, `▲` U+25B2, `■` U+25A0, `✕` U+2715,
+  `◆` U+25C6), and **none of them exists in IBM Plex Sans, IBM Plex Mono, or Source Serif 4**
+  — verified against the *complete* families with fontTools, not merely against these
+  subsets. So vendoring the text faces alone would have left every status shape to whatever
+  the host happens to have installed. That is the failure the Gate 16 entry saw as a hairline
+  `◐` in headless Chromium, and on a minimal air-gapped host (spec §15.1) it degrades to tofu
+  — which silently deletes one of the three channels the status vocabulary is built on
+  (`docs/INTERFACES.md`, "Status vocabulary"). Shapes are load-bearing, so they are vendored
+  like everything else: Noto Sans Symbols 2 (OFL 1.1) subsetted to exactly those six
+  codepoints, 568 bytes.
+- **Alternatives considered:** (a) swap to glyphs the text families do cover — Plex offers
+  `◊`, `✓` and arrows, not six shapes that stay distinct at 10px, so the vocabulary would
+  have shrunk to fit the font; (b) draw the shapes in CSS with `clip-path` — no font
+  dependency, but it replaces one token per status with a rule per status and breaks the
+  `content: var(--…-glyph)` design the sheets already encode. Both were rejected as worse
+  than 568 bytes.
+- **Gate enforcement:** `frontend/tests/fonts.test.ts` — every `@font-face` src resolves to a
+  committed file; no `url(https:…)` or `@import` in any sheet (vendored means vendored); every
+  first-choice family in a `--eoe-font-family*` token has an `@font-face`; **the glyph
+  subset's `unicode-range` covers every status glyph token**, so a seventh status added later
+  without re-cutting the subset fails the gate instead of shipping as tofu; and
+  `.status-glyph::before` still names the glyph family.
+- **Licensing:** all three families are OFL 1.1; each license text ships beside the fonts as
+  the OFL requires (`LICENSE-ibm-plex.txt`, `LICENSE-source-serif-4.txt`,
+  `LICENSE-noto-sans-symbols-2.txt`). Whole set ≈160 KB.
+- **Reference:** `project_planning/DES-track-handoff.md` "The three rules" item 3; spec §15.1;
+  project-changes #10.
+
+## D26 (2026-07-30): Test fixes at Gate (DES.7 batch)
+
+Rule R0 requires recording tests changed at a red gate. All four are corrections, not
+weakenings.
+
+- **`tokens.test.ts` check 1** matched named colors anywhere in a declaration, so
+  `white-space: nowrap` failed. Now scans the value only; `color: white` still fails.
+- **`tokens.test.ts` check 5** forbids components *importing* a night sheet, but matched the
+  filename in prose too, tripping on `lib/theme.ts`'s own header comment. Now matches
+  `import "…tokens.alt.css"`.
+- **`tests/setup.ts` stubs `window.matchMedia`** — jsdom has no media queries, so
+  `lib/theme.ts`'s `prefers-color-scheme` probe threw. Reports "not dark". No coverage lost:
+  real resolution, override, and persistence are checked in `e2e/theme-swap.spec.ts`.
+- **`auth.test.tsx`** asserts the account by accessible name, not text: D25's top bar shows
+  an initials avatar and the email is now `aria-label`/`title`. Same invariant, stronger
+  form — it checks what a screen reader announces.
+- **Reference:** rule R0 on_failure; `frontend-tests` gate run, DES.7 batch.
+
+## D25 (2026-07-30): DES.7 shell restructure — dark top bar, and primary nav lists every destination
+
+- **Decision:** `Shell.tsx` becomes V2·S1's dark top bar with horizontal nav over an optional
+  context band, replacing E0.4's left sidebar.
+  `project_planning/DES-track-handoff.md` item 4 names this DES.7's one structural change:
+  the map needs full viewport width and the breadcrumb needs a permanent home. `shell-sidebar`
+  → `shell-topbar`; regions, `aria-label="Primary"`, and routes otherwise unchanged. New
+  shared components: `ContextBar`, `PageHeader`, `StatusChip`/`StatusLegend`, `EmptyState`,
+  `ThemeToggle`.
+- **The consequential half: primary nav lists every destination for every role,** rather than
+  hiding entries behind `<Can>` as the E0.7 sidebar did. Hiding a section teaches a wrong map
+  of the product and makes a permissions problem look like a missing feature. Pages gate their
+  own contents instead (`UsersAdmin` already did), and backend RBAC remains the authority.
+  An affordance change, not a security one — no endpoint's protection depended on a hidden link.
+- **The four new skeleton pages carry no gate,** deliberately: they display no data, only which
+  epic brings the surface. Each gets its gate in that epic.
+- **Rejected:** rendering unpermitted entries visibly disabled (the handoff's read of spec
+  §12.3). Right once roles are routinely exercised; during the skeleton phase every entry would
+  render disabled for a signed-out reviewer. Revisit at DES.8.
+
+## D24 (2026-07-30): Night theme ships — D21's dark-palette gap closed, selector-scoped
+
+- **Decision:** D21 left one gap open — nothing carried dark values for the extension keys, so
+  a dark marker, badge, or table cell rendered a near-black status color on a near-black
+  surface. `frontend/src/styles/tokens.ext.alt.css` closes it. `tokens.alt.css` stops being a
+  test fixture: `main.tsx` imports both night sheets unconditionally and `lib/theme.ts` sets
+  `document.documentElement.dataset.theme`.
+- **Selector, not import order:** both night sheets are scoped to `:root[data-theme="dark"]`,
+  outranking the light sheets' plain `:root`. Reordering imports cannot change which theme
+  wins, and nothing is injected or disabled at runtime. Check 10 fails the gate on a bare
+  `:root` in either night sheet.
+- **Resolution:** a stored choice wins and pins the theme; otherwise `prefers-color-scheme`
+  decides and keeps deciding. The manual override is not optional — field staff read this
+  outdoors in daylight, where the OS setting is wrong.
+- **Color keys only.** Glyphs, spacing, type, density, motion, and border widths are
+  theme-independent. Check 9 fails if the night sheet defines a key the light extension does
+  not (it would resolve in dark, be undefined in light); check 8 mirrors check 7 so
+  `danger`/`success`/`warning` cannot drift from their status aliases in either theme. Every
+  status color was contrast-verified per pair against its tint, `surface`, and `bg`; lowest in
+  the set is 4.8:1.
+- **New keys in `tokens.ext.css`, same D21 terms (nothing renamed or repointed):**
+  `--eoe-color-action-contrast-muted`, `-action-raised`, `-accent-on-action`, `-brand-mark` —
+  the chrome is `--eoe-color-action` in *both* themes, so anything sitting on it needs an
+  on-dark pair; `--eoe-radius-pill`/`-round` (shape constants, not ramp points);
+  `--eoe-height-topbar`/`-contextbar` (new `--eoe-height-*` namespace for fixed app furniture,
+  which is not a control height).
+- **Rejected:** toggling `<link disabled>` at runtime (flash of wrong theme, not statically
+  analyzable); a `prefers-color-scheme` media block (no manual override, the requirement that
+  matters most here).
+
+## D23 (2026-07-30): Test fix at Gate (DES batch), planning-doc governance check scoped to the actual baseline set
+
+- **Decision:** `backend/tests/test_governance.py::test_planning_documents_unmodified_except_appended_addenda`
+  iterated every `*.md` file currently present in `project_planning/` and required each to
+  have an identical counterpart in the `planning-baseline` git tag, crashing (not failing
+  cleanly) on any file that didn't exist at baseline. This batch adds
+  `project_planning/DES.4-handoff.md` and `project_planning/DES-track-handoff.md` — DES-track
+  handoff/rationale material, not the fixed spec/plan/handbook/phase documents the baseline
+  tag actually pins (implementation-handbook.md section 1's authority order names exactly
+  those five kinds of document as "binding"). The test now walks
+  `git ls-tree --name-only planning-baseline project_planning/` instead of the live directory
+  listing, so it diffs only the documents that were actually part of the frozen baseline.
+  New, non-baseline files in `project_planning/` are simply outside what this invariant
+  covers — there is nothing in the baseline tree to diff a new file against.
+- **Rationale:** Rule R0 requires recording any test fix made at a red gate. Not a weakening:
+  the seven originally-baselined documents are exactly as protected as before (still diffed
+  byte-for-byte outside appended addenda); the test's old behavior of hard-crashing on any
+  new sibling file was an artifact of nothing having been added to the directory since E0.0,
+  not a deliberate invariant that new files are forbidden.
+- **Owner directive:** the project owner asked directly for DES-track handoff/rationale docs
+  to live in `project_planning/`, not `docs/` — they are project-planning material, not
+  engineering-internal logs. `docs/DES.4-handoff.md` moves to
+  `project_planning/DES.4-handoff.md`; `docs/HANDOFF.md` moves to and is renamed
+  `project_planning/DES-track-handoff.md` (its content spans DES.1–DES.8, so the generic name
+  no longer fit next to a track-scoped one).
+- **Reference:** rule R0 on_failure; `backend-tests` gate run during the D21 (DES-4-01) batch;
+  `test_planning_documents_tracked_by_git` (unaffected, still a `>= 7` lower bound).
+
+## D22 (2026-07-30): Test fix at Gate (DES batch), theme-swap assertion no longer checks font/spacing
+
+- **Decision:** `frontend/e2e/theme-swap.spec.ts` asserted that `fontFamily` and the
+  sidebar's computed `padding` change when `tokens.alt.css` is swapped in. Both assertions
+  now fail: the DES.4 v2 night theme deliberately keeps the same type family and the same
+  `--eoe-space-*` scale as the light sheet ("relit rather than inverted" — only color and
+  shadow values change; see `tokens.alt.css`'s own header comment). The assertions checked
+  an artifact of the old *synthetic* alt sheet (E0.4-era: an arbitrary Georgia/mono/zero-radius
+  fixture designed so every property category visibly differed), not an actual product
+  requirement — nothing in spec 3.2 or the DES track's direction calls for the night theme to
+  use a different typeface or rhythm. Replaced with `sidebarBackground`
+  (`--eoe-color-surface`) and `sidebarBorderColor` (`--eoe-color-border`), which do differ
+  between the two real themes and still prove the swap mechanism (loading the alternate sheet
+  changes computed styles with zero code changes) end to end.
+- **Rationale:** Rule R0 requires recording any test fix made at a red gate. This is a test
+  correction, not a weakening: the invariant under test — "swapping token values visibly
+  restyles the shell" (E0.4 acceptance criterion) — still holds and is still checked on real
+  computed styles; only the specific CSS properties asserted changed, because two of the four
+  original properties are no longer expected to differ by design.
+- **Reference:** rule R0 on_failure; `frontend-e2e` gate run during the D21 (DES-4-01) batch;
+  docs/INTERFACES.md "Design tokens".
+
+## D21 (2026-07-30): DES-4-01 accepted — additive status/border/density token namespaces
+
+- **Decision:** `docs/INTERFACES.md` "Design tokens" fixed five namespaces and DES.4's brief
+  was a replacement *value set* for the existing property names only. The six device states
+  spec §9.3/§6.2 requires (`streaming/healthy`, `sleeping`, `degraded`, `offline`,
+  `alerting`, `drifted`) cannot be built inside the locked `danger`/`success`/`warning` set
+  without collapsing distinct states (`sleeping` into `offline`, `drifted` into `failed`),
+  which spec §6.5/§6.2 treat as meaningfully different. **Accepted as proposed, additive
+  only:** `frontend/src/styles/tokens.ext.css` extends `--eoe-color-*`, `--eoe-space-*`, and
+  `--eoe-font-*` with new keys, and introduces new namespaces `--eoe-border-width-*`,
+  `--eoe-row-height-*`, `--eoe-control-height-*`, `--eoe-duration-*`, `--eoe-ease`. No
+  existing key is renamed, removed, or repointed; `danger`/`success`/`warning` keep their
+  names and are aliased to `status-alerting`/`status-healthy`/`status-degraded` so the two
+  vocabularies cannot drift apart. Each status carries a color, a tint, and a glyph
+  (`--eoe-color-status-{name}`, `-tint`, `-glyph`) — color is never the only channel spec
+  §9.3 badges/markers/chips rely on, and the six-value status vocabulary is now closed.
+  `frontend/src/main.tsx` imports the sheet; `frontend/tests/tokens.test.ts` treats it as a
+  third application-owned sheet (alongside `tokens.css`/`tokens.alt.css`), not a literal
+  leak, and check 7 asserts the `danger`/`success`/`warning` values stay byte-equal to their
+  status aliases (a real cross-sheet `var()` reference isn't possible without coupling
+  `tokens.css` to the extension, so the sync is gate-enforced instead).
+- **Rejected alternatives:** reusing `danger`/`success`/`warning` for six states (loses the
+  `sleeping`/`offline` and `drifted`/`failed` distinctions spec §6.2/§6.5 require); literals
+  in a separate `status.css` module (defeats the DES.7 theme-swap guarantee — a dark theme
+  would leave status colors behind); encoding status in a data attribute and resolving color
+  in JS (moves theme values into TS, the same gate problem one layer removed).
+- **Separable bug fix, included in the same change:** `frontend/src/styles/app.css` wrote
+  `border: var(--eoe-space-1) solid …` / `outline: var(--eoe-space-1) solid …` in four places
+  for want of a width token, rendering the sidebar border, `.card` border, and both
+  focus-visible outlines at **4px** instead of a hairline. All four now use the new
+  `--eoe-border-width-hairline: 1px`.
+- **Known gap, deliberately deferred:** `tokens.alt.css` (the night theme) does **not** yet
+  mirror the keys `tokens.ext.css` adds. `tests/tokens.test.ts` check 6 still only compares
+  `tokens.css` against `tokens.alt.css`, so this is not gate-enforced yet either. Producing
+  correct dark-mode status colors requires per-pair contrast verification the way the three
+  existing status-aliased colors got (spec'd, not just scaled) — that is real design work, not
+  a mechanical follow of this decision, and is out of scope for this batch. Do not assume the
+  night theme has a status palette until a follow-up decision closes this gap.
+- **Rationale:** Rule R2 requires flagging a change to an E0-owned interface before applying
+  it; DES.4-handoff.md was that flag, raised by the DES track. The project owner accepted it
+  in this session as part of finishing the DES.4 delivery — additive-only, so every current
+  E0 consumer of the five locked namespaces is unaffected and the E0.4 acceptance criteria
+  keep holding.
+- **Reference:** project-changes #8; project_planning/DES.4-handoff.md; docs/INTERFACES.md "Design
+  tokens"; spec sections 9.3, 6.2, 6.5; phase-0-foundations.md section 2 (E0.4).
+
 ## D20 (2026-07-24): Verifier cleanup semantics and httpx promotion
 
 - **Decision:** The deployment verifier (`app/verify.py`) deletes the temporary accounts it

@@ -1,5 +1,145 @@
 # Project Updates
 
+## 2026-07-31: Fonts vendored, DES track handed off to E1 (Gate 18 GREEN)
+
+- **Tasks closed:** DES.4 "three rules" item 3 (fonts vendored, never fetched) and the DES
+  track's handoff into E1 (project-changes #10; addendum DES-7-02); D27 (font vendoring and
+  the status-glyph subset)
+- **Gate:** 18, GREEN
+- **Tests:** backend 172 passed, vitest 43 passed (6 new in `fonts.test.ts`), Playwright 4
+  passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `frontend/public/fonts/` carries seven latin-subset woff2 files (~160 KB)
+  declared by the new `frontend/src/styles/fonts.css`: IBM Plex Sans 400/500/600, IBM Plex
+  Mono 400/600, Source Serif 4 600, and `eoe-status-glyphs.woff2`. Only weights the CSS
+  actually uses are vendored. `frontend/tests/fonts.test.ts` gate-enforces the rule that made
+  this a task at all — no `url(https:…)` or `@import` on any sheet, every `@font-face` src
+  resolving to a committed file, every first-choice family in a `--eoe-font-family*` token
+  supplied by a face, the glyph subset covering every status glyph token, and
+  `.status-glyph::before` still naming the glyph family. `docs/INTERFACES.md` gains "Frontend
+  composition and shared components": component contracts for `PageHeader`, `ContextBar`,
+  `StatusChip`/`StatusLegend`, `EmptyState`, and `Can`, the two page-composition shapes, and
+  the conventions E1.8 and E2 inherit. Each OFL license text ships beside the fonts.
+- **The finding that shaped it (D27):** none of the six status glyphs — `●` U+25CF, `◐`
+  U+25D0, `▲` U+25B2, `■` U+25A0, `✕` U+2715, `◆` U+25C6 — exists in IBM Plex Sans, IBM Plex
+  Mono, or Source Serif 4, verified with fontTools against the **complete** families, not just
+  these subsets. Vendoring the text faces alone would therefore have left the status
+  vocabulary's shape channel to system fallback, and to tofu on a minimal air-gapped host
+  (spec §15.1) — silently deleting one of the three channels status depends on. The shapes are
+  now vendored too: Noto Sans Symbols 2 (OFL) subsetted to exactly those six codepoints, 568
+  bytes, behind the additive token `--eoe-font-family-glyph`. This closes the Gate 16 caution
+  about `◐` rendering as a hairline.
+- **Manual verification:** the project owner ran `make gate` to completion (GREEN) and viewed
+  the running compose stack in a browser, confirming the vendored typography renders as
+  intended. **Not done at this gate:** a per-route screenshot pass in both themes, and any
+  programmatic assertion that the glyph subset's shapes render distinctly at chip size — the
+  gate checks the subset's declared coverage and wiring, not its rasterisation. Carry both
+  into DES.8.
+- **Known gaps:** the map engine is not built (E6 owns it). `Design System.dc.html` (the DES.1
+  surface inventory and DES.5 component library) is not in this repository; the component
+  contracts a session needs now live in `docs/INTERFACES.md` instead. DES.8's usability review
+  stays blocked on E4–E6.
+
+## 2026-07-30: Forest backdrop lands on every page (Gate 17 GREEN)
+
+- **Tasks closed:** DES.7 asset follow-up — the image gap the Gate 16 entry recorded as a
+  known deliberate gap is now closed (project-changes #9, amended)
+- **Gate:** 17, GREEN
+- **Tests:** backend 172 passed, vitest 37 passed, Playwright 4 passed; 0 failed / 0 skipped
+  / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `frontend/public/images/forest-background.jpg` is committed and now backs
+  **every** page through `.shell-content`, not just the login hero. One additive token
+  carries it: `--eoe-color-backdrop-scrim` in `tokens.ext.css` (0.93) with its night value in
+  `tokens.ext.alt.css` (0.94), held a notch heavier because a daylight forest photo is far
+  brighter than `--eoe-color-bg`. The scrim is near-opaque on purpose — the photo reads as
+  texture, the effective background stays within a hair of `--eoe-color-bg`, and every
+  contrast ratio the token sheets document still holds. `.login-page` keeps the much lighter
+  `--eoe-color-overlay` and lets the photograph carry the screen, since its only content is
+  an opaque card. Both treatments paint a `background-color` first, so a missing file
+  degrades to a flat token color rather than to unreadable text. `public/images/README.md`
+  documents the two treatments and the resize command.
+- **Asset decision:** the file is committed web-sized — 1920×1280, ~925 KB, EXIF stripped —
+  rather than as the 6000×4000 / 24 MB camera original supplied. It is fetched on every page
+  now, not one, and git keeps binaries forever. `-strip` also drops the EXIF capture location
+  the original carried.
+- **Manual verification:** `make gate` was run to completion by the project owner and
+  reported green. **Not done at this gate:** per-route screenshots of the new backdrop in
+  both themes. The change is CSS-only and fails safe (flat token color) if the asset is
+  missing, but the scrim values are a visual judgement that has not been eyeballed across all
+  eight routes — carry it into DES.8's usability review.
+- **Known gaps, unchanged from Gate 16:** the map engine is not built (E6 owns it). Fonts are
+  not vendored, so IBM Plex and Source Serif 4 render in their fallback stacks, and the
+  `sleeping` glyph (`◐`, U+25D0) still wants re-checking once they are.
+
+## 2026-07-30: DES.7 applied — V2 shell, night theme, page skeletons (Gate 16 GREEN)
+
+- **Tasks closed:** DES.7 for the shell and frame (project-changes #9; addendum DES-7-01);
+  D24 (night theme ships, D21's dark-palette gap closed); D25 (shell restructure; primary nav
+  lists every destination); D26 (four test fixes at this gate)
+- **Gate:** 16, GREEN
+- **Tests:** backend 172 passed, vitest 37 passed (10 in `tokens.test.ts`, including new
+  checks 8-10), Playwright 4 passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `Shell.tsx` is now V2·S1's dark top bar with horizontal nav, replacing the
+  E0.4 sidebar (`shell-sidebar` → `shell-topbar`); `app.css` is rewritten against the v2
+  direction, still literal-free. New shared components: `ContextBar`, `PageHeader`,
+  `StatusChip`/`StatusLegend`, `EmptyState`, `ThemeToggle`. The night theme ships:
+  `tokens.alt.css` stops being a fixture and the new `tokens.ext.alt.css` carries dark values
+  for every extension color key, both scoped to `:root[data-theme="dark"]` so specificity —
+  not import order — decides the theme; `lib/theme.ts` resolves a persisted manual override
+  ahead of `prefers-color-scheme`. New keys in `tokens.ext.css` on D21's terms:
+  `--eoe-color-action-contrast-muted`/`-action-raised`/`-accent-on-action`/`-brand-mark`,
+  `--eoe-radius-pill`/`-round`, `--eoe-height-topbar`/`-contextbar`. Routes and v2-styled
+  skeletons added for Map, Inventory, Configuration, and Provisioning, each naming the epic
+  that fills it — no mock data. `docs/INTERFACES.md` documents the fourth sheet and the shell
+  shape.
+- **Manual verification:** all eight routes screenshotted at 1440×900 in Chromium in both
+  themes; no horizontal overflow on any page; theme toggle, its persistence across reload,
+  and the relit status palette confirmed against computed styles.
+- **Known gaps, deliberate:** the map engine is not built (E6 owns it; Google Maps satellite
+  online / operator-supplied local image offline per spec §15.1, ESRI later). Fonts are not
+  vendored, so IBM Plex and Source Serif 4 render in their fallback stacks. The login
+  backdrop expects `frontend/public/images/forest-background.jpg`, absent today, and degrades
+  to a flat token color. **Caution:** the `sleeping` glyph (`◐`, U+25D0) rendered as a
+  hairline mark in headless Chromium's fallback font — the status vocabulary depends on the
+  glyph channel, so re-check it once the real fonts are vendored.
+
+## 2026-07-30: DES.4 v2 tokens, DES-4-01 additive extension accepted (Gate 15 GREEN)
+
+- **Tasks closed:** DES.4 (v2 "field notebook" value set, plus the DES-4-01 additive
+  extension) (project-changes #8; addendum PHASE0-4-04); D21 (DES-4-01 accepted); D22 and
+  D23 (test fixes at this gate)
+- **Gate:** 15, GREEN
+- **Tests:** backend 172 passed, vitest 33 passed (7 in `tokens.test.ts`, including new
+  check 7), Playwright 2 passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `make gate`
+- **Artifacts:** `frontend/src/styles/tokens.css` and `tokens.alt.css` take the DES.4 v2
+  value set (warm paper neutrals, Okabe–Ito status colors, IBM Plex type, real night theme)
+  — same 30 property names, same five namespaces, values only. `frontend/src/styles/
+  tokens.ext.css` (new, accepted under D21/DES-4-01) adds the six-state status vocabulary
+  with color/tint/glyph, plus `--eoe-border-width-*`, `--eoe-row-height-*`,
+  `--eoe-control-height-*`, `--eoe-duration-*`, `--eoe-ease`; imported in `main.tsx`.
+  `app.css`'s four `var(--eoe-space-1)` border/outline widths now use the new
+  `--eoe-border-width-hairline: 1px`, fixing a 4px-instead-of-1px rendering defect. `docs/
+  INTERFACES.md` "Design tokens" documents the extension; `project_planning/phase-0-
+  foundations.md` gets addendum PHASE0-4-04. Two test fixes at this gate, both recorded:
+  `frontend/e2e/theme-swap.spec.ts` no longer asserts on `fontFamily`/sidebar padding, which
+  the real (not synthetic) night theme deliberately keeps identical to the light theme (D22);
+  `backend/tests/test_governance.py`'s planning-doc immutability check now diffs only the
+  documents that were actually part of `planning-baseline`, not every file currently in
+  `project_planning/`, so new non-baseline material (the DES track's handoff docs, moved
+  there and renamed at the project owner's direction: `project_planning/DES.4-handoff.md`,
+  `project_planning/DES-track-handoff.md`) doesn't crash the check (D23). Known, explicitly
+  deferred gap: `tokens.alt.css` does not yet carry dark-mode equivalents of the D21
+  extension keys — real design work (per-pair contrast verification), not done in this batch.
+- **Manual verification:** full local gate run twice — first run surfaced the two test fixes
+  above plus an unrelated environmental port collision in `backend-tests`
+  (`test_compose_stack.py`, `test_verify_tool.py`) against an already-running dev Compose
+  stack on the same host ports; the project owner stopped that stack and reran themselves,
+  confirming green, before this final `make gate` run was captured for the record above with
+  no containers competing for ports.
+
 ## 2026-07-24: E0.12+ deployment verifier, USER guide, client-facing group (Gate 14 GREEN)
 
 - **Tasks closed:** E0.12 extension (project-changes #7; addendum PHASE0-2-01)

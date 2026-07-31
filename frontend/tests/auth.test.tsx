@@ -95,10 +95,16 @@ describe("shell session affordance", () => {
     expect(await screen.findByRole("link", { name: "Sign in" })).toBeInTheDocument();
   });
 
+  // D25: the V2 top bar shows an initials avatar rather than the full address,
+  // so the email is now the element's accessible name instead of its text. The
+  // invariant is unchanged — the signed-in account must be identifiable from
+  // the shell — and asserting the accessible name is the stronger check, since
+  // it is what a screen reader actually announces.
   it("shows the account and sign-out when logged in", async () => {
     server.use(http.get("http://api.test/api/v1/auth/me", () => HttpResponse.json(mePayload)));
     renderAt("/");
-    expect(await screen.findByTestId("auth-email")).toHaveTextContent("owner@example.com");
+    expect(await screen.findByRole("img", { name: "owner@example.com" })).toBeInTheDocument();
+    expect(screen.getByTestId("auth-email")).toHaveTextContent("OW");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 });

@@ -1,0 +1,134 @@
+/**
+ * ADDITIVE token sheet, accepted under docs/DECISIONS.md D21 (DES-4-01).
+ * Imported by main.tsx alongside tokens.css. Every name here is NEW; nothing
+ * in the five locked namespaces (docs/INTERFACES.md "Design tokens") is
+ * renamed, removed, or repointed.
+ *
+ * The status palette is Okabe–Ito derived and each status carries a GLYPH
+ * token, so no status is distinguished by hue alone. Row heights and control
+ * heights are all larger than the E0.4 baseline.
+ *
+ * D21's known gap is closed (DES.7, D24): tokens.ext.alt.css now carries the
+ * dark-mode value of every COLOR key defined here, under
+ * :root[data-theme="dark"]. Non-color keys below are theme-independent by
+ * design and are deliberately not restated there.
+ */
+:root {
+  /* ── status: six device states (spec 9.3, 6.2) ─────────────────────────
+   * Colors from the Okabe–Ito colorblind-safe palette, darkened to clear
+   * 4.5:1 on --eoe-color-bg. Ordered by lightness so the set also reads as a
+   * ramp in greyscale.
+   *
+   * COLOR IS NEVER THE ONLY CHANNEL. Every status badge renders
+   * glyph + label + color, and the glyphs are shape-distinct, not just
+   * different characters. This is the rule that makes the palette accessible;
+   * the hex values alone do not. */
+  --eoe-color-status-healthy: #007a5e; /* bluish green */
+  --eoe-color-status-healthy-tint: #e2f0eb;
+  --eoe-color-status-healthy-glyph: "●"; /* filled circle */
+  --eoe-color-status-sleeping: #3d7ea8; /* sky blue, darkened */
+  --eoe-color-status-sleeping-tint: #e5eef4;
+  --eoe-color-status-sleeping-glyph: "◐"; /* half circle */
+  --eoe-color-status-degraded: #9c6100; /* orange, darkened */
+  --eoe-color-status-degraded-tint: #f6ecd9;
+  --eoe-color-status-degraded-glyph: "▲"; /* triangle */
+  --eoe-color-status-offline: #6b736d; /* neutral grey */
+  --eoe-color-status-offline-tint: #eceeeb;
+  --eoe-color-status-offline-glyph: "■"; /* square */
+  --eoe-color-status-alerting: #b8430e; /* vermillion */
+  --eoe-color-status-alerting-tint: #f8e7de;
+  --eoe-color-status-alerting-glyph: "✕"; /* cross */
+  --eoe-color-status-drifted: #8f4f86; /* reddish purple */
+  --eoe-color-status-drifted-tint: #f2e7f0;
+  --eoe-color-status-drifted-glyph: "◆"; /* diamond */
+
+  /* Aliases: set these, never restate the hex, so the three locked semantic
+   * colors and the six statuses can never drift apart.
+   *   --eoe-color-success == --eoe-color-status-healthy
+   *   --eoe-color-warning == --eoe-color-status-degraded
+   *   --eoe-color-danger  == --eoe-color-status-alerting  */
+
+  /* ── ink as the interactive color ──────────────────────────────────────
+   * Primary buttons are near-black, not accent-colored. That is what frees
+   * the color budget for status. */
+  --eoe-color-action: #1e2321;
+  --eoe-color-action-hover: #333b37;
+  --eoe-color-action-contrast: #ffffff;
+  /* The app chrome (top bar) is --eoe-color-action in BOTH themes, so anything
+   * sitting on it needs its own on-dark pair — the light theme's accent and
+   * muted text are illegible there. All verified >= 4.5:1 on #1e2321 (light)
+   * and #0c100e (dark). */
+  --eoe-color-action-contrast-muted: rgb(255 255 255 / 0.66);
+  --eoe-color-action-raised: rgb(255 255 255 / 0.09);
+  --eoe-color-accent-on-action: #6fb6cf;
+  --eoe-color-brand-mark: #3fbf95;
+  --eoe-color-accent-hover: #0b414f;
+  --eoe-color-accent-tint: #e4eef2; /* selected row, active tab, selected marker halo */
+  --eoe-color-focus-ring: rgb(16 86 107 / 0.34);
+
+  /* ── neutrals the locked set is one short of ───────────────────────── */
+  --eoe-color-text-subtle: #8a9089; /* units, timestamps, counts. Non-essential text ONLY —
+                                         * 3.4:1, so never the only carrier of meaning. */
+  --eoe-color-border-strong: #c6bfb2; /* control and input borders */
+  --eoe-color-overlay: rgb(30 35 33 / 0.46);
+  /* Page backdrop scrim. Near-opaque ON PURPOSE: the forest photograph sits
+   * behind every page as texture, not as an image, and content (page titles,
+   * eyebrows, table text) reads directly on it. At 0.93 the effective
+   * background stays within a hair of --eoe-color-bg, so every contrast ratio
+   * quoted above still holds. The login hero deliberately overrides this with
+   * the much lighter --eoe-color-overlay: there, the only content is an opaque
+   * card, so the photo can carry the screen. */
+  --eoe-color-backdrop-scrim: rgb(247 245 241 / 0.93);
+
+  /* ── border width ─────────────────────────────────────────────────────
+   * app.css writes "border: var(--eoe-space-1) solid" for want of a width
+   * token, which renders 4px sidebar, card, and focus borders today. */
+  --eoe-border-width-hairline: 1px;
+  --eoe-border-width-emphasis: 2px;
+  --eoe-border-width-selected: 3px; /* selected tree/table row inset bar */
+
+  /* ── radius: the two shape constants the ramp cannot express ──────────
+   * Not points on the sm/md/lg ramp — these are geometry. A status chip is a
+   * pill at any size and an avatar is a circle at any size, so neither may be
+   * spelled as a length that a theme could later "improve". */
+  --eoe-radius-pill: 999px;
+  --eoe-radius-round: 50%;
+
+  /* ── space: rungs the 4px scale is missing in practice ─────────────── */
+  --eoe-space-5: 1.25rem;
+  --eoe-space-10: 2.5rem;
+  --eoe-space-12: 3rem;
+
+  /* ── type ─────────────────────────────────────────────────────────────
+   * The serif is display only: page titles and the one hero number per
+   * screen. Never body, never tables. */
+  --eoe-font-family-display: "Source Serif 4", Georgia, serif;
+  /* The status vocabulary's shape channel. Its six codepoints exist in none of
+   * the three text families, so they get their own vendored 568-byte subset
+   * (styles/fonts.css); the fallbacks keep shapes on screen if it is ever
+   * missing. Used by .status-glyph alone — never for text. */
+  --eoe-font-family-glyph: "EOE Status Glyphs", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif;
+  --eoe-font-size-2xs: 0.75rem; /* 12px — uppercase eyebrows ONLY. Absolute floor. */
+  --eoe-font-size-2xl: 2.125rem; /* 34px — the single hero metric per screen */
+  --eoe-font-weight-medium: 500;
+  --eoe-letter-spacing-label: 0.1em; /* uppercase eyebrow */
+  --eoe-letter-spacing-tight: -0.015em; /* display sizes */
+  --eoe-line-height-tight: 1.2;
+  --eoe-line-height-body: 1.55;
+
+  /* ── density: bigger than v1 across the board ─────────────────────── */
+  --eoe-row-height-compact: 36px; /* was 28px. Still scans; no longer cramped. */
+  --eoe-row-height-comfortable: 48px;
+  --eoe-control-height-sm: 30px;
+  --eoe-control-height-md: 38px;
+  --eoe-control-height-lg: 44px; /* touch target floor for tablet */
+
+  /* ── chrome bands: fixed-height app furniture, not controls ─────────── */
+  --eoe-height-topbar: 58px;
+  --eoe-height-contextbar: 56px;
+
+  /* ── motion ─────────────────────────────────────────────────────────── */
+  --eoe-duration-fast: 120ms;
+  --eoe-duration-base: 180ms;
+  --eoe-ease: cubic-bezier(0.2, 0, 0.15, 1);
+}

@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><style>
+html,body{margin:0;padding:0}
+body{background:#e7ecea;font-family:Helvetica,Arial,sans-serif;color:#16232b;-webkit-font-smoothing:antialiased}
+a{color:#1c6b8f}a:hover{color:#175a79}
+*{box-sizing:border-box}
+</style></helmet>
+
+<div style="padding:44px 48px 0;display:flex;flex-direction:column;gap:52px;width:1540px">
+
+<header style="display:flex;flex-direction:column;gap:13px;border-bottom:1px solid #c3cfcd;padding-bottom:24px">
+<span style="font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:#7b8a91">Echoes of Earth Management Platform &middot; DES.6</span>
+<h1 style="font:600 32px/1.15 Helvetica,Arial,sans-serif;margin:0;letter-spacing:-.02em">Screen mockups</h1>
+<p style="margin:0;max-width:840px;font:400 14.5px/1.6 Helvetica,Arial,sans-serif;color:#556873;text-wrap:pretty">Hi-fi at 1440&times;900, ordered top-down as the hierarchy fans out. Assembled entirely from the tokens and components in the companion Design System file &mdash; nothing here introduces a new color, size, or radius. Data is the small-scale case: one deployment, three pods, 31 listeners.</p>
+</header>
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;padding:4px 8px;background:#16232b;color:#fff;border-radius:4px">S1</span><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif">Owner dashboard &mdash; organization home</span><span style="font:400 12.5px/1.2 Helvetica,Arial,sans-serif;color:#7b8a91">E6.7 &middot; E7.4 &middot; spec &sect;10.3</span></div>
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}"><p style="margin:0;max-width:960px;font:400 12.5px/1.6 Helvetica,Arial,sans-serif;color:#556873">Four cached fan-out numbers across the top, then one card per deployment because that is the unit an Owner delegates. Reconciliation and alerts sit together on the right: the two things that make an Owner open this page at all. Every number links down into the thing it counts.</p></sc-if>
+
+<div style="width:1440px;height:900px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 6px rgba(22,35,43,.08)">
+<div style="height:52px;background:#16232b;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+<div style="display:flex;align-items:center;gap:9px"><div style="width:20px;height:20px;border-radius:50%;border:2.5px solid #4d9c72;position:relative"><div style="position:absolute;inset:4px;border-radius:50%;background:#5aa6cc"></div></div><span style="font:600 13px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="height:22px;width:1px;background:rgba(255,255,255,.16)"></div>
+<div style="display:flex;align-items:center;gap:7px;height:26px;padding:0 9px;background:rgba(255,255,255,.08);border-radius:5px"><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.9)">Cascadia Bioacoustics</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:rgba(255,255,255,.5)">&#9660;</span></div>
+<nav style="display:flex;align-items:center;gap:2px;margin-left:10px">
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:600 12.5px/1 Helvetica,Arial,sans-serif;color:#fff;box-shadow:inset 0 -2px 0 #5aa6cc">Overview</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Map</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Inventory</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Configuration</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Provisioning</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62);gap:6px">Alerts<span style="height:15px;min-width:15px;padding:0 4px;border-radius:999px;background:#b3402e;color:#fff;font:600 9.5px/15px ui-monospace,Menlo,Consolas,monospace;text-align:center">2</span></span>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<div style="width:206px;height:28px;background:rgba(255,255,255,.08);border-radius:5px;display:flex;align-items:center;padding:0 9px;gap:7px"><span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:rgba(255,255,255,.45)">&#9906;</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.45)">Search MAC, name, UUID</span><span style="margin-left:auto;font:500 10px/1 ui-monospace,Menlo,Consolas,monospace;color:rgba(255,255,255,.35)">&#8984;K</span></div>
+<span style="height:22px;padding:0 8px;display:flex;align-items:center;background:rgba(90,166,204,.2);color:#a8d4e8;border-radius:4px;font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em">OWNER</span>
+<div style="width:26px;height:26px;border-radius:50%;background:#4d9c72;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif">HR</div>
+</div>
+</div>
+
+<div style="height:46px;background:#fff;border-bottom:1px solid #dbe3e2;display:flex;align-items:center;padding:0 22px;gap:14px;flex:none">
+<span style="font:600 16px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">Organization overview</span>
+<span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">1 deployment &middot; 3 pods &middot; 31 devices</span>
+<div style="margin-left:auto;display:flex;align-items:center;gap:9px">
+<span style="display:inline-flex;align-items:center;gap:6px;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0"><span style="width:6px;height:6px;border-radius:50%;background:#2f7d54"></span>Live &middot; cached 24s ago</span>
+<button style="height:28px;padding:0 11px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;color:#16232b;cursor:pointer">Refresh</button>
+<button style="height:28px;padding:0 12px;background:#1c6b8f;border:1px solid #1c6b8f;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;color:#fff;cursor:pointer">New deployment</button>
+</div>
+</div>
+
+<div style="flex:1;padding:20px 22px;display:flex;flex-direction:column;gap:18px;overflow:hidden">
+
+<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;flex:none">
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:15px 16px;display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1 Helvetica,Arial,sans-serif;color:#8496a0">Devices online</span>
+<div style="display:flex;align-items:baseline;gap:7px"><span style="font:600 28px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">28</span><span style="font:400 15px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">/ 31</span><span style="margin-left:auto;font:500 11px/1 Helvetica,Arial,sans-serif;color:#2f7d54">90.3%</span></div>
+<div style="height:22px;display:flex;align-items:flex-end;gap:2px"><div style="flex:1;height:70%;background:#b9d9c7;border-radius:1px"></div><div style="flex:1;height:78%;background:#b9d9c7;border-radius:1px"></div><div style="flex:1;height:66%;background:#b9d9c7;border-radius:1px"></div><div style="flex:1;height:84%;background:#b9d9c7;border-radius:1px"></div><div style="flex:1;height:80%;background:#b9d9c7;border-radius:1px"></div><div style="flex:1;height:92%;background:#b9d9c7;border-radius:1px"></div><div style="flex:1;height:88%;background:#b9d9c7;border-radius:1px"></div><div style="flex:1;height:90%;background:#2f7d54;border-radius:1px"></div></div>
+</div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:15px 16px;display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1 Helvetica,Arial,sans-serif;color:#8496a0">Audio collected</span>
+<div style="display:flex;align-items:baseline;gap:5px"><span style="font:600 28px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">4.21</span><span style="font:400 14px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">TB</span></div>
+<span style="font:400 11px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">+38.4 GB in the last 24h &middot; InfluxDB 3</span>
+</div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:15px 16px;display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1 Helvetica,Arial,sans-serif;color:#8496a0">Active deployments</span>
+<div style="display:flex;align-items:baseline;gap:7px"><span style="font:600 28px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">1</span><span style="font:400 13px/1 Helvetica,Arial,sans-serif;color:#8496a0">of 1</span></div>
+<span style="display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 8px;background:#fbf1dc;color:#8a5f10;border-radius:999px;font:500 11px/1 Helvetica,Arial,sans-serif;align-self:flex-start"><span style="width:5px;height:5px;border-radius:50%;background:#b57d16"></span>1 services degraded</span>
+</div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:15px 16px;display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1 Helvetica,Arial,sans-serif;color:#8496a0">Alerts firing</span>
+<div style="display:flex;align-items:baseline;gap:7px"><span style="font:600 28px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em;color:#b3402e">2</span><span style="font:400 13px/1 Helvetica,Arial,sans-serif;color:#8496a0">&middot; 1 critical</span></div>
+<span style="font:400 11px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">Oldest firing 41m &middot; via Grafana</span>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.55fr 1fr;gap:16px;flex:1;min-height:0">
+
+<div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+<div style="display:flex;align-items:center;gap:9px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Deployments</span><div style="flex:1;height:1px;background:#dbe3e2"></div></div>
+
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:17px 18px;display:flex;flex-direction:column;gap:15px">
+<div style="display:flex;align-items:flex-start;gap:12px">
+<div style="display:flex;flex-direction:column;gap:5px">
+<div style="display:flex;align-items:center;gap:9px"><span style="width:8px;height:8px;border-radius:50%;background:#b57d16"></span><span style="font:600 17px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">Cascade Basin</span><span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">cascade-basin</span></div>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#8496a0">3 pods &middot; 3 aggregators &middot; 31 listeners &middot; KVM host <span style="font-family:ui-monospace,Menlo,Consolas,monospace">kvm-01.cascadia.internal</span></span>
+</div>
+<div style="margin-left:auto;display:flex;gap:7px">
+<button style="height:28px;padding:0 11px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;cursor:pointer">Open map</button>
+<button style="height:28px;padding:0 11px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;cursor:pointer">Manage</button>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+<div style="border:1px solid #eef2f1;background:#f5f7f6;border-radius:6px;padding:11px 12px;display:flex;flex-direction:column;gap:4px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:#8496a0">Online</span><span style="font:600 17px/1 Helvetica,Arial,sans-serif">28 <span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">/ 31</span></span></div>
+<div style="border:1px solid #eef2f1;background:#f5f7f6;border-radius:6px;padding:11px 12px;display:flex;flex-direction:column;gap:4px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:#8496a0">Sleeping</span><span style="font:600 17px/1 Helvetica,Arial,sans-serif;color:#2c6584">9</span></div>
+<div style="border:1px solid #eef2f1;background:#f5f7f6;border-radius:6px;padding:11px 12px;display:flex;flex-direction:column;gap:4px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:#8496a0">Drifted</span><span style="font:600 17px/1 Helvetica,Arial,sans-serif;color:#54397f">2</span></div>
+<div style="border:1px solid #eef2f1;background:#f5f7f6;border-radius:6px;padding:11px 12px;display:flex;flex-direction:column;gap:4px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:#8496a0">Audio 24h</span><span style="font:600 17px/1 Helvetica,Arial,sans-serif">38.4 <span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">GB</span></span></div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Deployment services</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#8a5f10">degraded &middot; last checked 2m ago</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:7px">
+<span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;background:#e6f1ea;color:#2f7d54;border:1px solid #b9d9c7;border-radius:5px;font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace"><span style="width:5px;height:5px;border-radius:50%;background:#2f7d54"></span>mosquitto</span>
+<span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;background:#e6f1ea;color:#2f7d54;border:1px solid #b9d9c7;border-radius:5px;font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace"><span style="width:5px;height:5px;border-radius:50%;background:#2f7d54"></span>influxdb3</span>
+<span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;background:#f8e8e4;color:#8f2f20;border:1px solid #e3bdb4;border-radius:5px;font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace"><span style="width:5px;height:5px;border-radius:50%;background:#b3402e"></span>prometheus</span>
+<span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;background:#e6f1ea;color:#2f7d54;border:1px solid #b9d9c7;border-radius:5px;font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace"><span style="width:5px;height:5px;border-radius:50%;background:#2f7d54"></span>grafana</span>
+<span style="display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;background:#fbf1dc;color:#8a5f10;border:1px solid #e8d4a8;border-radius:5px;font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace"><span style="width:5px;height:5px;border-radius:50%;background:#b57d16"></span>minio &middot; untested</span>
+<span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;color:#175a79;border:1px solid #b9d1e0;background:#e6f0f5;border-radius:5px;font:500 11.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Re-run tests</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:7px;padding-top:13px;border-top:1px solid #eef2f1">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Pods</span>
+<div style="display:grid;grid-template-columns:16px 1.15fr 70px 1.1fr 1fr 56px;align-items:center;gap:10px;height:31px;border-bottom:1px solid #f5f7f6">
+<span style="width:7px;height:7px;border-radius:50%;background:#2f7d54"></span>
+<span style="font:500 12.5px/1 Helvetica,Arial,sans-serif">Pod 01 &middot; Alder Creek</span>
+<span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">11 lst</span>
+<div style="display:flex;height:7px;border-radius:2px;overflow:hidden;background:#eef2f1"><div style="width:73%;background:#2f7d54"></div><div style="width:27%;background:#4b86a8"></div></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">8 streaming &middot; 3 sleeping</span>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#1c6b8f;text-align:right">Open</span>
+</div>
+<div style="display:grid;grid-template-columns:16px 1.15fr 70px 1.1fr 1fr 56px;align-items:center;gap:10px;height:31px;border-bottom:1px solid #f5f7f6">
+<span style="width:7px;height:7px;border-radius:50%;background:#b3402e"></span>
+<span style="font:500 12.5px/1 Helvetica,Arial,sans-serif">Pod 02 &middot; Ridge Line</span>
+<span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">12 lst</span>
+<div style="display:flex;height:7px;border-radius:2px;overflow:hidden;background:#eef2f1"><div style="width:58%;background:#2f7d54"></div><div style="width:17%;background:#4b86a8"></div><div style="width:17%;background:#6b4f9e"></div><div style="width:8%;background:#7b8a91"></div></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8f2f20">aggregator falling behind</span>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#1c6b8f;text-align:right">Open</span>
+</div>
+<div style="display:grid;grid-template-columns:16px 1.15fr 70px 1.1fr 1fr 56px;align-items:center;gap:10px;height:31px">
+<span style="width:7px;height:7px;border-radius:50%;background:#b57d16"></span>
+<span style="font:500 12.5px/1 Helvetica,Arial,sans-serif">Pod 03 &middot; Tarn Meadow</span>
+<span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">8 lst</span>
+<div style="display:flex;height:7px;border-radius:2px;overflow:hidden;background:#eef2f1"><div style="width:50%;background:#2f7d54"></div><div style="width:38%;background:#4b86a8"></div><div style="width:12%;background:#b57d16"></div></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8a5f10">1 bundle awaiting flash</span>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#1c6b8f;text-align:right">Open</span>
+</div>
+</div>
+</div>
+
+<div style="border:1px dashed #c3cfcd;border-radius:6px;background:repeating-linear-gradient(135deg,#eef2f1 0 9px,#e7ecea 9px 18px);height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+<span style="font:500 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">EMPTY SLOT &mdash; second deployment card</span>
+<span style="font:400 10.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">cards go to a 2-up grid from two deployments onward</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:16px;min-height:0">
+
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;display:flex;flex-direction:column;overflow:hidden;flex:none">
+<div style="padding:12px 14px;border-bottom:1px solid #eef2f1;display:flex;align-items:center;gap:8px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Reconciliation</span><span style="margin-left:auto;font:400 11px/1 Helvetica,Arial,sans-serif;color:#1c6b8f">Timeline</span></div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;height:8px;border-radius:3px;overflow:hidden"><div style="width:84%;background:#2f7d54"></div><div style="width:3%;background:#b57d16"></div><div style="width:7%;background:#6b4f9e"></div><div style="width:6%;background:#b3402e"></div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px">
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#2f7d54"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#3d4f59">applied</span><span style="margin-left:auto;font:500 12px/1 ui-monospace,Menlo,Consolas,monospace">26</span></div>
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#b57d16"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#3d4f59">pending</span><span style="margin-left:auto;font:500 12px/1 ui-monospace,Menlo,Consolas,monospace">1</span></div>
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#6b4f9e"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#3d4f59">drifted</span><span style="margin-left:auto;font:500 12px/1 ui-monospace,Menlo,Consolas,monospace">2</span></div>
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#b3402e"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#3d4f59">failed</span><span style="margin-left:auto;font:500 12px/1 ui-monospace,Menlo,Consolas,monospace">2</span></div>
+</div>
+<button style="height:30px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;cursor:pointer">Re-publish 4 diverged devices</button>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0">
+<div style="padding:12px 14px;border-bottom:1px solid #eef2f1;display:flex;align-items:center;gap:8px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Alerts</span><span style="height:16px;min-width:16px;padding:0 4px;border-radius:999px;background:#b3402e;color:#fff;font:600 10px/16px ui-monospace,Menlo,Consolas,monospace;text-align:center">2</span><span style="margin-left:auto;font:400 11px/1 Helvetica,Arial,sans-serif;color:#1c6b8f">All alerts</span></div>
+<div style="display:flex;flex-direction:column">
+<div style="padding:11px 14px;border-bottom:1px solid #eef2f1;display:flex;gap:10px">
+<span style="width:3px;border-radius:2px;background:#b3402e;flex:none"></span>
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+<div style="display:flex;align-items:center;gap:7px"><span style="font:600 12.5px/1.2 Helvetica,Arial,sans-serif">Aggregator falling behind</span><span style="height:17px;padding:0 6px;background:#f8e8e4;color:#8f2f20;border-radius:3px;font:600 9.5px/17px ui-monospace,Menlo,Consolas,monospace">CRITICAL</span></div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#556873"><span style="font-family:ui-monospace,Menlo,Consolas,monospace">agg-ridge-02</span> &middot; stream:analyze depth 1,204 for 12m</span>
+<span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">firing 41m &middot; Pod 02 &middot; Ridge Line</span>
+</div>
+</div>
+<div style="padding:11px 14px;border-bottom:1px solid #eef2f1;display:flex;gap:10px">
+<span style="width:3px;border-radius:2px;background:#b57d16;flex:none"></span>
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+<div style="display:flex;align-items:center;gap:7px"><span style="font:600 12.5px/1.2 Helvetica,Arial,sans-serif">Listener missed wake window</span><span style="height:17px;padding:0 6px;background:#fbf1dc;color:#8a5f10;border-radius:3px;font:600 9.5px/17px ui-monospace,Menlo,Consolas,monospace">WARN</span></div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#556873"><span style="font-family:ui-monospace,Menlo,Consolas,monospace">AA:BB:CC:DD:EE:F4</span> &middot; expected 12:05:00Z, grace 30s elapsed</span>
+<span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">firing 9m &middot; alder-creek-04</span>
+</div>
+</div>
+</div>
+<div style="padding:12px 14px;border-top:1px solid #eef2f1;margin-top:auto;display:flex;flex-direction:column;gap:9px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Recent activity</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;gap:8px;align-items:baseline"><span style="font:400 10.5px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8496a0;flex:none">12:04</span><span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#3d4f59">hudson published rev <span style="font-family:ui-monospace,Menlo,Consolas,monospace">r-1f4c</span> to 12 listeners</span></div>
+<div style="display:flex;gap:8px;align-items:baseline"><span style="font:400 10.5px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8496a0;flex:none">11:52</span><span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#3d4f59">system marked <span style="font-family:ui-monospace,Menlo,Consolas,monospace">agg-ridge-02</span> drifted</span></div>
+<div style="display:flex;gap:8px;align-items:baseline"><span style="font:400 10.5px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8496a0;flex:none">10:31</span><span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#3d4f59">dana generated bundle <span style="font-family:ui-monospace,Menlo,Consolas,monospace">bnd-07</span> for Pod 03</span></div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;padding:4px 8px;background:#16232b;color:#fff;border-radius:4px">S2</span><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif">Map tab &mdash; pod drill-down with device detail drawer</span><span style="font:400 12.5px/1.2 Helvetica,Arial,sans-serif;color:#7b8a91">E6.1&ndash;E6.6 &middot; spec &sect;9</span></div>
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}"><p style="margin:0;max-width:960px;font:400 12.5px/1.6 Helvetica,Arial,sans-serif;color:#556873">Every role gets a version of this, so the scope breadcrumb and legend are permanent furniture rather than hover chrome. GPS-less listeners fan out as leaves on a short tether from their pod marker, visibly not a real coordinate. The drawer is one component reused from inventory rows, search results, and alert rows.</p></sc-if>
+
+<div style="width:1440px;height:900px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 6px rgba(22,35,43,.08)">
+<div style="height:52px;background:#16232b;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+<div style="display:flex;align-items:center;gap:9px"><div style="width:20px;height:20px;border-radius:50%;border:2.5px solid #4d9c72;position:relative"><div style="position:absolute;inset:4px;border-radius:50%;background:#5aa6cc"></div></div><span style="font:600 13px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="height:22px;width:1px;background:rgba(255,255,255,.16)"></div>
+<div style="display:flex;align-items:center;gap:7px;height:26px;padding:0 9px;background:rgba(255,255,255,.08);border-radius:5px"><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.9)">Cascadia Bioacoustics</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:rgba(255,255,255,.5)">&#9660;</span></div>
+<nav style="display:flex;align-items:center;gap:2px;margin-left:10px">
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Overview</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:600 12.5px/1 Helvetica,Arial,sans-serif;color:#fff;box-shadow:inset 0 -2px 0 #5aa6cc">Map</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Inventory</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Configuration</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Provisioning</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62);gap:6px">Alerts<span style="height:15px;min-width:15px;padding:0 4px;border-radius:999px;background:#b3402e;color:#fff;font:600 9.5px/15px ui-monospace,Menlo,Consolas,monospace;text-align:center">2</span></span>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<div style="width:206px;height:28px;background:rgba(255,255,255,.08);border-radius:5px;display:flex;align-items:center;padding:0 9px;gap:7px"><span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:rgba(255,255,255,.45)">&#9906;</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.45)">Search MAC, name, UUID</span></div>
+<span style="height:22px;padding:0 8px;display:flex;align-items:center;background:rgba(90,166,204,.2);color:#a8d4e8;border-radius:4px;font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em">OWNER</span>
+<div style="width:26px;height:26px;border-radius:50%;background:#4d9c72;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif">HR</div>
+</div>
+</div>
+
+<div style="height:44px;background:#fff;border-bottom:1px solid #dbe3e2;display:flex;align-items:center;padding:0 22px;gap:12px;flex:none">
+<div style="display:flex;align-items:center;gap:7px;font:400 12.5px/1 Helvetica,Arial,sans-serif">
+<span style="color:#1c6b8f">Organization</span><span style="color:#c3cfcd">/</span><span style="color:#1c6b8f">Cascade Basin</span><span style="color:#c3cfcd">/</span><span style="color:#16232b;font-weight:600">Pod 01 &middot; Alder Creek</span>
+</div>
+<div style="height:20px;width:1px;background:#dbe3e2"></div>
+<div style="display:flex;gap:1px;background:#eef2f1;border-radius:6px;padding:2px">
+<span style="height:24px;padding:0 10px;display:flex;align-items:center;background:#fff;border-radius:4px;font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#16232b;box-shadow:0 1px 2px rgba(22,35,43,.08)">Status</span>
+<span style="height:24px;padding:0 10px;display:flex;align-items:center;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Reconciliation</span>
+<span style="height:24px;padding:0 10px;display:flex;align-items:center;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Alerts</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<span style="display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;background:#eef2f1;border-radius:5px;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Basemap: OSM <span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9660;</span></span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 9px;background:#eef2f1;border-radius:5px;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Show GPS-less <span style="width:26px;height:15px;border-radius:999px;background:#2f7d54;position:relative;display:inline-block"><span style="position:absolute;top:2px;left:13px;width:11px;height:11px;border-radius:50%;background:#fff"></span></span></span>
+</div>
+</div>
+
+<div style="flex:1;display:flex;min-height:0">
+
+<div style="flex:1;position:relative;background:#dfe6e0;overflow:hidden">
+<div style="position:absolute;inset:0;background-image:linear-gradient(#d3dcd4 1px,transparent 1px),linear-gradient(90deg,#d3dcd4 1px,transparent 1px);background-size:64px 64px;opacity:.85"></div>
+<div style="position:absolute;inset:0;background:radial-gradient(ellipse 42% 36% at 30% 40%,#cfdcc8 0%,rgba(207,220,200,0) 70%),radial-gradient(ellipse 30% 26% at 66% 70%,#c9d9d9 0%,rgba(201,217,217,0) 70%)"></div>
+<div style="position:absolute;top:12px;left:12px;display:flex;flex-direction:column;background:rgba(255,255,255,.94);border:1px solid #c3cfcd;border-radius:6px;overflow:hidden">
+<span style="width:27px;height:27px;display:flex;align-items:center;justify-content:center;font:400 15px/1 Helvetica,Arial,sans-serif;color:#16232b;border-bottom:1px solid #eef2f1">+</span>
+<span style="width:27px;height:27px;display:flex;align-items:center;justify-content:center;font:400 15px/1 Helvetica,Arial,sans-serif;color:#16232b">&minus;</span>
+</div>
+
+<div style="position:absolute;top:19%;left:25%;display:flex;flex-direction:column;align-items:center">
+<div style="width:38px;height:38px;border-radius:9px;background:#fff;border:2.5px solid #1c6b8f;display:flex;align-items:center;justify-content:center;font:600 13px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79;box-shadow:0 3px 8px rgba(22,35,43,.22)">11</div>
+<span style="margin-top:5px;font:600 11px/1 Helvetica,Arial,sans-serif;color:#16232b;background:rgba(255,255,255,.88);padding:2px 6px;border-radius:3px">Pod 01</span>
+</div>
+<div style="position:absolute;top:16%;left:33%;width:16px;height:16px;background:#2f7d54;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 4px rgba(22,35,43,.3)"></div>
+<div style="position:absolute;top:24%;left:34.5%;width:16px;height:16px;background:#2f7d54;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 4px rgba(22,35,43,.3)"></div>
+<div style="position:absolute;top:12.5%;left:21%;width:16px;height:16px;background:#4b86a8;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 4px rgba(22,35,43,.3)"></div>
+<div style="position:absolute;top:28%;left:20.5%;width:16px;height:16px;background:#7b8a91;border:2px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 4px rgba(22,35,43,.3)"></div>
+<div style="position:absolute;top:26.2%;left:21.9%;width:11px;height:11px;border-radius:50%;background:#b3402e;border:2px solid #fff"></div>
+
+<div style="position:absolute;top:21%;left:30.3%;display:flex;align-items:center">
+<div style="width:40px;height:1.5px;background:#8496a0;opacity:.5"></div>
+<div style="display:flex;flex-direction:column;gap:3px;padding:5px 6px;background:rgba(255,255,255,.92);border:1px dashed #8496a0;border-radius:5px">
+<div style="display:flex;gap:3px"><span style="width:9px;height:9px;border-radius:50%;background:#2f7d54;border:1.5px solid #fff"></span><span style="width:9px;height:9px;border-radius:50%;background:#2f7d54;border:1.5px solid #fff"></span><span style="width:9px;height:9px;border-radius:50%;background:#4b86a8;border:1.5px solid #fff"></span><span style="width:9px;height:9px;border-radius:50%;background:#2f7d54;border:1.5px solid #fff"></span></div>
+<div style="display:flex;gap:3px"><span style="width:9px;height:9px;border-radius:50%;background:#2f7d54;border:1.5px solid #fff"></span><span style="width:9px;height:9px;border-radius:50%;background:#4b86a8;border:1.5px solid #fff"></span><span style="width:9px;height:9px;border-radius:50%;background:#2f7d54;border:1.5px solid #fff"></span></div>
+<span style="font:500 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873;letter-spacing:.04em">7 NO GPS</span>
+</div>
+</div>
+
+<div style="position:absolute;top:57%;left:55%;display:flex;flex-direction:column;align-items:center">
+<div style="width:38px;height:38px;border-radius:9px;background:#fff;border:2.5px solid #b3402e;display:flex;align-items:center;justify-content:center;font:600 13px/1 ui-monospace,Menlo,Consolas,monospace;color:#8f2f20;box-shadow:0 3px 8px rgba(22,35,43,.22);position:relative">12<span style="position:absolute;top:-6px;right:-6px;width:14px;height:14px;border-radius:50%;background:#b3402e;border:2px solid #fff"></span></div>
+<span style="margin-top:5px;font:600 11px/1 Helvetica,Arial,sans-serif;color:#16232b;background:rgba(255,255,255,.88);padding:2px 6px;border-radius:3px">Pod 02</span>
+</div>
+<div style="position:absolute;top:76%;left:31%;display:flex;flex-direction:column;align-items:center">
+<div style="width:34px;height:34px;border-radius:9px;background:#fff;border:2.5px solid #b57d16;display:flex;align-items:center;justify-content:center;font:600 12.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8a5f10;box-shadow:0 3px 8px rgba(22,35,43,.22)">8</div>
+<span style="margin-top:5px;font:600 11px/1 Helvetica,Arial,sans-serif;color:#16232b;background:rgba(255,255,255,.88);padding:2px 6px;border-radius:3px">Pod 03</span>
+</div>
+
+<div style="position:absolute;bottom:14px;left:12px;background:rgba(255,255,255,.94);border:1px solid #c3cfcd;border-radius:6px;padding:11px 13px;display:flex;flex-direction:column;gap:8px">
+<span style="font:600 9.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Status</span>
+<div style="display:grid;grid-template-columns:auto auto;gap:5px 14px">
+<span style="display:inline-flex;align-items:center;gap:6px;font:400 11px/1 Helvetica,Arial,sans-serif;color:#3d4f59"><span style="width:8px;height:8px;border-radius:50%;background:#2f7d54"></span>streaming</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font:400 11px/1 Helvetica,Arial,sans-serif;color:#3d4f59"><span style="width:8px;height:8px;border-radius:50%;background:#4b86a8"></span>sleeping</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font:400 11px/1 Helvetica,Arial,sans-serif;color:#3d4f59"><span style="width:8px;height:8px;border-radius:50%;background:#b57d16"></span>degraded</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font:400 11px/1 Helvetica,Arial,sans-serif;color:#3d4f59"><span style="width:8px;height:8px;border-radius:50%;background:#7b8a91"></span>offline</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font:400 11px/1 Helvetica,Arial,sans-serif;color:#3d4f59"><span style="width:8px;height:8px;border-radius:50%;background:#6b4f9e"></span>drifted</span>
+<span style="display:inline-flex;align-items:center;gap:6px;font:400 11px/1 Helvetica,Arial,sans-serif;color:#3d4f59"><span style="width:8px;height:8px;border-radius:50%;background:#b3402e"></span>alerting</span>
+</div>
+<span style="font:400 10px/1.4 Helvetica,Arial,sans-serif;color:#8496a0;max-width:150px;border-top:1px solid #eef2f1;padding-top:7px">Markers show the worst status among descendants.</span>
+</div>
+<div style="position:absolute;bottom:14px;right:14px;font:400 10px/1 ui-monospace,Menlo,Consolas,monospace;color:#6b7c83;background:rgba(255,255,255,.8);padding:3px 6px;border-radius:3px">&copy; OpenStreetMap &middot; PMTiles available offline</div>
+</div>
+
+<div style="width:392px;background:#fff;border-left:1px solid #dbe3e2;display:flex;flex-direction:column;flex:none;box-shadow:-12px 0 32px -8px rgba(22,35,43,.16)">
+<div style="padding:15px 17px;border-bottom:1px solid #dbe3e2;display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:flex-start;gap:9px">
+<div style="display:flex;flex-direction:column;gap:5px;min-width:0">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Listener</span>
+<span style="font:600 18px/1.1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">alder-creek-04</span>
+<span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">AA:BB:CC:DD:EE:F4</span>
+</div>
+<span style="margin-left:auto;width:26px;height:26px;border:1px solid #c3cfcd;border-radius:6px;display:flex;align-items:center;justify-content:center;font:400 13px/1 Helvetica,Arial,sans-serif;color:#556873;flex:none">&#215;</span>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;background:#ecefef;color:#556873;border-radius:999px;font:500 11.5px/1 Helvetica,Arial,sans-serif"><span style="width:6px;height:6px;border-radius:50%;background:#7b8a91"></span>Offline</span>
+<span style="display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;background:#f8e8e4;color:#8f2f20;border-radius:999px;font:500 11.5px/1 Helvetica,Arial,sans-serif"><span style="width:6px;height:6px;border-radius:50%;background:#b3402e"></span>1 alert</span>
+<span style="height:22px;padding:0 8px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border:1px solid #b9d9c7;border-radius:4px;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace">applied</span>
+</div>
+</div>
+
+<div style="display:flex;gap:2px;padding:0 17px;border-bottom:1px solid #dbe3e2;background:#fff">
+<span style="padding:9px 9px;font:600 12px/1 Helvetica,Arial,sans-serif;color:#175a79;box-shadow:inset 0 -2px 0 #1c6b8f">Status</span>
+<span style="padding:9px 9px;font:400 12px/1 Helvetica,Arial,sans-serif;color:#556873">Config</span>
+<span style="padding:9px 9px;font:400 12px/1 Helvetica,Arial,sans-serif;color:#556873">Timeline</span>
+<span style="padding:9px 9px;font:400 12px/1 Helvetica,Arial,sans-serif;color:#556873">Provisioning</span>
+</div>
+
+<div style="flex:1;overflow:hidden;padding:15px 17px;display:flex;flex-direction:column;gap:16px">
+
+<div style="border:1px solid #e3bdb4;background:#f8e8e4;border-radius:6px;padding:11px 12px;display:flex;gap:10px">
+<span style="width:16px;height:16px;border-radius:50%;background:#b3402e;color:#fff;font:600 11px/16px Helvetica,Arial,sans-serif;text-align:center;flex:none">!</span>
+<div style="display:flex;flex-direction:column;gap:3px">
+<span style="font:600 12.5px/1.3 Helvetica,Arial,sans-serif;color:#8f2f20">Missed wake window</span>
+<span style="font:400 11.5px/1.5 Helvetica,Arial,sans-serif;color:#8f2f20">Declared wake at 12:05:00Z; 30s grace elapsed with no resumed stream. Reported offline by <span style="font-family:ui-monospace,Menlo,Consolas,monospace">agg-alder-01</span>.</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Liveness &middot; &sect;6.5</span>
+<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 12px;font-family:Helvetica,Arial,sans-serif">
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">State</span><span style="font:500 12px/1.4 Helvetica,Arial,sans-serif">offline (missed window)</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Last audio</span><span style="font:400 12px/1.4 ui-monospace,Menlo,Consolas,monospace">11:58:04Z &middot; 14m ago</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Expected wake</span><span style="font:400 12px/1.4 ui-monospace,Menlo,Consolas,monospace">12:05:00Z</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Grace</span><span style="font:400 12px/1.4 ui-monospace,Menlo,Consolas,monospace">30s (inherited &middot; Deployment)</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Location</span>
+<div style="display:grid;grid-template-columns:auto 1fr;gap:7px 12px">
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">GPS</span><span style="font:400 12px/1.4 ui-monospace,Menlo,Consolas,monospace">47.6412, &minus;121.8871</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Pod</span><span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#1c6b8f">Pod 01 &middot; Alder Creek</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Aggregator</span><span style="font:400 12px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#1c6b8f">agg-alder-01</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Effective config</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#1c6b8f;margin-left:auto">Edit at this level</span></div>
+<div style="border:1px solid #eef2f1;border-radius:6px;overflow:hidden">
+<div style="display:grid;grid-template-columns:1.5fr 78px 84px;height:26px;align-items:center;background:#f5f7f6;border-bottom:1px solid #eef2f1;padding:0 9px"><span style="font:600 9.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase;color:#8496a0">Key</span><span style="font:600 9.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase;color:#8496a0">Value</span><span style="font:600 9.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase;color:#8496a0">From</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 78px 84px;height:26px;align-items:center;padding:0 9px;border-bottom:1px solid #f5f7f6"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace">audio.sample_rate_hz</span><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">48000</span><span style="font:400 10.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Deployment</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 78px 84px;height:26px;align-items:center;padding:0 9px;border-bottom:1px solid #f5f7f6"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace">capture.mode</span><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">duty_cycle</span><span style="font:400 10.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Org</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 78px 84px;height:26px;align-items:center;padding:0 9px;border-bottom:1px solid #f5f7f6;background:#e6f0f5"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">capture.duty_on_seconds</span><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">90</span><span style="font:500 10.5px/1 Helvetica,Arial,sans-serif;color:#175a79">Listener</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 78px 84px;height:26px;align-items:center;padding:0 9px;border-bottom:1px solid #f5f7f6"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace">network.wifi_ssid</span><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">eoe-alder</span><span style="font:400 10.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Pod</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 78px 84px;height:26px;align-items:center;padding:0 9px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace">logging.verbosity</span><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">info</span><span style="font:400 10.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Org</span></div>
+</div>
+<span style="font:400 10.5px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Highlighted rows are overridden at this level. 14 more keys.</span>
+</div>
+
+<div style="border:1px dashed #c3cfcd;border-radius:6px;background:repeating-linear-gradient(135deg,#f5f7f6 0 8px,#eef2f1 8px 16px);height:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px">
+<span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">GRAFANA PANEL EMBED</span>
+<span style="font:400 10px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">no data &middot; listener has no metrics of its own</span>
+</div>
+</div>
+
+<div style="padding:12px 17px;border-top:1px solid #dbe3e2;display:flex;gap:8px;background:#fff">
+<button style="flex:1;height:32px;background:#1c6b8f;color:#fff;border:1px solid #1c6b8f;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Open in Grafana</button>
+<button style="height:32px;padding:0 12px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Resync</button>
+<button style="height:32px;width:32px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 14px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873;cursor:pointer">&#8942;</button>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+</div>
+
+
+<div style="padding:52px 48px 0;display:flex;flex-direction:column;gap:52px;width:1540px">
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;padding:4px 8px;background:#16232b;color:#fff;border-radius:4px">S3</span><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif">Configuration &mdash; inheritance editor at Pod level</span><span style="font:400 12.5px/1.2 Helvetica,Arial,sans-serif;color:#7b8a91">E1.8 &middot; E2.7 &middot; spec &sect;5.1, &sect;5.3</span></div>
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}"><p style="margin:0;max-width:960px;font:400 12.5px/1.6 Helvetica,Arial,sans-serif;color:#556873">The hardest screen in the product, because the operator has to understand two things at once: what the value is, and where it came from. So every row carries a provenance column and a state marker &mdash; inherited rows are quiet, overridden rows are tinted and carry a revert affordance, and secret rows never show a value. Editors are generated from the versioned catalog, so adding a key ships no frontend change.</p></sc-if>
+
+<div style="width:1440px;height:900px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 6px rgba(22,35,43,.08)">
+<div style="height:52px;background:#16232b;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+<div style="display:flex;align-items:center;gap:9px"><div style="width:20px;height:20px;border-radius:50%;border:2.5px solid #4d9c72;position:relative"><div style="position:absolute;inset:4px;border-radius:50%;background:#5aa6cc"></div></div><span style="font:600 13px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="height:22px;width:1px;background:rgba(255,255,255,.16)"></div>
+<div style="display:flex;align-items:center;gap:7px;height:26px;padding:0 9px;background:rgba(255,255,255,.08);border-radius:5px"><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.9)">Cascadia Bioacoustics</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:rgba(255,255,255,.5)">&#9660;</span></div>
+<nav style="display:flex;align-items:center;gap:2px;margin-left:10px">
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Overview</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Map</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Inventory</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:600 12.5px/1 Helvetica,Arial,sans-serif;color:#fff;box-shadow:inset 0 -2px 0 #5aa6cc">Configuration</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Provisioning</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62);gap:6px">Alerts<span style="height:15px;min-width:15px;padding:0 4px;border-radius:999px;background:#b3402e;color:#fff;font:600 9.5px/15px ui-monospace,Menlo,Consolas,monospace;text-align:center">2</span></span>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<div style="width:206px;height:28px;background:rgba(255,255,255,.08);border-radius:5px;display:flex;align-items:center;padding:0 9px;gap:7px"><span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:rgba(255,255,255,.45)">&#9906;</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.45)">Search MAC, name, UUID</span></div>
+<span style="height:22px;padding:0 8px;display:flex;align-items:center;background:rgba(90,166,204,.2);color:#a8d4e8;border-radius:4px;font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em">OPERATOR</span>
+<div style="width:26px;height:26px;border-radius:50%;background:#4d9c72;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif">DK</div>
+</div>
+</div>
+
+<div style="flex:1;display:flex;min-height:0">
+
+<div style="width:246px;background:#fff;border-right:1px solid #dbe3e2;display:flex;flex-direction:column;flex:none">
+<div style="padding:11px 12px;border-bottom:1px solid #eef2f1;display:flex;flex-direction:column;gap:8px">
+<div style="height:28px;border:1px solid #c3cfcd;border-radius:6px;display:flex;align-items:center;padding:0 9px;gap:7px"><span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9906;</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Filter hierarchy</span></div>
+</div>
+<div style="flex:1;padding:8px;display:flex;flex-direction:column;gap:1px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 8px;border-radius:4px"><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9660;</span><span style="width:6px;height:6px;border-radius:50%;background:#b57d16"></span><span style="font:600 12.5px/1 Helvetica,Arial,sans-serif">Cascadia Bioacoustics</span></div>
+<div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 8px 0 20px;border-radius:4px"><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9660;</span><span style="width:6px;height:6px;border-radius:50%;background:#b57d16"></span><span style="font:500 12.5px/1 Helvetica,Arial,sans-serif">Cascade Basin</span><span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0;margin-left:auto">3</span></div>
+<div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 8px 0 34px;border-radius:4px;background:#e6f0f5;box-shadow:inset 2px 0 0 #1c6b8f"><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#4b86a8">&#9660;</span><span style="width:6px;height:6px;border-radius:50%;background:#2f7d54"></span><span style="font:600 12.5px/1 Helvetica,Arial,sans-serif;color:#175a79">Pod 01 &middot; Alder Creek</span></div>
+<div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 8px 0 48px;border-radius:4px"><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9654;</span><span style="width:6px;height:6px;border-radius:50%;background:#2f7d54"></span><span style="font:400 12.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#3d4f59">agg-alder-01</span><span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0;margin-left:auto">11</span></div>
+<div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 8px 0 34px;border-radius:4px"><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9654;</span><span style="width:6px;height:6px;border-radius:50%;background:#b3402e"></span><span style="font:400 12.5px/1 Helvetica,Arial,sans-serif">Pod 02 &middot; Ridge Line</span><span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0;margin-left:auto">12</span></div>
+<div style="display:flex;align-items:center;gap:7px;height:28px;padding:0 8px 0 34px;border-radius:4px"><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9654;</span><span style="width:6px;height:6px;border-radius:50%;background:#b57d16"></span><span style="font:400 12.5px/1 Helvetica,Arial,sans-serif">Pod 03 &middot; Tarn Meadow</span><span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0;margin-left:auto">8</span></div>
+<div style="margin-top:14px;padding:0 8px;display:flex;flex-direction:column;gap:7px">
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Saved selections</span>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#1c6b8f">All 48 kHz listeners</span>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#1c6b8f">tag: coastal</span>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#1c6b8f">Drifted devices</span>
+</div>
+</div>
+</div>
+
+<div style="flex:1;display:flex;flex-direction:column;min-width:0">
+<div style="padding:15px 22px 0;background:#fff;border-bottom:1px solid #dbe3e2;display:flex;flex-direction:column;gap:13px;flex:none">
+<div style="display:flex;align-items:flex-start;gap:12px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<div style="display:flex;align-items:center;gap:8px;font:400 12px/1 Helvetica,Arial,sans-serif"><span style="color:#1c6b8f">Cascade Basin</span><span style="color:#c3cfcd">/</span><span style="color:#16232b;font-weight:600">Pod 01 &middot; Alder Creek</span></div>
+<div style="display:flex;align-items:center;gap:10px"><span style="font:600 22px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">Configuration</span><span style="height:20px;padding:0 8px;display:inline-flex;align-items:center;background:#eef2f1;color:#556873;border-radius:4px;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace">POD LEVEL</span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#8496a0">11 listeners inherit from here</span></div>
+</div>
+<div style="margin-left:auto;display:flex;gap:8px">
+<button style="height:32px;padding:0 12px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Discard draft</button>
+<button style="height:32px;padding:0 12px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Preview 11 devices</button>
+<button style="height:32px;padding:0 14px;background:#1c6b8f;border:1px solid #1c6b8f;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;color:#fff;cursor:pointer">Publish revision</button>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:14px">
+<div style="display:flex;gap:2px">
+<span style="padding:9px 10px;font:600 12.5px/1 Helvetica,Arial,sans-serif;color:#175a79;box-shadow:inset 0 -2px 0 #1c6b8f">Settings</span>
+<span style="padding:9px 10px;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:#556873">Network</span>
+<span style="padding:9px 10px;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:#556873">Secrets</span>
+<span style="padding:9px 10px;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:#556873">Tags</span>
+<span style="padding:9px 10px;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:#556873">Revisions</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px;padding-bottom:7px">
+<span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 9px;background:#eef2f1;border-radius:5px;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Only overridden <span style="width:26px;height:15px;border-radius:999px;background:#c3cfcd;position:relative;display:inline-block"><span style="position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fff"></span></span></span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 9px;background:#eef2f1;border-radius:5px;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Show provenance <span style="width:26px;height:15px;border-radius:999px;background:#2f7d54;position:relative;display:inline-block"><span style="position:absolute;top:2px;left:13px;width:11px;height:11px;border-radius:50%;background:#fff"></span></span></span>
+</div>
+</div>
+</div>
+
+<div style="flex:1;padding:18px 22px;display:flex;gap:18px;min-height:0;overflow:hidden">
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;min-width:0">
+
+<div style="border:1px solid #e8d4a8;background:#fbf1dc;border-radius:6px;padding:11px 13px;display:flex;align-items:center;gap:11px">
+<span style="width:16px;height:16px;border-radius:50%;background:#b57d16;color:#fff;font:600 11px/16px Helvetica,Arial,sans-serif;text-align:center;flex:none">!</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#5c4410">Unpublished draft &mdash; 3 keys changed. Nothing reaches devices until you publish.</span>
+<span style="margin-left:auto;font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#8a5f10">View diff</span>
+</div>
+
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:30px;background:#eef2f1;border-bottom:1px solid #dbe3e2;display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;padding:0 12px">
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Key</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Value at this level</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Resolved from</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">State</span>
+<span></span>
+</div>
+
+<div style="padding:7px 12px;background:#f5f7f6;border-bottom:1px solid #eef2f1"><span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#8496a0">audio</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px;border-bottom:1px solid #f5f7f6">
+<span style="font:400 12.5px/1 ui-monospace,Menlo,Consolas,monospace">audio.sample_rate_hz</span>
+<div style="height:26px;padding:0 8px;background:#fff;border:1px solid #c3cfcd;border-radius:5px;display:flex;align-items:center;justify-content:space-between;width:150px"><span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace">48000</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9660;</span></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Deployment</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#eef2f1;color:#556873;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">inherited</span>
+<span></span>
+</div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px;border-bottom:1px solid #f5f7f6;background:#e6f0f5">
+<span style="font:500 12.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">audio.bits_per_sample</span>
+<div style="height:26px;padding:0 8px;background:#fff;border:1px solid #1c6b8f;border-radius:5px;display:flex;align-items:center;justify-content:space-between;width:150px;box-shadow:0 0 0 3px rgba(28,107,143,.16)"><span style="font:500 12px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">24</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#4b86a8">&#9660;</span></div>
+<span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#175a79">Pod (this)</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#fbf1dc;color:#8a5f10;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">edited</span>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#4b86a8;text-align:center;cursor:pointer">&#8630;</span>
+</div>
+
+<div style="padding:7px 12px;background:#f5f7f6;border-bottom:1px solid #eef2f1;border-top:1px solid #eef2f1"><span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#8496a0">capture</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px;border-bottom:1px solid #f5f7f6">
+<span style="font:400 12.5px/1 ui-monospace,Menlo,Consolas,monospace">capture.mode</span>
+<div style="height:26px;padding:0 8px;background:#fff;border:1px solid #c3cfcd;border-radius:5px;display:flex;align-items:center;justify-content:space-between;width:150px"><span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace">duty_cycle</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9660;</span></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Organization</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#eef2f1;color:#556873;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">inherited</span>
+<span></span>
+</div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px;border-bottom:1px solid #f5f7f6;background:#e6f0f5">
+<span style="font:500 12.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">capture.duty_on_seconds</span>
+<div style="height:26px;padding:0 8px;background:#fff;border:1px solid #1c6b8f;border-radius:5px;display:flex;align-items:center;width:150px"><span style="font:500 12px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">90</span><span style="margin-left:auto;font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">s</span></div>
+<span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#175a79">Pod (this)</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#fbf1dc;color:#8a5f10;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">edited</span>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#4b86a8;text-align:center;cursor:pointer">&#8630;</span>
+</div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px;border-bottom:1px solid #f5f7f6">
+<span style="font:400 12.5px/1 ui-monospace,Menlo,Consolas,monospace">capture.duty_off_seconds</span>
+<div style="height:26px;padding:0 8px;background:#fff;border:1px solid #c3cfcd;border-radius:5px;display:flex;align-items:center;width:150px"><span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace">0</span><span style="margin-left:auto;font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">s</span></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">default</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#fff;color:#8496a0;border:1px dashed #c3cfcd;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">default</span>
+<span></span>
+</div>
+
+<div style="padding:7px 12px;background:#f5f7f6;border-bottom:1px solid #eef2f1;border-top:1px solid #eef2f1;display:flex;align-items:center;gap:8px"><span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#8496a0">network</span><span style="font:400 10.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">shared by all 11 listeners in this pod</span></div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px;border-bottom:1px solid #f5f7f6;background:#e6f0f5">
+<span style="font:500 12.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">network.wifi_ssid</span>
+<div style="height:26px;padding:0 8px;background:#fff;border:1px solid #1c6b8f;border-radius:5px;display:flex;align-items:center;width:150px"><span style="font:500 12px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">eoe-alder</span></div>
+<span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#175a79">Pod (this)</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">set</span>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#4b86a8;text-align:center;cursor:pointer">&#8630;</span>
+</div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px;border-bottom:1px solid #f5f7f6">
+<span style="font:400 12.5px/1 ui-monospace,Menlo,Consolas,monospace">network.wifi_password <span style="font:500 9.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8a5f10;background:#fbf1dc;padding:2px 5px;border-radius:3px;margin-left:5px">SECRET</span></span>
+<div style="height:26px;padding:0 4px 0 8px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:5px;display:flex;align-items:center;justify-content:space-between;width:150px"><span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull; set</span><span style="height:20px;padding:0 7px;background:#fff;border:1px solid #c3cfcd;border-radius:3px;font:500 10.5px/20px Helvetica,Arial,sans-serif;color:#556873">Replace</span></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Pod (this)</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">set</span>
+<span></span>
+</div>
+<div style="display:grid;grid-template-columns:1.5fr 190px 116px 96px 30px;align-items:center;height:36px;padding:0 12px">
+<span style="font:400 12.5px/1 ui-monospace,Menlo,Consolas,monospace">network.aggregator_ip</span>
+<div style="height:26px;padding:0 8px;background:#fff;border:1px solid #c3cfcd;border-radius:5px;display:flex;align-items:center;width:150px"><span style="font:400 12px/1 ui-monospace,Menlo,Consolas,monospace">10.42.0.1</span></div>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Pod (this)</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;justify-self:start">set</span>
+<span></span>
+</div>
+</div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Showing 3 of 6 groups &middot; 21 keys resolved &middot; catalog schema v4</span>
+</div>
+
+<div style="width:290px;flex:none;display:flex;flex-direction:column;gap:14px">
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:11px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Inheritance chain</span>
+<div style="display:flex;flex-direction:column;gap:0">
+<div style="display:flex;align-items:center;gap:9px;height:28px"><span style="width:9px;height:9px;border-radius:2px;background:#c3cfcd"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#556873">Organization</span><span style="margin-left:auto;font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">4 keys</span></div>
+<div style="width:1px;height:8px;background:#dbe3e2;margin-left:4px"></div>
+<div style="display:flex;align-items:center;gap:9px;height:28px"><span style="width:9px;height:9px;border-radius:2px;background:#c3cfcd"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#556873">Deployment</span><span style="margin-left:auto;font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">9 keys</span></div>
+<div style="width:1px;height:8px;background:#1c6b8f;margin-left:4px"></div>
+<div style="display:flex;align-items:center;gap:9px;height:28px"><span style="width:9px;height:9px;border-radius:2px;background:#1c6b8f"></span><span style="font:600 12px/1 Helvetica,Arial,sans-serif;color:#175a79">Pod 01 (editing)</span><span style="margin-left:auto;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">5 keys</span></div>
+<div style="width:1px;height:8px;background:#dbe3e2;margin-left:4px"></div>
+<div style="display:flex;align-items:center;gap:9px;height:28px"><span style="width:9px;height:9px;border-radius:2px;background:#c3cfcd"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#556873">Aggregator</span><span style="margin-left:auto;font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">3 keys</span></div>
+<div style="width:1px;height:8px;background:#dbe3e2;margin-left:4px"></div>
+<div style="display:flex;align-items:center;gap:9px;height:28px"><span style="width:9px;height:9px;border-radius:2px;background:#c3cfcd"></span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#556873">Listener &times;11</span><span style="margin-left:auto;font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">0&ndash;2 keys</span></div>
+</div>
+<span style="font:400 10.5px/1.45 Helvetica,Arial,sans-serif;color:#8496a0;border-top:1px solid #eef2f1;padding-top:9px">Lower levels win on conflict. Two listeners override <span style="font-family:ui-monospace,Menlo,Consolas,monospace">audio.sample_rate_hz</span> below this pod and will not take the new value.</span>
+</div>
+
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:10px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Draft diff</span>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">audio.bits_per_sample</span><div style="display:flex;align-items:center;gap:7px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8f2f20;text-decoration:line-through">16</span><span style="font:400 10px/1 Helvetica,Arial,sans-serif;color:#8496a0">&#8594;</span><span style="font:600 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#2f7d54">24</span></div></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">capture.duty_on_seconds</span><div style="display:flex;align-items:center;gap:7px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8f2f20;text-decoration:line-through">60</span><span style="font:400 10px/1 Helvetica,Arial,sans-serif;color:#8496a0">&#8594;</span><span style="font:600 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#2f7d54">90</span></div></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">network.wifi_password</span><div style="display:flex;align-items:center;gap:7px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">rotated</span><span style="height:17px;padding:0 6px;background:#ede8f6;color:#54397f;border-radius:3px;font:500 9.5px/17px ui-monospace,Menlo,Consolas,monospace">DEK REWRAP</span></div></div>
+</div>
+<div style="border-top:1px solid #eef2f1;padding-top:9px;display:flex;flex-direction:column;gap:5px">
+<span style="font:400 10.5px/1.45 Helvetica,Arial,sans-serif;color:#8496a0">Rotating the pod PSK pushes a new wrapped DEK to all reachable listeners over the local link (&sect;8.7). Devices offline at push time stay on the old key.</span>
+<span style="font:500 11px/1 Helvetica,Arial,sans-serif;color:#1c6b8f">See affected devices</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;padding:4px 8px;background:#16232b;color:#fff;border-radius:4px">S4</span><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif">Bulk edit &mdash; selection, preview, commit</span><span style="font:400 12.5px/1.2 Helvetica,Arial,sans-serif;color:#7b8a91">E2.8 &middot; spec &sect;5.2</span></div>
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}"><p style="margin:0;max-width:960px;font:400 12.5px/1.6 Helvetica,Arial,sans-serif;color:#556873">A modal, not a page, because it is always launched from a context that already has a selection. The commit button stays disabled until the preview has been generated: the spec requires an explicit preview of affected devices and resulting effective config before anything commits, so the UI makes that literally unavoidable.</p></sc-if>
+
+<div style="width:1440px;height:620px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:8px;overflow:hidden;position:relative;box-shadow:0 2px 6px rgba(22,35,43,.08);display:flex;align-items:center;justify-content:center">
+<div style="position:absolute;inset:0;background:#f5f7f6"></div>
+<div style="position:absolute;inset:0;background:rgba(22,35,43,.44)"></div>
+<div style="position:relative;width:1000px;background:#fff;border-radius:10px;box-shadow:0 6px 20px -4px rgba(22,35,43,.18);display:flex;flex-direction:column;overflow:hidden">
+<div style="padding:17px 20px;border-bottom:1px solid #dbe3e2;display:flex;align-items:flex-start;gap:12px">
+<div style="display:flex;flex-direction:column;gap:5px">
+<span style="font:600 18px/1.2 Helvetica,Arial,sans-serif;letter-spacing:-.01em">Bulk change &middot; set audio.sample_rate_hz</span>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#8496a0">Selection: <span style="font-family:ui-monospace,Menlo,Consolas,monospace">tag:coastal AND audio.sample_rate_hz = 48000</span></span>
+</div>
+<span style="margin-left:auto;width:26px;height:26px;border:1px solid #c3cfcd;border-radius:6px;display:flex;align-items:center;justify-content:center;font:400 13px/1 Helvetica,Arial,sans-serif;color:#556873">&#215;</span>
+</div>
+
+<div style="display:flex;min-height:0">
+<div style="width:320px;border-right:1px solid #eef2f1;padding:18px 20px;display:flex;flex-direction:column;gap:16px;flex:none">
+<div style="display:flex;flex-direction:column;gap:7px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Change</span>
+<div style="display:flex;flex-direction:column;gap:5px">
+<label style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Key</label>
+<div style="height:32px;padding:0 10px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:6px;display:flex;align-items:center;font:400 12.5px/1 ui-monospace,Menlo,Consolas,monospace">audio.sample_rate_hz</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<label style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">New value</label>
+<div style="height:32px;padding:0 10px;background:#fff;border:1px solid #1c6b8f;border-radius:6px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 0 0 3px rgba(28,107,143,.16)"><span style="font:500 12.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#175a79">96000</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#4b86a8">&#9660;</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<label style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Write at level</label>
+<div style="height:32px;padding:0 10px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;display:flex;align-items:center;justify-content:space-between"><span style="font:400 12.5px/1 Helvetica,Arial,sans-serif">Listener (each selected)</span><span style="font:400 9px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">&#9660;</span></div>
+<span style="font:400 10.5px/1.45 Helvetica,Arial,sans-serif;color:#8496a0">Writing at Pod instead would be one override for 11 devices, but would not affect the 3 selected devices outside this pod.</span>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid #eef2f1;padding-top:14px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Impact</span>
+<div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px">
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Matched</span><span style="font:500 12px/1.4 ui-monospace,Menlo,Consolas,monospace">14 listeners</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Will change</span><span style="font:500 12px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#2f7d54">12</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">No-op</span><span style="font:500 12px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">2</span>
+<span style="font:400 12px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Offline now</span><span style="font:500 12px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8a5f10">3</span>
+</div>
+<span style="font:400 10.5px/1.45 Helvetica,Arial,sans-serif;color:#8496a0">Offline devices receive the retained desired message on next connect. Nothing is lost.</span>
+</div>
+</div>
+
+<div style="flex:1;display:flex;flex-direction:column;min-width:0">
+<div style="padding:13px 20px 0;display:flex;align-items:center;gap:9px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Preview &middot; affected devices</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">computed server-side</span>
+<span style="margin-left:auto;font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#1c6b8f">Download CSV</span>
+</div>
+<div style="padding:11px 20px 0;flex:1;min-height:0">
+<div style="border:1px solid #dbe3e2;border-radius:6px;overflow:hidden">
+<div style="display:grid;grid-template-columns:1.1fr 1.1fr .9fr 90px 90px 84px;height:28px;align-items:center;background:#eef2f1;border-bottom:1px solid #dbe3e2;padding:0 11px">
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Listener</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">MAC</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Pod</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Current</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Resulting</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Status</span>
+</div>
+<div style="display:grid;grid-template-columns:1.1fr 1.1fr .9fr 90px 90px 84px;height:28px;align-items:center;padding:0 11px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">alder-creek-01</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">AA:BB:CC:DD:EE:F1</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Pod 01</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">48000</span><span style="font:600 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#2f7d54">96000</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#2f7d54">streaming</span></div>
+<div style="display:grid;grid-template-columns:1.1fr 1.1fr .9fr 90px 90px 84px;height:28px;align-items:center;padding:0 11px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">alder-creek-02</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">AA:BB:CC:DD:EE:F2</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Pod 01</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">48000</span><span style="font:600 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#2f7d54">96000</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#2c6584">sleeping</span></div>
+<div style="display:grid;grid-template-columns:1.1fr 1.1fr .9fr 90px 90px 84px;height:28px;align-items:center;padding:0 11px;border-bottom:1px solid #f5f7f6;background:#fbf1dc"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">alder-creek-04</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">AA:BB:CC:DD:EE:F4</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Pod 01</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">48000</span><span style="font:600 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8a5f10">96000</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#8a5f10">offline</span></div>
+<div style="display:grid;grid-template-columns:1.1fr 1.1fr .9fr 90px 90px 84px;height:28px;align-items:center;padding:0 11px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">ridge-line-03</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">AA:BB:CC:DD:EF:03</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Pod 02</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">48000</span><span style="font:600 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#2f7d54">96000</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#2f7d54">streaming</span></div>
+<div style="display:grid;grid-template-columns:1.1fr 1.1fr .9fr 90px 90px 84px;height:28px;align-items:center;padding:0 11px;border-bottom:1px solid #f5f7f6;background:#f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#8496a0">ridge-line-07</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">AA:BB:CC:DD:EF:07</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">Pod 02</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">96000</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">96000</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#8496a0">no change</span></div>
+<div style="display:grid;grid-template-columns:1.1fr 1.1fr .9fr 90px 90px 84px;height:28px;align-items:center;padding:0 11px"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">tarn-meadow-02</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#556873">AA:BB:CC:DE:01:02</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#556873">Pod 03</span><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">48000</span><span style="font:600 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#2f7d54">96000</span><span style="font:400 11px/1 Helvetica,Arial,sans-serif;color:#2f7d54">streaming</span></div>
+</div>
+<span style="display:block;margin-top:9px;font:400 11px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">6 of 14 shown &middot; sorted by pod</span>
+</div>
+<div style="padding:14px 20px;margin-top:auto;border-top:1px solid #dbe3e2;display:flex;align-items:center;gap:10px">
+<span style="display:inline-flex;align-items:center;gap:8px;font:400 12px/1 Helvetica,Arial,sans-serif;color:#3d4f59"><span style="width:15px;height:15px;border-radius:3px;background:#1c6b8f;color:#fff;display:inline-flex;align-items:center;justify-content:center;font:600 10px/1 Helvetica,Arial,sans-serif">&#10003;</span>Publish immediately after commit</span>
+<div style="margin-left:auto;display:flex;gap:8px">
+<button style="height:32px;padding:0 13px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Cancel</button>
+<button style="height:32px;padding:0 13px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Save as selection</button>
+<button style="height:32px;padding:0 15px;background:#1c6b8f;border:1px solid #1c6b8f;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;color:#fff;cursor:pointer">Commit to 12 devices</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+
+<div style="padding:52px 48px 0;display:flex;flex-direction:column;gap:52px;width:1540px">
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;padding:4px 8px;background:#16232b;color:#fff;border-radius:4px">S5</span><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif">Services onboarding wizard &mdash; step 3, verify</span><span style="font:400 12.5px/1.2 Helvetica,Arial,sans-serif;color:#7b8a91">E5.12 &middot; spec &sect;16.2, &sect;16.3</span></div>
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}"><p style="margin:0;max-width:960px;font:400 12.5px/1.6 Helvetica,Arial,sans-serif;color:#556873">This flow replaces an SSH runbook, so it earns a full page rather than a modal. Each service is a self-contained row with its own status, its own last-tested time, and its own retry &mdash; one failure never blocks reading the other four. Failures show the actual remedy, because the person who ran the stack is the person reading this. The gate at the bottom is spec &sect;16.5: no provisioning bundle without a verified broker.</p></sc-if>
+
+<div style="width:1440px;height:900px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 6px rgba(22,35,43,.08)">
+<div style="height:52px;background:#16232b;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+<div style="display:flex;align-items:center;gap:9px"><div style="width:20px;height:20px;border-radius:50%;border:2.5px solid #4d9c72;position:relative"><div style="position:absolute;inset:4px;border-radius:50%;background:#5aa6cc"></div></div><span style="font:600 13px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="height:22px;width:1px;background:rgba(255,255,255,.16)"></div>
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.72)">Cascade Basin &middot; services onboarding</span>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.55);cursor:pointer">Save and exit</span>
+<span style="height:22px;padding:0 8px;display:flex;align-items:center;background:rgba(90,166,204,.2);color:#a8d4e8;border-radius:4px;font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em">OPERATOR</span>
+</div>
+</div>
+
+<div style="height:62px;background:#fff;border-bottom:1px solid #dbe3e2;display:flex;align-items:center;padding:0 22px;flex:none">
+<div style="display:flex;align-items:center;width:660px">
+<div style="display:flex;align-items:center;gap:9px"><span style="width:22px;height:22px;border-radius:50%;background:#2f7d54;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif">&#10003;</span><span style="font:500 12px/1 Helvetica,Arial,sans-serif;color:#2f7d54">Choose path</span></div>
+<div style="flex:1;height:1px;background:#2f7d54;margin:0 11px"></div>
+<div style="display:flex;align-items:center;gap:9px"><span style="width:22px;height:22px;border-radius:50%;background:#2f7d54;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif">&#10003;</span><span style="font:500 12px/1 Helvetica,Arial,sans-serif;color:#2f7d54">Run the stack</span></div>
+<div style="flex:1;height:1px;background:#2f7d54;margin:0 11px"></div>
+<div style="display:flex;align-items:center;gap:9px"><span style="width:22px;height:22px;border-radius:50%;background:#1c6b8f;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;box-shadow:0 0 0 3px rgba(28,107,143,.2)">3</span><span style="font:600 12px/1 Helvetica,Arial,sans-serif;color:#175a79">Verify services</span></div>
+<div style="flex:1;height:1px;background:#dbe3e2;margin:0 11px"></div>
+<div style="display:flex;align-items:center;gap:9px"><span style="width:22px;height:22px;border-radius:50%;background:#fff;border:1px solid #c3cfcd;color:#8496a0;display:flex;align-items:center;justify-content:center;font:600 11px/1 ui-monospace,Menlo,Consolas,monospace">4</span><span style="font:400 12px/1 Helvetica,Arial,sans-serif;color:#8496a0">Done</span></div>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:9px">
+<span style="display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;background:#e6f0f5;color:#175a79;border-radius:5px;font:500 11.5px/1 Helvetica,Arial,sans-serif">Path B &middot; generated stack</span>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#1c6b8f;cursor:pointer">Switch to Path A</span>
+</div>
+</div>
+
+<div style="flex:1;padding:22px;display:flex;gap:20px;min-height:0;overflow:hidden">
+
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;min-width:0">
+<div style="display:flex;flex-direction:column;gap:6px">
+<span style="font:600 21px/1.2 Helvetica,Arial,sans-serif;letter-spacing:-.01em">Verify the deployment services</span>
+<span style="font:400 13px/1.5 Helvetica,Arial,sans-serif;color:#556873;max-width:640px">The platform tested each service from its own host. Four passed. Fix Prometheus and re-run, or continue and let the periodic re-check pick it up &mdash; devices will queue analysis locally until then.</span>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#fff;border:1px solid #b9d9c7;border-radius:6px;padding:14px 16px;display:flex;align-items:center;gap:14px">
+<span style="width:22px;height:22px;border-radius:50%;background:#2f7d54;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif;flex:none">&#10003;</span>
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+<div style="display:flex;align-items:center;gap:9px"><span style="font:600 13.5px/1 Helvetica,Arial,sans-serif">Mosquitto</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">verified</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f0f5;color:#175a79;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">dynsec present</span></div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#556873">Published and subscribed on <span style="font-family:ui-monospace,Menlo,Consolas,monospace">eoe/cascade-basin/_test</span> in 41ms &middot; TLS 1.3 &middot; <span style="font-family:ui-monospace,Menlo,Consolas,monospace">kvm-01:8883</span></span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:11px;flex:none">
+<span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">14:22:08Z</span>
+<button style="height:28px;padding:0 11px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 11.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Re-test</button>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #b9d9c7;border-radius:6px;padding:14px 16px;display:flex;align-items:center;gap:14px">
+<span style="width:22px;height:22px;border-radius:50%;background:#2f7d54;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif;flex:none">&#10003;</span>
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+<div style="display:flex;align-items:center;gap:9px"><span style="font:600 13.5px/1 Helvetica,Arial,sans-serif">InfluxDB 3</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">verified</span></div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#556873">Query + test-point write and delete on database <span style="font-family:ui-monospace,Menlo,Consolas,monospace">recordings</span> &middot; 88ms</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:11px;flex:none">
+<span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">14:22:08Z</span>
+<button style="height:28px;padding:0 11px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 11.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Re-test</button>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #b3402e;border-radius:6px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 0 0 3px rgba(179,64,46,.1)">
+<div style="padding:14px 16px;display:flex;align-items:center;gap:14px">
+<span style="width:22px;height:22px;border-radius:50%;background:#b3402e;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px/1 Helvetica,Arial,sans-serif;flex:none">&#215;</span>
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+<div style="display:flex;align-items:center;gap:9px"><span style="font:600 13.5px/1 Helvetica,Arial,sans-serif">Prometheus</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#f8e8e4;color:#8f2f20;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">failed</span></div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#556873">Read query passed. Remote-write probe rejected.</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:11px;flex:none">
+<span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">14:22:09Z</span>
+<button style="height:28px;padding:0 11px;background:#1c6b8f;border:1px solid #1c6b8f;color:#fff;border-radius:6px;font:500 11.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Re-test</button>
+</div>
+</div>
+<div style="background:#f8e8e4;border-top:1px solid #e3bdb4;padding:12px 16px 13px 52px;display:flex;flex-direction:column;gap:8px">
+<div style="display:grid;grid-template-columns:96px 1fr;gap:5px 12px">
+<span style="font:400 11px/1.4 Helvetica,Arial,sans-serif;color:#8f2f20">Read URL</span><span style="font:400 11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8f2f20">https://kvm-01:9090 &mdash; up{} returned 1 series, ok</span>
+<span style="font:400 11px/1.4 Helvetica,Arial,sans-serif;color:#8f2f20">Remote write</span><span style="font:400 11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#8f2f20">POST /api/v1/write &rarr; 404 page not found</span>
+</div>
+<div style="background:#16232b;border-radius:5px;padding:9px 11px;display:flex;align-items:center;gap:10px">
+<span style="font:400 11px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#c9d6d4">prometheus --web.enable-remote-write-receiver \<br>&nbsp;&nbsp;--config.file=/etc/prometheus/prometheus.yml</span>
+<span style="margin-left:auto;height:24px;padding:0 9px;background:rgba(255,255,255,.1);border-radius:4px;font:500 10.5px/24px Helvetica,Arial,sans-serif;color:#c9d6d4;flex:none;cursor:pointer">Copy</span>
+</div>
+<span style="font:400 11px/1.45 Helvetica,Arial,sans-serif;color:#8f2f20">The generated <span style="font-family:ui-monospace,Menlo,Consolas,monospace">docker-compose.yml</span> sets this flag. This host looks like it is running a Prometheus that predates the bundle &mdash; check that the container restarted with the new command.</span>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #b9d9c7;border-radius:6px;padding:14px 16px;display:flex;align-items:center;gap:14px">
+<span style="width:22px;height:22px;border-radius:50%;background:#2f7d54;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif;flex:none">&#10003;</span>
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+<div style="display:flex;align-items:center;gap:9px"><span style="font:600 13.5px/1 Helvetica,Arial,sans-serif">Grafana</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f1ea;color:#2f7d54;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">verified</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#e6f0f5;color:#175a79;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">webhook registered</span></div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#556873">Health ok &middot; both datasources present &middot; alert contact point <span style="font-family:ui-monospace,Menlo,Consolas,monospace">eoe-platform</span> created</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:11px;flex:none">
+<span style="font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">14:22:10Z</span>
+<button style="height:28px;padding:0 11px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 11.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Re-test</button>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:14px 16px;display:flex;align-items:center;gap:14px">
+<span style="width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid #c3cfcd;flex:none"></span>
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0">
+<div style="display:flex;align-items:center;gap:9px"><span style="font:600 13.5px/1 Helvetica,Arial,sans-serif;color:#556873">Object storage &middot; MinIO</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#eef2f1;color:#556873;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">untested</span><span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#fff;color:#8496a0;border:1px dashed #c3cfcd;border-radius:3px;font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace">optional</span></div>
+<span style="font:400 11.5px/1.4 Helvetica,Arial,sans-serif;color:#8496a0">Required only when raw-audio upload is enabled for this deployment.</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:11px;flex:none">
+<button style="height:28px;padding:0 11px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 11.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Test now</button>
+</div>
+</div>
+</div>
+</div>
+
+<div style="width:328px;flex:none;display:flex;flex-direction:column;gap:14px">
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:15px;display:flex;flex-direction:column;gap:12px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Rolled-up status</span>
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:34px;height:34px;border-radius:50%;background:#fbf1dc;border:2px solid #b57d16;color:#8a5f10;display:flex;align-items:center;justify-content:center;font:600 13px/1 ui-monospace,Menlo,Consolas,monospace;flex:none">4/5</span>
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif;color:#8a5f10">pending_verification</span><span style="font:400 11px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">becomes verified when all required pass</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid #eef2f1;padding-top:11px">
+<span style="font:400 11px/1.45 Helvetica,Arial,sans-serif;color:#556873">Re-checks run every 5 minutes. Repeated failure moves this deployment to <span style="font-family:ui-monospace,Menlo,Consolas,monospace">degraded</span> and surfaces on the map rollup and the Owner summary.</span>
+</div>
+</div>
+
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:15px;display:flex;flex-direction:column;gap:11px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#8496a0">Generated bundle</span>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="display:flex;align-items:center;gap:8px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#3d4f59">docker-compose.yml</span><span style="margin-left:auto;font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">4.1 KB</span></div>
+<div style="display:flex;align-items:center;gap:8px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#3d4f59">mosquitto/</span><span style="margin-left:auto;font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">3 files</span></div>
+<div style="display:flex;align-items:center;gap:8px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#3d4f59">prometheus/web_config.yml</span><span style="margin-left:auto;font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">0.6 KB</span></div>
+<div style="display:flex;align-items:center;gap:8px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#3d4f59">grafana/provisioning/</span><span style="margin-left:auto;font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">4 files</span></div>
+<div style="display:flex;align-items:center;gap:8px"><span style="font:400 11.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#3d4f59">README.md</span><span style="margin-left:auto;font:400 10.5px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">2.8 KB</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid #eef2f1;padding-top:11px">
+<button style="height:30px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;cursor:pointer">Download again</button>
+<button style="height:30px;background:#fff;border:1px solid #e3bdb4;color:#8f2f20;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;cursor:pointer">Regenerate with rotated credentials</button>
+<span style="font:400 10.5px/1.45 Helvetica,Arial,sans-serif;color:#8496a0">Rotation republishes affected device config through the control plane. It is a config revision, not a manual redistribution.</span>
+</div>
+</div>
+
+<div style="background:#fbf1dc;border:1px solid #e8d4a8;border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:9px"><span style="width:16px;height:16px;border-radius:50%;background:#b57d16;color:#fff;font:600 11px/16px Helvetica,Arial,sans-serif;text-align:center;flex:none">!</span><span style="font:600 12.5px/1 Helvetica,Arial,sans-serif;color:#5c4410">Provisioning is unblocked</span></div>
+<span style="font:400 11.5px/1.5 Helvetica,Arial,sans-serif;color:#7a5c14">The broker is verified, so bundles can be generated. But devices provisioned now will have nowhere to push metrics until Prometheus passes.</span>
+<button style="height:30px;background:#fff;border:1px solid #e8d4a8;border-radius:6px;font:500 12px/1 Helvetica,Arial,sans-serif;color:#8a5f10;cursor:pointer">Go to provisioning anyway</button>
+</div>
+</div>
+</div>
+
+<div style="height:64px;background:#fff;border-top:1px solid #dbe3e2;display:flex;align-items:center;padding:0 22px;gap:12px;flex:none">
+<button style="height:34px;padding:0 14px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 13px/1 Helvetica,Arial,sans-serif;cursor:pointer">Back</button>
+<span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">4 of 5 verified &middot; 1 failed</span>
+<div style="margin-left:auto;display:flex;gap:9px">
+<button style="height:34px;padding:0 14px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 13px/1 Helvetica,Arial,sans-serif;cursor:pointer">Re-run all tests</button>
+<button style="height:34px;padding:0 16px;background:#1c6b8f;border:1px solid #1c6b8f;border-radius:6px;font:500 13px/1 Helvetica,Arial,sans-serif;color:#fff;cursor:pointer">Finish with 1 failure</button>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;padding:4px 8px;background:#16232b;color:#fff;border-radius:4px">S6</span><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif">Provisioning &mdash; bundle tracking board (Field Tech)</span><span style="font:400 12.5px/1.2 Helvetica,Arial,sans-serif;color:#7b8a91">E4.10 &middot; spec &sect;8.5</span></div>
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}"><p style="margin:0;max-width:960px;font:400 12.5px/1.6 Helvetica,Arial,sans-serif;color:#556873">A board, not a table, because the five provisioning statuses are a pipeline a human physically walks through: cards get written, devices come online, reports get compared. This is also the RBAC-narrowest screen &mdash; a Field Tech gets Provisioning and a read-only Map, and the nav shows the rest as locked rather than hiding it. Marking cards flashed is the one bulk action they need, so it is a primary button.</p></sc-if>
+
+<div style="width:1440px;height:820px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 6px rgba(22,35,43,.08)">
+<div style="height:52px;background:#16232b;display:flex;align-items:center;padding:0 16px;gap:16px;flex:none">
+<div style="display:flex;align-items:center;gap:9px"><div style="width:20px;height:20px;border-radius:50%;border:2.5px solid #4d9c72;position:relative"><div style="position:absolute;inset:4px;border-radius:50%;background:#5aa6cc"></div></div><span style="font:600 13px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="height:22px;width:1px;background:rgba(255,255,255,.16)"></div>
+<nav style="display:flex;align-items:center;gap:2px">
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.62)">Map</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:600 12.5px/1 Helvetica,Arial,sans-serif;color:#fff;box-shadow:inset 0 -2px 0 #5aa6cc">Provisioning</span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.3);gap:6px">Configuration <span style="font:400 10px/1 ui-monospace,Menlo,Consolas,monospace">&#128274;</span></span>
+<span style="padding:0 11px;height:52px;display:flex;align-items:center;font:400 12.5px/1 Helvetica,Arial,sans-serif;color:rgba(255,255,255,.3);gap:6px">Telemetry <span style="font:400 10px/1 ui-monospace,Menlo,Consolas,monospace">&#128274;</span></span>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<span style="height:22px;padding:0 8px;display:flex;align-items:center;background:rgba(255,255,255,.1);color:#c9d6d4;border-radius:4px;font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em">FIELD TECH</span>
+<div style="width:26px;height:26px;border-radius:50%;background:#7b8a91;color:#fff;display:flex;align-items:center;justify-content:center;font:600 11px/1 Helvetica,Arial,sans-serif">DP</div>
+</div>
+</div>
+
+<div style="height:56px;background:#fff;border-bottom:1px solid #dbe3e2;display:flex;align-items:center;padding:0 22px;gap:14px;flex:none">
+<div style="display:flex;flex-direction:column;gap:3px">
+<span style="font:600 16px/1 Helvetica,Arial,sans-serif;letter-spacing:-.01em">Bundle bnd-07 &middot; Pod 03 Tarn Meadow</span>
+<span style="font:400 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">per-pod mode &middot; rev r-1f4c &middot; generated 10:31Z by dana</span>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:9px">
+<button style="height:30px;padding:0 12px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Download bundle</button>
+<button style="height:30px;padding:0 12px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">View manifest</button>
+<button style="height:30px;padding:0 13px;background:#1c6b8f;border:1px solid #1c6b8f;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;color:#fff;cursor:pointer">Mark 3 cards flashed</button>
+</div>
+</div>
+
+<div style="flex:1;padding:20px 22px;display:flex;flex-direction:column;gap:16px;min-height:0;overflow:hidden">
+
+<div style="display:flex;gap:12px;flex:none">
+<div style="flex:1;background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:13px 14px;display:flex;flex-direction:column;gap:6px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase;color:#8496a0">Files in bundle</span><span style="font:600 20px/1 Helvetica,Arial,sans-serif">3</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">pod.conf &middot; settings.yaml &middot; manifest.json</span></div>
+<div style="flex:1;background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:13px 14px;display:flex;flex-direction:column;gap:6px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase;color:#8496a0">Cards expected</span><span style="font:600 20px/1 Helvetica,Arial,sans-serif">9</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">8 listeners + 1 aggregator</span></div>
+<div style="flex:1;background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:13px 14px;display:flex;flex-direction:column;gap:6px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase;color:#8496a0">Confirmed</span><span style="font:600 20px/1 Helvetica,Arial,sans-serif;color:#2f7d54">4 <span style="font:400 13px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">/ 9</span></span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">reported state matches embedded revision</span></div>
+<div style="flex:1;background:#fff;border:1px solid #e3bdb4;border-radius:6px;padding:13px 14px;display:flex;flex-direction:column;gap:6px"><span style="font:500 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.07em;text-transform:uppercase;color:#8f2f20">Mismatch</span><span style="font:600 20px/1 Helvetica,Arial,sans-serif;color:#b3402e">1</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8f2f20">unexpected MAC reported on a Pod 03 slot</span></div>
+</div>
+
+<div style="flex:1;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;min-height:0">
+
+<div style="display:flex;flex-direction:column;gap:9px;min-height:0">
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#7b8a91"></span><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif">Generated</span><span style="margin-left:auto;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">2</span></div>
+<div style="flex:1;background:#eef2f1;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:7px">
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:5px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">SLOT lst-07</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">MAC unknown &middot; filled in the field</span></div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:5px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">SLOT lst-08</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8496a0">MAC unknown &middot; filled in the field</span></div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;min-height:0">
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#b57d16"></span><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif">Flashed</span><span style="margin-left:auto;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">2</span></div>
+<div style="flex:1;background:#eef2f1;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:7px">
+<div style="background:#fff;border:1px solid #e8d4a8;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:5px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">tarn-meadow-05</span><span style="font:400 10.5px/1.3 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">AA:BB:CC:DE:01:05</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8a5f10">card written 11:04Z &middot; awaiting first contact</span></div>
+<div style="background:#fff;border:1px solid #e8d4a8;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:5px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">agg-tarn-01</span><span style="font:400 10.5px/1.3 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">bootstrap block embedded</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#8a5f10">card written 11:06Z</span></div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;min-height:0">
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#4b86a8"></span><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif">Registered</span><span style="margin-left:auto;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">1</span></div>
+<div style="flex:1;background:#eef2f1;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:7px">
+<div style="background:#fff;border:1px solid #b9d1e0;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:5px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">tarn-meadow-03</span><span style="font:400 10.5px/1.3 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">AA:BB:CC:DE:01:03</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#2c6584">matched by MAC 12:41Z &middot; comparing config</span><div style="height:4px;border-radius:2px;background:#e9f1f6;overflow:hidden"><div style="width:62%;height:100%;background:#4b86a8"></div></div></div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;min-height:0">
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#2f7d54"></span><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif">Confirmed</span><span style="margin-left:auto;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">4</span></div>
+<div style="flex:1;background:#eef2f1;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:7px">
+<div style="background:#fff;border:1px solid #b9d9c7;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:4px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">tarn-meadow-01</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#2f7d54">rev r-1f4c applied</span></div>
+<div style="background:#fff;border:1px solid #b9d9c7;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:4px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">tarn-meadow-02</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#2f7d54">rev r-1f4c applied</span></div>
+<div style="background:#fff;border:1px solid #b9d9c7;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:4px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">tarn-meadow-04</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#2f7d54">rev r-1f4c applied</span></div>
+<div style="background:#fff;border:1px solid #b9d9c7;border-radius:5px;padding:9px 10px;display:flex;flex-direction:column;gap:4px"><span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">tarn-meadow-06</span><span style="font:400 10.5px/1.3 Helvetica,Arial,sans-serif;color:#2f7d54">rev r-1f4c applied</span></div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;min-height:0">
+<div style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:2px;background:#b3402e"></span><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif">Mismatch</span><span style="margin-left:auto;font:500 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8f2f20">1</span></div>
+<div style="flex:1;background:#f8e8e4;border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:7px">
+<div style="background:#fff;border:1px solid #b3402e;border-radius:5px;padding:10px;display:flex;flex-direction:column;gap:7px">
+<span style="font:500 11.5px/1 ui-monospace,Menlo,Consolas,monospace">SLOT lst-09</span>
+<span style="font:400 10.5px/1.4 Helvetica,Arial,sans-serif;color:#8f2f20">Expected an unregistered MAC. Reported <span style="font-family:ui-monospace,Menlo,Consolas,monospace">AA:BB:CC:DD:EE:F2</span>, already registered as <span style="font-family:ui-monospace,Menlo,Consolas,monospace">alder-creek-02</span> in Pod 01.</span>
+<span style="height:19px;padding:0 7px;display:inline-flex;align-items:center;background:#f8e8e4;color:#8f2f20;border-radius:3px;font:500 10px/1 ui-monospace,Menlo,Consolas,monospace;align-self:flex-start">duplicate_identity</span>
+<span style="font:400 10.5px/1.4 Helvetica,Arial,sans-serif;color:#556873">Reported state quarantined. Inventory untouched.</span>
+<div style="display:flex;gap:6px"><button style="flex:1;height:26px;background:#fff;border:1px solid #c3cfcd;border-radius:5px;font:500 11px/1 Helvetica,Arial,sans-serif;cursor:pointer">Inspect</button><button style="flex:1;height:26px;background:#fff;border:1px solid #e3bdb4;color:#8f2f20;border-radius:5px;font:500 11px/1 Helvetica,Arial,sans-serif;cursor:pointer">Resolve</button></div>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+<sc-if value="{{ showStates }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:baseline;gap:11px"><span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;padding:4px 8px;background:#16232b;color:#fff;border-radius:4px">S7</span><span style="font:600 14px/1.2 Helvetica,Arial,sans-serif">State &amp; role variants</span><span style="font:400 12.5px/1.2 Helvetica,Arial,sans-serif;color:#7b8a91">empty &middot; loading &middot; degraded &middot; RBAC</span></div>
+<sc-if value="{{ showNotes }}" hint-placeholder-val="{{ true }}"><p style="margin:0;max-width:960px;font:400 12.5px/1.6 Helvetica,Arial,sans-serif;color:#556873">Same components, four conditions the frontend will actually hit on day one. Loading never collapses layout &mdash; the skeleton occupies the real geometry so nothing jumps. Degradation is per-deployment: one unreachable stack marks its own data stale and leaves the rest of the UI fully usable.</p></sc-if>
+
+<div style="display:flex;flex-wrap:wrap;gap:18px">
+
+<div style="width:466px;display:flex;flex-direction:column;gap:8px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#7b8a91">Empty &mdash; first run, no deployments</span>
+<div style="height:280px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:6px;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:38px;background:#16232b;display:flex;align-items:center;padding:0 13px;gap:8px;flex:none"><div style="width:15px;height:15px;border-radius:50%;border:2px solid #4d9c72"></div><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;padding:0 46px;text-align:center">
+<div style="width:38px;height:38px;border-radius:50%;border:2px dashed #c3cfcd"></div>
+<span style="font:600 15px/1.3 Helvetica,Arial,sans-serif">No deployments yet</span>
+<span style="font:400 12px/1.55 Helvetica,Arial,sans-serif;color:#8496a0">A deployment groups pods around one telemetry stack. Creating one starts services onboarding, which has to finish before any hardware can be provisioned.</span>
+<div style="display:flex;gap:8px;margin-top:3px"><button style="height:30px;padding:0 13px;background:#1c6b8f;color:#fff;border:1px solid #1c6b8f;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">New deployment</button><button style="height:30px;padding:0 13px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;font:500 12.5px/1 Helvetica,Arial,sans-serif;cursor:pointer">Import inventory CSV</button></div>
+</div>
+</div>
+</div>
+
+<div style="width:466px;display:flex;flex-direction:column;gap:8px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#7b8a91">Loading &mdash; fan-out in flight</span>
+<div style="height:280px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:6px;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:38px;background:#16232b;display:flex;align-items:center;padding:0 13px;gap:8px;flex:none"><div style="width:15px;height:15px;border-radius:50%;border:2px solid #4d9c72"></div><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:11px;display:flex;flex-direction:column;gap:8px"><div style="height:8px;width:64%;border-radius:3px;background:#eef2f1"></div><div style="height:16px;width:48%;border-radius:3px;background:linear-gradient(90deg,#eef2f1 25%,#e2e8e7 37%,#eef2f1 63%);background-size:200% 100%"></div></div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:11px;display:flex;flex-direction:column;gap:8px"><div style="height:8px;width:72%;border-radius:3px;background:#eef2f1"></div><div style="height:16px;width:56%;border-radius:3px;background:linear-gradient(90deg,#eef2f1 25%,#e2e8e7 37%,#eef2f1 63%);background-size:200% 100%"></div></div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:11px;display:flex;flex-direction:column;gap:8px"><div style="height:8px;width:58%;border-radius:3px;background:#eef2f1"></div><div style="height:16px;width:40%;border-radius:3px;background:linear-gradient(90deg,#eef2f1 25%,#e2e8e7 37%,#eef2f1 63%);background-size:200% 100%"></div></div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:11px;display:flex;flex-direction:column;gap:8px"><div style="height:8px;width:66%;border-radius:3px;background:#eef2f1"></div><div style="height:16px;width:34%;border-radius:3px;background:linear-gradient(90deg,#eef2f1 25%,#e2e8e7 37%,#eef2f1 63%);background-size:200% 100%"></div></div>
+</div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="height:11px;width:38%;border-radius:3px;background:linear-gradient(90deg,#eef2f1 25%,#e2e8e7 37%,#eef2f1 63%);background-size:200% 100%"></div>
+<div style="height:9px;width:76%;border-radius:3px;background:#eef2f1"></div>
+<div style="height:9px;width:62%;border-radius:3px;background:#eef2f1"></div>
+<div style="display:flex;gap:8px;margin-top:2px"><div style="flex:1;height:38px;border-radius:5px;background:#f5f7f6"></div><div style="flex:1;height:38px;border-radius:5px;background:#f5f7f6"></div><div style="flex:1;height:38px;border-radius:5px;background:#f5f7f6"></div></div>
+</div>
+<span style="font:400 10.5px/1 Helvetica,Arial,sans-serif;color:#8496a0;text-align:center">Querying 1 deployment &middot; skeleton holds final geometry</span>
+</div>
+</div>
+</div>
+
+<div style="width:466px;display:flex;flex-direction:column;gap:8px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#7b8a91">Degraded &mdash; deployment unreachable</span>
+<div style="height:280px;background:#f5f7f6;border:1px solid #c3cfcd;border-radius:6px;overflow:hidden;display:flex;flex-direction:column">
+<div style="height:38px;background:#16232b;display:flex;align-items:center;padding:0 13px;gap:8px;flex:none"><div style="width:15px;height:15px;border-radius:50%;border:2px solid #4d9c72"></div><span style="font:600 11.5px/1 Helvetica,Arial,sans-serif;color:#fff">Echoes of Earth</span></div>
+<div style="padding:13px;display:flex;flex-direction:column;gap:11px">
+<div style="border:1px solid #e8d4a8;background:#fbf1dc;border-radius:6px;padding:11px 12px;display:flex;gap:10px;align-items:flex-start">
+<span style="width:16px;height:16px;border-radius:50%;background:#b57d16;color:#fff;font:600 11px/16px Helvetica,Arial,sans-serif;text-align:center;flex:none">!</span>
+<div style="display:flex;flex-direction:column;gap:3px"><span style="font:600 12px/1.3 Helvetica,Arial,sans-serif;color:#5c4410">Cascade Basin telemetry is stale</span><span style="font:400 11px/1.45 Helvetica,Arial,sans-serif;color:#7a5c14">Influx and Prometheus unreachable for 6m 12s. Inventory, config, and reconciliation are current.</span></div>
+<button style="margin-left:auto;height:24px;padding:0 9px;background:#fff;border:1px solid #e8d4a8;border-radius:4px;font:500 11px/1 Helvetica,Arial,sans-serif;color:#8a5f10;cursor:pointer;flex:none">Retry</button>
+</div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:13px;display:flex;flex-direction:column;gap:11px">
+<div style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;background:#b57d16"></span><span style="font:600 13px/1 Helvetica,Arial,sans-serif">Cascade Basin</span><span style="height:18px;padding:0 6px;display:inline-flex;align-items:center;background:#fbf1dc;color:#8a5f10;border-radius:3px;font:500 10px/1 ui-monospace,Menlo,Consolas,monospace">degraded</span></div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px">
+<div style="border:1px solid #eef2f1;background:#f5f7f6;border-radius:5px;padding:9px;display:flex;flex-direction:column;gap:4px"><span style="font:500 9.5px/1 ui-monospace,Menlo,Consolas,monospace;text-transform:uppercase;color:#8496a0">Online</span><span style="font:600 14px/1 Helvetica,Arial,sans-serif;color:#8496a0">28 / 31</span><span style="font:400 9.5px/1 Helvetica,Arial,sans-serif;color:#8a5f10">last known</span></div>
+<div style="border:1px solid #eef2f1;background:#f5f7f6;border-radius:5px;padding:9px;display:flex;flex-direction:column;gap:4px"><span style="font:500 9.5px/1 ui-monospace,Menlo,Consolas,monospace;text-transform:uppercase;color:#8496a0">Audio 24h</span><span style="font:600 14px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">&mdash;</span><span style="font:400 9.5px/1 Helvetica,Arial,sans-serif;color:#8a5f10">unavailable</span></div>
+<div style="border:1px solid #eef2f1;background:#f5f7f6;border-radius:5px;padding:9px;display:flex;flex-direction:column;gap:4px"><span style="font:500 9.5px/1 ui-monospace,Menlo,Consolas,monospace;text-transform:uppercase;color:#8496a0">Drifted</span><span style="font:600 14px/1 Helvetica,Arial,sans-serif;color:#54397f">2</span><span style="font:400 9.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">from Postgres</span></div>
+</div>
+<span style="font:400 10.5px/1.45 Helvetica,Arial,sans-serif;color:#8496a0;border-top:1px solid #eef2f1;padding-top:9px">Postgres-owned data stays live. Only the telemetry reads go grey, so an operator can still work.</span>
+</div>
+</div>
+</div>
+</div>
+
+<div style="width:466px;display:flex;flex-direction:column;gap:8px">
+<span style="font:600 10.5px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#7b8a91">RBAC &mdash; the same nav, four roles</span>
+<div style="height:280px;background:#fff;border:1px solid #c3cfcd;border-radius:6px;overflow:hidden;display:flex;flex-direction:column">
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:32px;align-items:center;background:#eef2f1;border-bottom:1px solid #dbe3e2;padding:0 12px">
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Surface</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Owner</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Operator</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Field Tech</span>
+<span style="font:600 10px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#556873">Viewer</span>
+</div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Owner dashboard</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">scoped</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">hidden</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">scoped</span></div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Map</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">read</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">read</span></div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Config editor</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">locked</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">read</span></div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Publish / commit</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">yes</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">yes</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">no</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">no</span></div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Provisioning</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">read</span></div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Services onboarding</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">hidden</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">hidden</span></div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px;border-bottom:1px solid #f5f7f6"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Telemetry depth</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">locked</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#8496a0">read</span></div>
+<div style="display:grid;grid-template-columns:1.25fr repeat(4,minmax(0,1fr));height:31px;align-items:center;padding:0 12px"><span style="font:400 12px/1 Helvetica,Arial,sans-serif">Users &amp; audit</span><span style="font:500 11.5px/1 Helvetica,Arial,sans-serif;color:#2f7d54">full</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">hidden</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">hidden</span><span style="font:400 11.5px/1 Helvetica,Arial,sans-serif;color:#c3cfcd">hidden</span></div>
+<div style="margin-top:auto;padding:9px 12px;border-top:1px solid #eef2f1;background:#f5f7f6"><span style="font:400 10.5px/1.4 Helvetica,Arial,sans-serif;color:#8496a0"><strong style="font-weight:600">locked</strong> = visible and disabled, so the operator knows to ask for access. <strong style="font-weight:600">hidden</strong> = absent from nav entirely.</span></div>
+</div>
+</div>
+
+</div>
+</div>
+</sc-if>
+
+<div style="display:flex;flex-direction:column;gap:16px;border-top:1px solid #c3cfcd;padding-top:30px;padding-bottom:100px">
+<h2 style="font:600 21px/1.2 Helvetica,Arial,sans-serif;margin:0;letter-spacing:-.01em">What is left for DES</h2>
+<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px">
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:7px"><span style="font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#1c6b8f">DES.3</span><span style="font:600 13px/1.35 Helvetica,Arial,sans-serif">Sign off the direction</span><span style="font:400 12px/1.5 Helvetica,Arial,sans-serif;color:#556873">One review pass over S1&ndash;S7. Tell me what to change and I change it here, not in code.</span></div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:7px"><span style="font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#1c6b8f">DES.4</span><span style="font:600 13px/1.35 Helvetica,Arial,sans-serif">Reconcile token names</span><span style="font:400 12px/1.5 Helvetica,Arial,sans-serif;color:#556873">Send me <span style="font-family:ui-monospace,Menlo,Consolas,monospace">frontend/</span> and I rename my tokens to E0.4's structure, so DES.7 is a values-only change.</span></div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:7px"><span style="font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">DES.1</span><span style="font:600 13px/1.35 Helvetica,Arial,sans-serif">P1 screens not yet drawn</span><span style="font:400 12px/1.5 Helvetica,Arial,sans-serif;color:#556873">Alerts list, reconciliation timeline, CSV import results, fill-in-later GPS, audit log. Say which matter and I add them.</span></div>
+<div style="background:#fff;border:1px solid #dbe3e2;border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:7px"><span style="font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;color:#8496a0">DES.6</span><span style="font:600 13px/1.35 Helvetica,Arial,sans-serif">Tablet breakpoint</span><span style="font:400 12px/1.5 Helvetica,Arial,sans-serif;color:#556873">Provisioning and Map at 1024 for field techs. The config editor I would leave desktop-only unless you say otherwise.</span></div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1540},&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Handoff&quot;},&quot;showStates&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Handoff&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      showNotes: this.props.showNotes ?? true,
+      showStates: this.props.showStates ?? true
+    };
+  }
+}
+</script>
+</body>
+</html>

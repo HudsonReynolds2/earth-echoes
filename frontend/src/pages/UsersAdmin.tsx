@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 
 import { Can } from "../components/Can";
+import { EmptyState } from "../components/EmptyState";
+import { PageHeader } from "../components/PageHeader";
 import { createUser, listUsers, setUserActive } from "../lib/users";
 
 const ROLES = ["owner", "deployment_operator", "field_tech", "viewer"] as const;
@@ -147,22 +149,23 @@ function CreateUserForm() {
 
 export function UsersAdmin() {
   return (
-    <Can
-      permission="manage_users"
-      fallback={
-        <section className="card">
-          <h1>Users</h1>
-          <p className="muted" data-testid="users-denied">
+    <div className="page">
+      <PageHeader eyebrow="Administration" title="Users" />
+      <Can
+        permission="manage_users"
+        fallback={
+          <EmptyState title="Not permitted" testId="users-denied">
             You do not have permission to administer users.
-          </p>
+          </EmptyState>
+        }
+      >
+        <section className="card">
+          <UsersTable />
         </section>
-      }
-    >
-      <section className="card">
-        <h1>Users</h1>
-        <UsersTable />
-        <CreateUserForm />
-      </section>
-    </Can>
+        <section className="card">
+          <CreateUserForm />
+        </section>
+      </Can>
+    </div>
   );
 }

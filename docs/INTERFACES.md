@@ -67,12 +67,112 @@ constraint naming convention; all constraints are named through it.
 
 Token namespaces (binding target format for DES.4): `--eoe-color-*`, `--eoe-space-*`,
 `--eoe-font-*`, `--eoe-radius-*`, `--eoe-shadow-*`. The token sheet is the single file
-**`frontend/src/styles/tokens.css`** (neutral defaults; DES.4 delivers a replacement value
-set for exactly its custom-property names). `frontend/src/styles/tokens.alt.css` is a
-test-only fixture proving the swap and must mirror the exact key set. Every component
-styles through `var(--eoe-*)`; color, spacing, radius, and shadow literals outside the
-sheet fail the gate (`frontend/tests/tokens.test.ts`). The theme-swap browser test
+**`frontend/src/styles/tokens.css`** (DES.4 v2, "field notebook" direction, delivers a
+replacement value set for exactly these five namespaces' custom-property names; nothing
+renamed). `frontend/src/styles/tokens.alt.css` is the shipped night theme (DES.7, D24) and
+must mirror the exact key set of `tokens.css`. Every component styles
+through `var(--eoe-*)`; color, spacing, radius, and shadow literals outside the token sheets
+fail the gate (`frontend/tests/tokens.test.ts`). The theme-swap browser test
 (`frontend/e2e/theme-swap.spec.ts`) is DES.7's regression guarantee.
+
+**Additive extension (DECISIONS D21, DES-4-01, 2026-07-30):** a third sheet,
+`frontend/src/styles/tokens.ext.css`, is imported by `main.tsx` alongside `tokens.css` and
+adds new keys to `--eoe-color-*`/`--eoe-space-*`/`--eoe-font-*` plus five new namespaces:
+`--eoe-border-width-*`, `--eoe-row-height-*`, `--eoe-control-height-*`, `--eoe-duration-*`,
+`--eoe-ease`. Nothing in the original five namespaces is renamed, removed, or repointed.
+`tokens.test.ts` treats `tokens.ext.css` as a third application-owned sheet (not a literal
+leak); its keys must stay defined for anything that references them via `var(--eoe-*)`.
+DES.7 added `--eoe-radius-pill`/`-round` and a `--eoe-height-*` namespace on the same terms.
+
+**Night theme (DECISIONS D24, 2026-07-30).** Four sheets, not three: `tokens.alt.css` and
+`frontend/src/styles/tokens.ext.alt.css` are both scoped to `:root[data-theme="dark"]` and
+are imported unconditionally by `main.tsx`, so specificity — never import order — decides
+which theme wins. `frontend/src/lib/theme.ts` owns the attribute; **no component may import
+a theme sheet** (gate-checked). Resolution is a persisted manual override first,
+`prefers-color-scheme` otherwise. `tokens.ext.alt.css` overrides color keys only and must
+stay a strict subset of `tokens.ext.css`. Gate checks 8/9/10 enforce the alias parity, the
+subset rule, and the attribute scoping respectively.
+
+**Shell layout (DECISIONS D25).** A dark top bar (`data-testid="shell-topbar"`) with a
+horizontal `aria-label="Primary"` nav over an optional `ContextBar`, replacing the E0.4
+sidebar. The primary nav lists every destination for every role; pages gate their own
+contents and the backend RBAC dependency stays the authority.
+
+**Status vocabulary (closed, spec §9.3/§6.2):** exactly six device states —
+`streaming/healthy`, `sleeping`, `degraded`, `offline`, `alerting`, `drifted` — each with a
+color, a tint, and a glyph token (`--eoe-color-status-{name}`, `-tint`, `-glyph`). The
+locked `--eoe-color-danger`/`-success`/`-warning` alias to `status-alerting`/`-healthy`/
+`-degraded` respectively and must never be restated with their own hex value, so the two
+vocabularies cannot drift apart. D21's known gap is **closed** (D24): both themes carry the
+full status palette. Render all three channels — a chip showing only the color is not
+accessible; `src/components/StatusChip.tsx` is the canonical implementation.
+
+**Typefaces (DECISIONS D27, 2026-07-31).** Vendored, never fetched — spec §15.1 puts this
+platform on air-gapped hosts, so `frontend/src/styles/fonts.css` declares every face from
+`frontend/public/fonts/` and `frontend/tests/fonts.test.ts` fails the gate on any
+`url(https:…)` or `@import`, on a `--eoe-font-family*` whose first family has no
+`@font-face`, and on a status glyph outside the vendored subset's `unicode-range`. Adding a
+weight means vendoring that weight; anything else is synthesised. **The six status glyphs
+exist in none of the three text families**, so they ship as their own 568-byte subset behind
+`--eoe-font-family-glyph` — see `frontend/public/fonts/README.md` before changing a glyph
+token.
+
+### Frontend composition and shared components (DES.7; E1/E2/E4/E6 build on these)
+
+The frame is settled; later epics drop data into it rather than restyling it. Everything
+below is in `frontend/src/components/` and styled only through tokens.
+
+**Page composition — two shapes, pick one.** A routed page renders *either* a standard
+scrolling page:
+
+```tsx
+<div className="page">
+  <PageHeader eyebrow="Hierarchy" title="Inventory">{/* optional actions */}</PageHeader>
+  …
+</div>
+```
+
+*or*, when the surface needs full bleed (the map), a fragment whose first child is a
+`ContextBar` followed by its own region. `ContextBar` sits directly under the top bar,
+**outside** `.page` — it is the permanent home for the hierarchy breadcrumb (D25), and E1 is
+its first real consumer.
+
+| Component | Props | Use it for |
+|---|---|---|
+| `PageHeader` | `eyebrow`, `title`, `children` (action slot) | Every standard page. Mono eyebrow over a serif title. |
+| `ContextBar` | `crumbs: Crumb[]`, `tabs?`, `activeTab?`, `onTabChange?`, `children` | Hierarchy breadcrumb (`{label, to?}`) and sub-view tabs. |
+| `StatusChip` | `status: DeviceStatus`, `count?` | **The only** way to render a device state. |
+| `StatusLegend` | — | All six states; put it on any surface showing markers. |
+| `EmptyState` | `title`, `children`, `testId?` | A surface with no data yet. Say which epic brings it. |
+| `Can` / `useCan` | `permission`, `deploymentId?`, `fallback?` | Hiding or disabling writes by role (E0.7). |
+
+**Conventions that are gate-enforced or load-bearing:**
+
+- **No literals.** Color, spacing, radius, shadow, and font-size values come from `var(--eoe-*)`;
+  `tokens.test.ts` fails the gate otherwise. A token you need but cannot find is an additive
+  extension under D21 (`tokens.ext.css`, plus its dark value in `tokens.ext.alt.css`), never a
+  literal and never a rename.
+- **New component CSS goes in `app.css`**, in a commented section, not in per-page sheets or
+  inline styles. There is no CSS-in-JS in this project.
+- **Serif is display only** (`--eoe-font-family-display`): page titles and the one hero metric
+  per screen. Never body, never table cells.
+- **Mono is for identifiers** (`--eoe-font-family-mono`, class `.mono`): MACs, UUIDs,
+  aggregator ids, MQTT topics, checksums, timestamps. E1's tables are full of these.
+- **Status is three channels — color + shape + label.** Use `StatusChip`; a bare colored dot
+  or a status-colored button is a defect, and no button ever takes a status color.
+- **Density comes from tokens:** `--eoe-row-height-compact` (36px) for table rows,
+  `--eoe-control-height-*` for inputs and buttons.
+- **Tables:** `.admin-table` (E0.9, `UsersAdmin`) is the existing row/header pattern. E1.8's
+  TanStack tables should generalise it into shared table classes rather than start a second
+  vocabulary; the same goes for forms, where `.auth-form` is login-specific and E1 owns the
+  first reusable form styles.
+
+**Surfaces that are deliberately empty** (project-changes #9): Map (E6 owns the engine),
+Inventory (E1), Configuration (E2), Provisioning (E4). Each renders a header plus an
+`EmptyState` naming its epic and holds **no mock data** — replacing that placeholder with the
+real thing is the epic's job. `Screens v2.dc.html` draws V2·S1–S3 only; the remaining screens
+are drawn at v1 values in `Screens.dc.html`, and where the two disagree **v2 wins** — take v1
+for layout, v2 for every value.
 
 ### CI pipeline (E0.5; .github/workflows/ci.yml)
 

@@ -1,0 +1,115 @@
+/* Vendored typefaces (DES.4 "three rules" item 3; spec §15.1).
+ *
+ * Every face here is served from frontend/public/fonts/ — no CDN, no
+ * @import, no Google Fonts URL. This platform is specified for self-hosted
+ * and air-gapped installations, where a fetched webfont is not a slow font,
+ * it is a missing font. frontend/tests/fonts.test.ts fails the gate on any
+ * remote URL in this sheet and on any src that names a file that is not
+ * committed.
+ *
+ * Latin subsets only (the range each face declares below). The product's
+ * text is English; a listener MAC, an MQTT topic, and a UUID are all ASCII.
+ *
+ * The last face is not a typeface, it is the status vocabulary's shape
+ * channel — see the note above it.
+ */
+
+/* ── IBM Plex Sans: UI, body, tables ────────────────────────────────────── */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ── IBM Plex Mono: identifiers (MACs, UUIDs, topics, checksums) ─────────── */
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* 600 carries the uppercase mono eyebrow (.eyebrow), which would otherwise be
+ * synthesised bold — a smeared, wider label at the exact size where the
+ * letter-spacing is doing the work. */
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ── Source Serif 4: display only ───────────────────────────────────────── */
+
+/* Page titles, the brand mark, and the one hero number per screen. Never body,
+ * never tables. Only the 600 is vendored because only the 600 is used; a
+ * regular-weight serif appearing anywhere is a bug, not a missing file. */
+@font-face {
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/source-serif-4-latin-600-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ── EOE Status Glyphs: the status vocabulary's shape channel ───────────── */
+
+/* Status is three channels — color + shape + label — and the shape is what
+ * survives greyscale, color blindness, and a sun-washed tablet screen. The six
+ * glyphs are Geometric Shapes and Dingbats codepoints (U+25A0-25D0, U+2715),
+ * and NONE of them exist in IBM Plex Sans, Plex Mono, or Source Serif 4 — the
+ * full families, not just these subsets. Left to the system fallback they
+ * render inconsistently across platforms and turn to tofu on a minimal
+ * air-gapped host, which silently deletes the accessibility channel.
+ *
+ * So the shapes are vendored like everything else: Noto Sans Symbols 2 (OFL),
+ * subsetted to exactly these six codepoints — 568 bytes. Declaring the range
+ * keeps this face out of the way of all other text. */
+@font-face {
+  font-family: "EOE Status Glyphs";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("/fonts/eoe-status-glyphs.woff2") format("woff2");
+  unicode-range: U+25A0, U+25B2, U+25C6, U+25CF, U+25D0, U+2715;
+}

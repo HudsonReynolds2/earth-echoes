@@ -40,51 +40,53 @@ export function Login() {
   }
 
   return (
-    <section className="card">
-      <h1>Sign in</h1>
-      <form onSubmit={onSubmit} className="auth-form" data-testid="login-form">
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="username"
-            required
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        {totpNeeded && (
+    <div className="login-page">
+      <section className="card login-card">
+        <h1>Sign in</h1>
+        <form onSubmit={onSubmit} className="auth-form" data-testid="login-form">
           <label>
-            Authentication code
+            Email
             <input
-              value={totpCode}
-              onChange={(event) => setTotpCode(event.target.value)}
-              autoComplete="one-time-code"
-              inputMode="numeric"
-              data-testid="totp-input"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="username"
               required
             />
           </label>
-        )}
-        {error && (
-          <p className="status-bad" data-testid="login-error">
-            {error}
-          </p>
-        )}
-        <button type="submit" disabled={busy}>
-          {busy ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
-    </section>
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          {totpNeeded && (
+            <label>
+              Authentication code
+              <input
+                value={totpCode}
+                onChange={(event) => setTotpCode(event.target.value)}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                data-testid="totp-input"
+                required
+              />
+            </label>
+          )}
+          {error && (
+            <p className="status-bad" data-testid="login-error">
+              {error}
+            </p>
+          )}
+          <button type="submit" disabled={busy}>
+            {busy ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
+      </section>
+    </div>
   );
 }

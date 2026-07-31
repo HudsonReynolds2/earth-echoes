@@ -5,6 +5,93 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #10 (2026-07-31): Fonts vendored and the DES track handed off to E1
+
+- **What changed:** The DES track's last open implementation item closes before E1 starts.
+  (1) **Fonts are vendored** rather than named-and-hoped: seven latin-subset woff2 files in
+  `frontend/public/fonts/` (~160 KB) declared by the new `frontend/src/styles/fonts.css`, with
+  `frontend/tests/fonts.test.ts` gate-enforcing that nothing is fetched from a CDN, that every
+  family a token names is actually supplied, and that the status glyph subset covers every
+  glyph token. (2) The seventh file exists because of a finding: **none of the six status
+  glyphs exists in IBM Plex Sans, IBM Plex Mono, or Source Serif 4** (checked against the
+  complete families), so the shape channel — one of the three channels the status vocabulary
+  requires — was resolving to system fallback and to tofu on a minimal air-gapped host. It now
+  ships as a 568-byte Noto Sans Symbols 2 subset behind the additive token
+  `--eoe-font-family-glyph` (DECISIONS D27). (3) `docs/INTERFACES.md` gains **"Frontend
+  composition and shared components"**: the props and use of `PageHeader`, `ContextBar`,
+  `StatusChip`/`StatusLegend`, `EmptyState`, and `Can`, the two page-composition shapes, and
+  the conventions later epics must follow (no literals, component CSS in `app.css`, serif is
+  display-only, mono for identifiers, density from the row/control-height tokens, `.admin-table`
+  as the pattern E1.8's TanStack tables generalise).
+- **Why:** E1.8 builds a hierarchy tree, device tables, entity forms, and a bulk-import result
+  grid — the first heavy consumer of the design system. An implementation session's inputs are
+  the spec, its phase document, `docs/INTERFACES.md`, and `docs/DECISIONS.md`; the component
+  library those sessions need was documented only in `Design System.dc.html`, which is **not in
+  this repository**. Without this, E1 would re-invent table, form, and status vocabulary and the
+  direction would drift on its first real use. Vendoring the fonts now also settles the type
+  metrics before dense tables are built against them.
+- **Also recorded:** open question 3 (config editor on tablet) stays open and belongs to E2, not
+  E1. DES.8 remains blocked on E4–E6.
+- **Affects:** project_planning/DES-track-handoff.md ("The three rules" item 3, status table,
+  open questions)
+- **Addendum:** DES-7-02
+
+## #9 (2026-07-30): DES.7 applied — shell restructured, night theme shipped, page skeletons ahead of their epics
+
+- **What changed:** DES.7 ("apply the design system") is done for the shell and the frame.
+  `Shell.tsx` becomes V2·S1's dark top bar (DECISIONS D25); the night theme ships behind a
+  manual toggle plus `prefers-color-scheme`, closing D21's recorded gap (D24); `app.css` is
+  rewritten against V2 with shared `ContextBar`, `PageHeader`, `StatusChip`/`StatusLegend`,
+  and `EmptyState` components. Routes and v2-styled skeletons were added for Map, Inventory,
+  Configuration, and Provisioning **ahead of the epics that own their data** (E6, E1, E2, E4)
+  — each renders only a header and a panel naming the epic that fills it. No mock devices,
+  rows, or wizard steps: the point is that E1/E2/E4/E6 drop real data into a settled frame,
+  not that the app looks finished.
+- **Why it deviates:** the plan sequences DES.7 "after DES.4/DES.5 and the E2 UI". Only E0
+  exists, so this batch does the half that does not need data — tokens, shell, theme,
+  components — and stops at the boundary where invented content would start.
+- **Deferred, noted here so it is not re-decided:** the **map engine** is not implemented.
+  Direction is Google Maps satellite via the official JS API when online, an
+  operator-supplied local image for air-gapped hosts (spec §15.1), ESRI later; E6 owns it.
+  `Map.tsx` reserves the region and ships the real status legend around it. **Font
+  vendoring** is also deferred — `tokens.css` names IBM Plex Sans/Mono and Source Serif 4
+  with a fallback stack, and the woff2 files are not yet in `frontend/public/fonts/`, so the
+  product currently renders in the fallbacks. **Image assets** land in
+  `frontend/public/images/`: `forest-background.jpg` is present and backs **every** page via
+  `.shell-content`, scrimmed by the new additive token `--eoe-color-backdrop-scrim` (0.93
+  light / 0.94 dark) so it reads as texture and every documented contrast ratio still holds;
+  the login hero keeps the far lighter `--eoe-color-overlay` and lets the photograph carry
+  the screen. Both treatments paint a `background-color` first, so a missing file degrades to
+  a flat token color rather than to unreadable text. The asset is committed web-sized
+  (1920×1280, ~925 KB, EXIF stripped) rather than as the 6000×4000 / 24 MB camera original:
+  it is fetched on every page, and git keeps binaries forever.
+- **Also deferred:** the v1 bulk-edit modal (S4) and services onboarding wizard (S5) are
+  flows nested inside Inventory and Provisioning, not top-level destinations in v2. They get
+  built with E2.8 and E5.12 rather than being stubbed now.
+- **Affects:** project_planning/DES-track-handoff.md ("DES.7 work items" 4-6, open question 2)
+- **Addendum:** DES-7-01
+
+## #8 (2026-07-30): DES.4 v2 tokens land; token namespaces gain an additive status/border/density extension
+
+- **What changed:** `frontend/src/styles/tokens.css` and `tokens.alt.css` take the DES.4 v2
+  ("field notebook") value set — same 30 property names, same five namespaces, values only.
+  A third sheet, `frontend/src/styles/tokens.ext.css`, is accepted (DECISIONS D21, DES-4-01)
+  and wired into `main.tsx`: it adds keys to the existing `--eoe-color-*`/`--eoe-space-*`/
+  `--eoe-font-*` namespaces and introduces five new ones (`--eoe-border-width-*`,
+  `--eoe-row-height-*`, `--eoe-control-height-*`, `--eoe-duration-*`, `--eoe-ease`), closing
+  the six-value status vocabulary spec §9.3/§6.2 requires. Nothing in the original E0.4 key
+  set is renamed, removed, or repointed. `frontend/tests/tokens.test.ts` now treats
+  `tokens.ext.css` as a third application-owned sheet. Separately, `app.css`'s four uses of
+  `var(--eoe-space-1)` as a border/outline width (rendering a 4px sidebar border, `.card`
+  border, and both focus outlines) now use the new `--eoe-border-width-hairline: 1px`.
+- **Why:** DES.4-handoff.md flagged this as a change to an E0-owned interface (rule R2) and
+  asked for a verdict before applying it; the project owner accepted it in this session to
+  finish the DES.4 deliverable. `tokens.alt.css` does not yet mirror the extended keys with
+  dark-mode equivalents — recorded as a known, deliberately deferred gap in D21, not silently
+  dropped.
+- **Affects:** project_planning/phase-0-foundations.md section 2 (E0.4 token namespaces)
+- **Addendum:** PHASE0-4-04
+
 ## #7 (2026-07-24): Top-level guide/ directory and the deployment verifier (Gate 14)
 
 - **What changed:** The fixed repository layout gains a top-level `guide/` directory: the
