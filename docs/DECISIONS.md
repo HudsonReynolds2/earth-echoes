@@ -4,6 +4,42 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D29 (2026-08-01): Test changes in the records-hygiene batch — two strengthenings
+
+- **Decision:** two tests change in this batch, both at a green gate and both adding
+  assertions rather than removing them. (1) `backend/tests/test_governance.py`
+  (`test_planning_documents_unmodified_except_appended_addenda`) gains a non-empty guard on
+  the `planning-baseline` file list: D23's rescope iterates `git ls-tree` output, and if the
+  tag were renamed or the path misspelled, `ls-tree` exits 0 with empty stdout — the loop
+  would run zero times and the invariant would pass having verified nothing. The guard
+  (`assert len(baseline_names) >= 7`) mirrors `test_planning_documents_tracked_by_git` and
+  makes that failure loud. (2) `frontend/tests/users-admin.test.tsx`: the test named "hides
+  the sidebar link from a viewer and shows it to an owner" never asserted the viewer half
+  (pre-existing — verified identical at `23eff5d`), and D25 deliberately made the Users link
+  visible to every role, so the name documented an invariant the product had abandoned while
+  passing vacuously. It is replaced by two tests asserting D25's actual intent: the link is
+  visible to a viewer AND to an owner; the viewer's content gating stays covered by the
+  existing "denies the page to a viewer" test.
+- **Reference:** rule R0 (record test changes); DECISIONS D23, D25; project-changes #12;
+  review of `23eff5d..f93f061` (2026-08-01).
+
+## D28 (2026-08-01): Late record — Gate 16 changed a fifth test, and what it means for E0.4's acceptance proof
+
+- **Decision (record-only, no code change):** D26 presents four test fixes at the DES.7 gate
+  as the complete inventory ("All four are corrections"). A fifth change shipped in the same
+  commit (`5347eeb`) unlisted: `frontend/e2e/theme-swap.spec.ts` was rewritten from injecting
+  the alt sheet via `page.addStyleTag(ALT_SHEET)` to driving the real theme toggle, because
+  D24 scoped the night sheets to `:root[data-theme="dark"]` and stylesheet injection went
+  inert. The rewrite is a net strengthening — 2 e2e tests became 4 (persistence across
+  reload; the status palette relit on `/map`) and the swap is now exercised through the path
+  a user takes — but it was explained only in the spec file's header comment, and it changed
+  what proves E0.4's acceptance criterion: "swapping its values visibly restyles the shell"
+  is now demonstrated via `lib/theme.ts` flipping `data-theme`, not via a bare sheet swap
+  with zero code changes. Recorded so D26 does not stand as complete and the criterion's
+  changed proof is written down (see PHASE0-4-06).
+- **Reference:** rule R0 (record test changes); DECISIONS D24, D26; commit `5347eeb`
+  (Gate 16); project-changes #12.
+
 ## D27 (2026-07-31): Fonts vendored, and the status glyphs get their own 568-byte subset
 
 - **Decision:** the three typefaces the token sheets name ship as latin-subset woff2 files in
@@ -246,7 +282,7 @@ weakenings.
 - **Reference:** rule R2 (secrets never in fixtures); CI run on `e0-batch-3` at gate-6;
   backend/tests/test_repo_layout.py, backend/tests/test_auth.py.
 
-## D17 (2026-07-24): Branch protection pending repository-owner action
+## D17 (2026-07-24): Branch protection pending repository-owner action — RESOLVED 2026-07-30
 
 - **Decision:** The API attempt to require the `ci-green` status check on `main` returned
   404 (GitHub's masking of missing admin rights; the working account has WRITE). The
@@ -264,8 +300,18 @@ weakenings.
   merging" → select **`ci-green`** (only this one; it fans in every stage, so newly added
   stages block automatically without touching settings again). Optionally also enable
   "Require a pull request before merging".
+- **Resolved (2026-07-30; recorded 2026-08-01):** The repository owner applied a
+  "protect-main" ruleset requiring the `ci-green` check. Verification PR #5
+  (`test/ci-gate-verification`, closed, branch deleted) confirmed enforcement in both
+  directions — merge blocked while `ci-green` was red, unblocked once green — after one
+  correction: the ruleset initially named the check `CI / ci-green` (the
+  workflow-qualified display name), which never matches; it was corrected to plain
+  `ci-green`. Re-verified 2026-08-01 from this machine: `main` reports `protected: true`,
+  and PRs #6 and #7 merged through the required check. GitHub-side merge-blocking is
+  active; rule R3's procedural discipline is no longer the only guard. (The protection
+  API still returns 404 for the working account — reading ruleset config needs admin.)
 - **Reference:** phase-0-foundations.md section 4 (E0.5 acceptance, "a failing test blocks
-  merge"); docs/INTERFACES.md "CI pipeline".
+  merge"); docs/INTERFACES.md "CI pipeline"; PR #5 closing comment.
 
 ## D16 (2026-07-24): Line endings pinned to LF via .gitattributes
 

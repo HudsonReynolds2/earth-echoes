@@ -1,6 +1,44 @@
 # Project Updates
 
-## 2026-07-31: Fonts vendored, DES track handed off to E1 (Gate 18 GREEN)
+## 2026-08-01: Records hygiene batch — DES-batch paper trail brought current (Gate 19 GREEN)
+
+- **Tasks closed:** the records-and-test-hygiene batch a post-DES review of `23eff5d..f93f061`
+  motivated (project-changes #11, #12; DECISIONS D28, D29; addenda PHASE0-4-05, PHASE0-4-06,
+  DES-7-03). No product code changed.
+- **Gate:** 19, GREEN
+- **Tests:** backend 172 passed, vitest 44 passed (one added in `users-admin.test.tsx`),
+  Playwright 4 passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **First run was RED, environmental:** 8 failed + 59 errors, every one
+  `could not start ephemeral postgres: failed to connect to the docker API at
+  npipe:////./pipe/dockerDesktopLinuxEngine … check if the daemon is running` — Docker
+  Desktop was not running. Started Docker Desktop, engine reported up, full rerun GREEN with
+  no test or code change in between.
+- **Artifacts:** `phase-0-foundations.md` gains PHASE0-4-05 (D25's sidebar→top-bar
+  replacement, previously recorded everywhere except the phase document) and PHASE0-4-06
+  (correcting PHASE0-4-04's "acceptance criteria continue to hold unchanged" — the one-file
+  token-sheet criterion stopped holding at the gate that appended it). project-changes #11
+  gives Gate 17's backdrop change its own numbered entry and records the in-place amendment
+  of #9; DES-7-03 mirrors it in the handoff doc. D28 records the fifth Gate 16 test change
+  D26's inventory missed (theme-swap e2e rewrite, net +2 tests). Stale claims corrected in
+  `DES.4-handoff.md` (`Screens.dc.html` is in the repo since Gate 16) and
+  `DES-track-handoff.md` (working-document framing replaces the frozen-snapshot claim).
+  `docs/frontend-guide.md` is subordinated to `docs/INTERFACES.md` "Frontend composition and
+  shared components" and gains the owner's "Starting E1" brief (tokens via `tokens.ext.css`
+  only; closed six-state `StatusChip` vocabulary; v1 mockups for layout, v2 for values, none
+  visually QA'd; replace `EmptyState` panels, don't restyle around them; `ContextBar` is the
+  breadcrumb home; `.admin-table` is the table pattern to generalize; TanStack Table not
+  installed). `images/README.md` gains an explicit provenance/license TODO for
+  `forest-background.jpg`, pending owner input.
+- **Test changes (D29), both strengthenings, both verified red-then-green:** the
+  `test_governance.py` baseline guard was pointed at a bogus path and failed loudly
+  ("planning-baseline should pin at least 7 documents, got 0") before restoration; the new
+  viewer-sees-the-Users-link test was pointed at a bogus link name and failed with the
+  viewer's rendered DOM showing the real link present. The misleadingly named "hides the
+  sidebar link from a viewer" test (vacuous on its viewer half since E0.9) is replaced by
+  two honest assertions of D25's intent.
+- **Manual verification:** red-then-green runs above, plus the governance suite (13 passed)
+  and `users-admin.test.tsx` (6 passed) run standalone before the full gate.
 
 - **Tasks closed:** DES.4 "three rules" item 3 (fonts vendored, never fetched) and the DES
   track's handoff into E1 (project-changes #10; addendum DES-7-02); D27 (font vendoring and

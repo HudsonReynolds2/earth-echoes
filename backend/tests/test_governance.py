@@ -165,6 +165,11 @@ def test_planning_documents_unmodified_except_appended_addenda():
     baseline_names = run_git(
         "ls-tree", "--name-only", "planning-baseline", "project_planning/"
     ).splitlines()
+    # Guard against a vacuous pass (D29): a renamed tag or a mistyped path makes
+    # ls-tree exit 0 with empty output, and the loop below would verify nothing.
+    assert len(baseline_names) >= 7, (
+        f"planning-baseline should pin at least 7 documents, got {len(baseline_names)}"
+    )
     for name in baseline_names:
         doc = PLANNING / name.split("/")[-1]
         baseline = run_git("show", f"planning-baseline:{name}").replace("\r\n", "\n")

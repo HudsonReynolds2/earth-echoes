@@ -1,6 +1,6 @@
 /**
- * Gate 9 frontend checks (task E0.9): the owner-only admin page, the gated
- * sidebar link, and the create-user flow against MSW.
+ * Gate 9 frontend checks (task E0.9): the owner-only admin page, the Users nav
+ * link (visible to every role since D25), and the create-user flow against MSW.
  */
 import { QueryClient } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
@@ -54,8 +54,18 @@ describe("users admin page", () => {
     expect(screen.queryByTestId("users-table")).not.toBeInTheDocument();
   });
 
-  it("hides the sidebar link from a viewer and shows it to an owner", async () => {
+  // D25: the primary nav lists every destination for every role — hiding a section
+  // teaches a wrong map of the product. RBAC lives on the page (users-denied above)
+  // and on the backend, not on the link. The old test here ("hides the sidebar link
+  // from a viewer") named an invariant D25 abandoned and never asserted it anyway.
+  it("shows the Users nav link to an owner", async () => {
     actAsOwner();
+    renderAt("/");
+    expect(await screen.findByRole("link", { name: "Users" })).toBeInTheDocument();
+  });
+
+  it("shows the Users nav link to a viewer too", async () => {
+    actAsViewer();
     renderAt("/");
     expect(await screen.findByRole("link", { name: "Users" })).toBeInTheDocument();
   });

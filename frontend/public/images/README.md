@@ -30,3 +30,11 @@ convert original.jpg -resize 1920x -strip -quality 80 -interlace Plane forest-ba
 ```
 
 `-strip` also drops EXIF, which on a camera original carries the capture location.
+
+### Provenance and license
+
+Photograph by **Hudson Reynolds** (contributor on this project), taken in Tasmania in 2024
+with a handheld Sony a6500. The 6000×4000 camera original was supplied by the photographer;
+this file is the web-sized derivative described above (EXIF, including the capture
+location, stripped). Copyright remains with the photographer; the image is used in this
+application with permission and is not licensed for redistribution outside it.

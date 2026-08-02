@@ -121,6 +121,8 @@ token.
 
 The frame is settled; later epics drop data into it rather than restyling it. Everything
 below is in `frontend/src/components/` and styled only through tokens.
+(`docs/frontend-guide.md` is the working tour of this surface — run instructions, file map,
+where-to-change-what; this section is the contract and wins on any disagreement.)
 
 **Page composition — two shapes, pick one.** A routed page renders *either* a standard
 scrolling page:
