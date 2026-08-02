@@ -373,6 +373,13 @@ proven by `backend/tests/test_hierarchy_schema.py`:
   403-before-lookup; child items answer identical 404s for out-of-scope and missing
   (MAC-enumeration oracle defense — suite-asserted). Later epics reuse these helpers
   rather than reimplementing visibility.
+- **Uniqueness and auto-suffix (E1.4; spec 4.3 item 1):** a listener-name collision
+  rejects by default with `409 conflict` and `detail: {"field": "name", "suggestion":
+  "<name-2>"}` — the wire shape the E1.8 conflict dialog consumes. `auto_suffix: true` in
+  the POST body (an **explicit** parameter, default false, never silent) creates at the
+  first free `name-N`, and the audit row records `{auto_suffixed, requested_name,
+  final_name}`. A MAC collision always rejects; no parameter overrides it. The
+  compute/flush suffix race retries once with a recomputed name, then 409s.
 - **Parent fields are create-only across the hierarchy (D32):** PATCH bodies are
   `extra="forbid"` and never accept `mac`, parent ids, or the deployment stamp; create
   bodies forbid unknown fields too, so a client-sent stamp is a 422.

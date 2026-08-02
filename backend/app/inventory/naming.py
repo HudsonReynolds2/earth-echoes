@@ -8,12 +8,15 @@ form the listener primary key CHECK-constrains (D31).
 
 import re
 import unicodedata
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.errors import AppError
-from app.models import Deployment
+from app.models import Deployment, Listener
+
+NAME_MAX = 200
 
 _SLUG_SQUASH = re.compile(r"[^a-z0-9]+")
 _MAC_SEPARATORS = re.compile(r"[:\-.\s]")
@@ -40,6 +43,26 @@ def next_free_slug(db: Session, base: str) -> str:
     while db.scalar(select(Deployment.id).where(Deployment.slug == candidate)) is not None:
         suffix = f"-{counter}"
         candidate = f"{base[: SLUG_MAX - len(suffix)]}{suffix}"
+        counter += 1
+    return candidate
+
+
+def next_free_name(db: Session, deployment_id: uuid.UUID, base: str) -> str:
+    """The spec 4.3 auto-suffix ladder for listener names within a deployment:
+    `base`, then `base-2`, `base-3`, ... - the first not already taken. Only
+    ever applied on an explicit request parameter, never silently (E1.4)."""
+    candidate = base
+    counter = 2
+    while (
+        db.scalar(
+            select(Listener.mac).where(
+                Listener.deployment_id == deployment_id, Listener.name == candidate
+            )
+        )
+        is not None
+    ):
+        suffix = f"-{counter}"
+        candidate = f"{base[: NAME_MAX - len(suffix)]}{suffix}"
         counter += 1
     return candidate
 

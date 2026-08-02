@@ -1,6 +1,24 @@
 # Project Updates
 
-## 2026-08-02: E1.3 One aggregator per pod, one call (Gate 22 GREEN)
+## 2026-08-02: E1.4 Uniqueness validation and explicit auto-suffix (Gate 23 GREEN)
+
+- **Tasks closed:** E1.4
+- **Gate:** 23, GREEN
+- **Tests:** backend 230 passed (+6 in the new `test_uniqueness.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** spec 4.3 item 1 implemented literally. Name collision within a
+  deployment rejects by default — `409 conflict` with `detail {"field": "name",
+  "suggestion": "<name-2>"}`, the wire shape E1.8's conflict dialog consumes.
+  `auto_suffix: true` (explicit body parameter, default false — the never-silent rule is
+  itself a test) creates at the first free `name-N` and the audit row carries
+  `{auto_suffixed, requested_name, final_name}`. MAC collision always rejects; no
+  parameter overrides it. The compute/flush suffix race retries once with a recomputed
+  name (proven by a monkeypatched stale-suffix simulation), then 409s.
+  `next_free_name` joins `app/inventory/naming.py`; INTERFACES documents the parameter
+  and the suggestion detail shape.
+- **Manual verification:** the full suffix ladder (`sensor` → `sensor-2` → `sensor-3`)
+  driven over the live API; cross-deployment name freedom re-proven.
 
 - **Tasks closed:** E1.3
 - **Gate:** 22, GREEN

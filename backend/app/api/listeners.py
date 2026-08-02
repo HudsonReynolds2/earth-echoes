@@ -27,7 +27,7 @@ from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
 from app.auth.rbac import Permission, has_permission
 from app.errors import AppError
-from app.inventory.naming import normalize_mac
+from app.inventory.naming import next_free_name, normalize_mac
 from app.models import Aggregator, Listener, UserSession
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
 
@@ -58,6 +58,10 @@ class CreateListenerBody(BaseModel):
     aggregator_id: uuid.UUID
     gps_lat: float | None = Field(default=None, ge=-90, le=90)
     gps_lon: float | None = Field(default=None, ge=-180, le=180)
+    # E1.4 (spec 4.3): the auto-suffix is an EXPLICIT request parameter,
+    # never silent. Applies to name collisions only; a MAC collision always
+    # rejects - no parameter overrides it.
+    auto_suffix: bool = False
 
 
 class PatchListenerBody(BaseModel):
@@ -128,24 +132,61 @@ def create_listener(
             "forbidden", "requires permission manage_devices in this deployment", status_code=403
         )
     mac = normalize_mac(body.mac)
-    row = Listener(
-        mac=mac,
-        name=body.name,
-        aggregator_id=body.aggregator_id,
-        deployment_id=deployment_id,  # the D32 stamp: server-computed, never client-supplied
-        gps_lat=body.gps_lat,
-        gps_lon=body.gps_lon,
-    )
-    db.add(row)
-    try:
-        db.flush()
-    except IntegrityError as error:
-        db.rollback()
-        raise AppError(
-            "conflict",
-            "MAC already registered, or listener name already exists in this deployment",
-            status_code=409,
-        ) from error
+    # MAC collision ALWAYS rejects - a duplicate means a data-entry error or a
+    # cloned device (spec 4.3 item 1); no parameter overrides this.
+    if db.get(Listener, mac) is not None:
+        raise AppError("conflict", f"MAC {mac} is already registered", status_code=409)
+
+    final_name = body.name
+    row: Listener | None = None
+    # Suffix computation and insert race against concurrent creates: retry
+    # once with a recomputed suffix, then surface the conflict (E1.4).
+    for attempt in (1, 2):
+        collides = (
+            db.scalar(
+                select(Listener.mac).where(
+                    Listener.deployment_id == deployment_id, Listener.name == final_name
+                )
+            )
+            is not None
+        )
+        if collides:
+            if not body.auto_suffix:
+                raise AppError(
+                    "conflict",
+                    f"listener name {body.name!r} already exists in this deployment",
+                    status_code=409,
+                    detail={
+                        "field": "name",
+                        "suggestion": next_free_name(db, deployment_id, body.name),
+                    },
+                )
+            final_name = next_free_name(db, deployment_id, body.name)
+        row = Listener(
+            mac=mac,
+            name=final_name,
+            aggregator_id=body.aggregator_id,
+            deployment_id=deployment_id,  # the D32 stamp: server-computed only
+            gps_lat=body.gps_lat,
+            gps_lon=body.gps_lon,
+        )
+        db.add(row)
+        try:
+            db.flush()
+            break
+        except IntegrityError as error:
+            db.rollback()
+            row = None
+            if attempt == 2 or not body.auto_suffix:
+                raise AppError(
+                    "conflict",
+                    "MAC already registered, or listener name already exists in this deployment",
+                    status_code=409,
+                ) from error
+    assert row is not None  # both loop exits either broke with a row or raised
+    detail: dict[str, object] = {"name": row.name, "aggregator_id": str(row.aggregator_id)}
+    if row.name != body.name:
+        detail.update({"auto_suffixed": True, "requested_name": body.name, "final_name": row.name})
     record_audit(
         db,
         action="listener.create",
@@ -153,7 +194,7 @@ def create_listener(
         entity_id=row.mac,
         actor_user_id=actor.user_id,
         scope=deployment_id,
-        detail={"name": row.name, "aggregator_id": str(row.aggregator_id)},
+        detail=detail,
     )
     db.commit()
     db.refresh(row)
