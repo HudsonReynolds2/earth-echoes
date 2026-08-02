@@ -5,6 +5,29 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #14 (2026-08-02): POST /organizations clamped to a single organization
+
+- **What changed:** creating a second organization returns 409 `conflict` while v1 runs
+  single-org. Spec 12.1 fixes v1 as one Organization whose scoping flows through joins;
+  an unclamped POST would let two orgs exist with no scoping story and would falsify the
+  global-uniqueness-equals-within-org reasoning D32 records for `aggregator_uuid`.
+  Multi-org later removes the clamp and relaxes that constraint together (D32/D34
+  cross-reference).
+- **Why it is a plan change:** E1.2's task text implies plain POST semantics for all five
+  entities; the clamp narrows one of them deliberately.
+- **Affects:** project_planning/phase-1-hierarchy-inventory.md
+- **Addendum:** PHASE1-4-02
+
+## #13 (2026-08-02): Organizations get no DELETE endpoint
+
+- **What changed:** the E1.2 surface ships `GET/POST` collection and `GET/PATCH` item
+  routes for `/organizations` — no DELETE. Task E1.2's wording ("`GET/PATCH/DELETE` items
+  for all five entities") conflicted with spec 13, which lists no DELETE for
+  organizations, consistent with the single-org v1 of spec 12.1. The spec is first in the
+  authority order; the owner confirmed the resolution (2026-08-02) before implementation.
+- **Affects:** project_planning/phase-1-hierarchy-inventory.md
+- **Addendum:** PHASE1-4-01
+
 ## #12 (2026-08-01): Records hygiene batch — the DES-batch paper trail brought current
 
 - **What changed:** No product code. A records-and-test-hygiene pass closing the gaps a

@@ -43,6 +43,34 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/users"),
     ("POST", f"{API_PREFIX}/users"),
     ("PATCH", f"{API_PREFIX}/users/{{user_id}}"),
+    # E1.2 (gate 21): the spec-13 hierarchy surface, extended here
+    # deliberately alongside INTERFACES.md "Owned by E1" (D34, D35). Written
+    # from the OpenAPI dump, not by hand. Note: no DELETE /organizations
+    # (spec 13; D34, project-changes #13).
+    ("GET", f"{API_PREFIX}/organizations"),
+    ("POST", f"{API_PREFIX}/organizations"),
+    ("GET", f"{API_PREFIX}/organizations/{{organization_id}}"),
+    ("PATCH", f"{API_PREFIX}/organizations/{{organization_id}}"),
+    ("GET", f"{API_PREFIX}/deployments"),
+    ("POST", f"{API_PREFIX}/deployments"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}"),
+    ("PATCH", f"{API_PREFIX}/deployments/{{deployment_id}}"),
+    ("DELETE", f"{API_PREFIX}/deployments/{{deployment_id}}"),
+    ("GET", f"{API_PREFIX}/pods"),
+    ("POST", f"{API_PREFIX}/pods"),
+    ("GET", f"{API_PREFIX}/pods/{{pod_id}}"),
+    ("PATCH", f"{API_PREFIX}/pods/{{pod_id}}"),
+    ("DELETE", f"{API_PREFIX}/pods/{{pod_id}}"),
+    ("GET", f"{API_PREFIX}/aggregators"),
+    ("POST", f"{API_PREFIX}/aggregators"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}"),
+    ("PATCH", f"{API_PREFIX}/aggregators/{{aggregator_id}}"),
+    ("DELETE", f"{API_PREFIX}/aggregators/{{aggregator_id}}"),
+    ("GET", f"{API_PREFIX}/listeners"),
+    ("POST", f"{API_PREFIX}/listeners"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}"),
+    ("PATCH", f"{API_PREFIX}/listeners/{{mac}}"),
+    ("DELETE", f"{API_PREFIX}/listeners/{{mac}}"),
 }
 
 E0_TABLES = {

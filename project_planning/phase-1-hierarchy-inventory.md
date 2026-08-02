@@ -47,6 +47,10 @@ Configuration overrides, the settings catalog, and effective config (E2). Anythi
 
 **E1.9 Demo fixture.** Extend the E0 seed with a realistic demo hierarchy (1 org, 2 deployments, a few pods each, listeners at varied counts) used by tests and later phases. Acceptance: one command seeds it; E2 and E6 sessions can rely on it by name.
 
+> **Addendum PHASE1-4-01 (2026-08-02, ref project-changes #13):** E1.2's "`GET/PATCH/DELETE` items for all five entities" loses to spec 13, which lists no DELETE for `/organizations` (consistent with spec 12.1's single-organization v1). The shipped surface is `GET/POST /organizations` and `GET/PATCH /organizations/{id}`; the other four entities carry DELETE with the 409-on-children rule unchanged. DECISIONS D34.
+
+> **Addendum PHASE1-4-02 (2026-08-02, ref project-changes #14):** `POST /organizations` returns 409 `conflict` while an organization already exists — v1 is single-org (spec 12.1), and the clamp keeps the D32 reasoning honest (global `aggregator_uuid` uniqueness equals within-org uniqueness only while one org exists). Multi-org later removes the clamp and relaxes that constraint in the same change. DECISIONS D34.
+
 ## 5. Definition of done
 
 An operator creates the full hierarchy in the UI and by API, bulk-imports Listeners from CSV with row-level validation results, and edits tags. All spec 4.2/4.3 identity rules hold under test, including the report-time logic with quarantine. RBAC scopes every endpoint; every mutation audits. The demo fixture seeds cleanly. Migrations upgrade and downgrade.

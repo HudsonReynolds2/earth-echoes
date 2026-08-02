@@ -1,6 +1,32 @@
 # Project Updates
 
-## 2026-08-02: E1.1 Hierarchy schema — the data model exists (Gate 20 GREEN)
+## 2026-08-02: E1.2 CRUD endpoints — the spec-13 hierarchy surface (Gate 21 GREEN)
+
+- **Tasks closed:** E1.2 (project-changes #13/#14; addenda PHASE1-4-01/02; DECISIONS
+  D34, D35, D36)
+- **Gate:** 21, GREEN
+- **Tests:** backend 220 passed (+34: `test_hierarchy_crud.py` 12, `test_scoping.py` 22
+  incl. parametrized visibility cases), vitest 44, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **First run was RED, one mypy error:** `app\api\aggregators.py:65: error: Function is
+  missing a return type annotation [no-untyped-def]` — every test suite passed on that
+  run. Fixed with an explicit `-> tuple[Aggregator, uuid.UUID]`; full rerun GREEN.
+- **Artifacts:** 24 routes (written into the readiness lock from the OpenAPI dump):
+  organizations without DELETE and with the single-org POST clamp (D34), full CRUD for
+  deployments/pods/aggregators/listeners with listeners addressed by normalized MAC in
+  every path. D7 envelopes with per-entity query models and filters (parent FKs, name
+  icontains, tag containment, slug/mac/aggregator_uuid); child counts embedded in
+  serializers for the E1.8 tree. Slug generation with collision suffixing and the D36
+  freeze-at-first-pod rule. `app/scoping.py` ships the reusable visibility layer (D35):
+  org-wide grants see all, scoped grants see their deployments, no-grant users get 403;
+  deployment item routes keep the 403-before-lookup pattern while child items answer
+  byte-identical 404s for out-of-scope and missing rows — the MAC-enumeration oracle
+  defense, asserted by test. Deletes 409 with named blockers, including role assignments
+  on deployments (D33). Every mutation audits `<entity>.<verb>` with deployment scope.
+- **Manual verification:** the gate's compose-stack suite drove the live API end-to-end;
+  scoping proven against five personas (owner, org viewer, scoped operator, scoped field
+  tech, no-grants) across all four list surfaces and the item asymmetry.
 
 - **Tasks closed:** E1.1, opening batch 1 of epic E1 (branch `e1-batch-1`)
 - **Gate:** 20, GREEN

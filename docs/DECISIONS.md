@@ -4,6 +4,50 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D36 (2026-08-02): The deployment slug freezes at the first pod
+
+- **Decision:** the concrete rule behind the phase doc's "editable before first use":
+  `slug` may be set at create (else generated: NFKD-strip to ASCII, lowercase, squash
+  non-alphanumerics to hyphens, trim, cap 63, collision suffix `-2`, `-3`, …) and changed
+  via PATCH **only while the deployment has zero pods**; afterwards a differing slug is
+  409 `conflict`. "First use" means "first child pod" because the `{dep}` MQTT namespace
+  (spec 7.2) only matters once devices can exist under it. E3 may tighten this rule
+  (e.g. freeze permanently once a broker is live), never loosen it. Known edge, accepted:
+  a deployment that had pods, deleted them all, may change its slug again pre-E3 —
+  recorded in INTERFACES so E3 re-examines it.
+- **Reference:** phase-1 §2; spec 7.2; test_hierarchy_crud.py slug lifecycle tests.
+
+## D35 (2026-08-02): Scoped visibility — the filter, the permission map, and the 403/404 asymmetry
+
+- **Decision:** `app/scoping.py` is the single source for result-set visibility:
+  `visible_deployments(assignments, permission)` -> `"all" | set[ids]`,
+  `scope_filter(...)` for lists (deployments on id, pods on deployment_id, aggregators
+  via the pod join, listeners on the D32 stamp), `require_any_assignment` for surfaces
+  every role may read. Permission map: reads = VIEW_STATUS (org reads = any assignment);
+  child writes = MANAGE_DEVICES in the target deployment + CSRF; org writes and
+  POST /deployments = org-level MANAGE_DEVICES. **No change to rbac.py anywhere in E1** —
+  the locked matrix and the frontend parity test are untouched; this suite lives in the
+  new `test_scoping.py`, not in the test-critical file.
+- **The asymmetry:** `/deployments/{deployment_id}` routes keep E0.7's 403-before-lookup
+  pattern (safe: the check precedes any existence lookup). Child items answer **404 for
+  out-of-scope and missing alike** — MACs are enumerable (OUI + counter), so a
+  403-on-existing would be an existence oracle; the suite asserts the two 404 bodies are
+  byte-identical. POSTs answer 403: the client supplied the parent scope, denial confirms
+  nothing.
+- **Reference:** spec 12.3, 13; DECISIONS D32; backend/tests/test_scoping.py.
+
+## D34 (2026-08-02): Organization surface — no DELETE, single-org POST clamp
+
+- **Decision:** spec 13 lists no DELETE for `/organizations` and wins over E1.2's "all
+  five entities" wording (owner-confirmed 2026-08-02; project-changes #13, addendum
+  PHASE1-4-01). POST /organizations 409s while an organization exists (spec 12.1
+  single-org v1; project-changes #14, PHASE1-4-02). Cross-reference D32: the clamp is
+  what makes global `aggregator_uuid` uniqueness equal the spec's within-org rule; a
+  future multi-org change relaxes both together. Org reads are gated by
+  `require_any_assignment` (a deployment-scoped operator still needs the org name for
+  the tree); org writes need org-level MANAGE_DEVICES.
+- **Reference:** spec 13, 12.1; phase-1 §4 E1.2; DECISIONS D32.
+
 ## D33 (2026-08-02): E1.1 flips the role_assignment FK; audit scope is never one
 
 - **Decision:** `role_assignment.deployment_id` gains its real foreign key (the seam phase-0

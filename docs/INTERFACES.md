@@ -339,3 +339,37 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **Migrations:** `ee260dc1c1a8` (tables), `53181716569c` (orphan-grant delete + the
   role_assignment FK). `audit_log.scope` is **deliberately never FK'd** (D3/D33) — a
   readiness test now asserts this permanently.
+
+### Hierarchy API surface (E1.2; spec 13; DECISIONS D34-D36)
+
+- **Routes** (all under `/api/v1`, D7 list envelope + sort grammar, D8 error envelope):
+  `GET/POST /organizations`, `GET/PATCH /organizations/{id}` — **no DELETE** (D34), POST
+  clamped to one org while v1 is single-org; `GET/POST` + `GET/PATCH/DELETE` for
+  `/deployments`, `/pods`, `/aggregators`, and `/listeners` — **listeners addressed by
+  MAC** in every path, normalized before lookup (`aa-bb-cc-dd-ee-ff` ==
+  `AA:BB:CC:DD:EE:FF` == `aabb.ccdd.eeff`).
+- **List filters** (one query model per endpoint, extending PageParams): parent-FK params
+  (`organization_id=`, `deployment_id=`, `pod_id=`, `aggregator_id=`), `name=`
+  (icontains), `tag=` (exact array containment), plus `slug=` (deployments), `mac=`
+  (prefix, listeners), `aggregator_uuid=` (aggregators). SORTABLE: `name`/`created_at`
+  everywhere + `slug` (deployments), `mac` (listeners), `aggregator_uuid` (aggregators).
+- **Child counts ride the serializers** (the tree UI needs them without N+1):
+  `deployment.pod_count`/`.listener_count`, `pod.listener_count` (+ embedded
+  `pod.aggregator`), `aggregator.listener_count`.
+- **Deletion:** 409 `conflict` with `detail.children` naming blockers; a deployment
+  blocks on pods AND role assignments (D33). No cascades in v1.
+- **Slug rule (D36, E3 consumes):** generated from the name when omitted; globally
+  unique; **frozen once the deployment has any pod** (PATCH → 409). Known edge for E3 to
+  re-examine: pods deleted back to zero unfreezes it pre-E3.
+- **Scoped visibility (D35):** `app/scoping.py` — `visible_deployments(assignments,
+  permission)`, `scope_filter(statement, column, scope)`, `require_any_assignment`.
+  Reads = VIEW_STATUS scoped; child writes = MANAGE_DEVICES in scope + CSRF; org writes +
+  POST /deployments = org-level MANAGE_DEVICES. Item-route contract: deployment routes
+  403-before-lookup; child items answer identical 404s for out-of-scope and missing
+  (MAC-enumeration oracle defense — suite-asserted). Later epics reuse these helpers
+  rather than reimplementing visibility.
+- **Parent fields are create-only across the hierarchy (D32):** PATCH bodies are
+  `extra="forbid"` and never accept `mac`, parent ids, or the deployment stamp; create
+  bodies forbid unknown fields too, so a client-sent stamp is a 422.
+- **Audit:** every mutation writes `<entity>.<verb>` with `scope` = the deployment id
+  (org actions: NULL), detail = changed-field names only.
