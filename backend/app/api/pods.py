@@ -34,11 +34,24 @@ class PodsQuery(PageParams):
     tag: str | None = None
 
 
+class InlineAggregatorBody(BaseModel):
+    """E1.3 (spec 13): pod creation either creates or attaches its single
+    aggregator in one call. aggregator_uuid is platform-assigned when
+    omitted (spec 4.2)."""
+
+    model_config = {"extra": "forbid"}
+
+    aggregator_uuid: str | None = Field(default=None, min_length=1, max_length=64)
+    balena_uuid: str | None = Field(default=None, max_length=64)
+    name: str | None = Field(default=None, max_length=200)
+
+
 class CreatePodBody(BaseModel):
     model_config = {"extra": "forbid"}
 
     deployment_id: uuid.UUID
     name: str = Field(min_length=1, max_length=200)
+    aggregator: InlineAggregatorBody | None = None
 
 
 class PatchPodBody(BaseModel):
@@ -131,6 +144,30 @@ def create_pod(
         scope=row.deployment_id,
         detail={"name": row.name},
     )
+    if body.aggregator is not None:
+        # E1.3: create-and-attach in one transaction - two audit rows, one
+        # commit, so a failed aggregator insert rolls the pod back too.
+        aggregator = Aggregator(
+            pod_id=row.id,
+            aggregator_uuid=body.aggregator.aggregator_uuid or uuid.uuid4().hex,
+            balena_uuid=body.aggregator.balena_uuid,
+            name=body.aggregator.name,
+        )
+        db.add(aggregator)
+        try:
+            db.flush()
+        except IntegrityError as error:
+            db.rollback()
+            raise AppError("conflict", "aggregator_uuid already exists", status_code=409) from error
+        record_audit(
+            db,
+            action="aggregator.create",
+            entity_type="aggregator",
+            entity_id=str(aggregator.id),
+            actor_user_id=actor.user_id,
+            scope=row.deployment_id,
+            detail={"aggregator_uuid": aggregator.aggregator_uuid, "pod_id": str(row.id)},
+        )
     db.commit()
     db.refresh(row)
     return pod_out(db, [row])[0]

@@ -353,6 +353,11 @@ proven by `backend/tests/test_hierarchy_schema.py`:
   (icontains), `tag=` (exact array containment), plus `slug=` (deployments), `mac=`
   (prefix, listeners), `aggregator_uuid=` (aggregators). SORTABLE: `name`/`created_at`
   everywhere + `slug` (deployments), `mac` (listeners), `aggregator_uuid` (aggregators).
+- **One aggregator per pod, one call (E1.3):** `POST /pods` accepts an optional
+  `aggregator {aggregator_uuid?, balena_uuid?, name?}` block — create-and-attach in one
+  transaction (two audit rows, one commit; a failed aggregator insert rolls the pod back).
+  Attaching to an occupied pod via `POST /aggregators` is 409. `aggregator_uuid` is
+  platform-assigned (`uuid4().hex`) when omitted.
 - **Child counts ride the serializers** (the tree UI needs them without N+1):
   `deployment.pod_count`/`.listener_count`, `pod.listener_count` (+ embedded
   `pod.aggregator`), `aggregator.listener_count`.

@@ -1,6 +1,20 @@
 # Project Updates
 
-## 2026-08-02: E1.2 CRUD endpoints — the spec-13 hierarchy surface (Gate 21 GREEN)
+## 2026-08-02: E1.3 One aggregator per pod, one call (Gate 22 GREEN)
+
+- **Tasks closed:** E1.3
+- **Gate:** 22, GREEN
+- **Tests:** backend 224 passed (+4 in the new `test_pod_aggregator.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `POST /pods` accepts an optional inline `aggregator` block — create-and-
+  attach in one transaction with two audit rows and a single commit; the rollback proof
+  shows a duplicate `aggregator_uuid` leaves neither the pod nor its audit row behind.
+  `aggregator_uuid` platform-assigned (`uuid4().hex`) when omitted (spec 4.2); attach to
+  an occupied pod stays 409 via `uq_aggregator_pod_id`. No new routes, tables, or plan
+  changes — this is the spec-13 sentence implemented literally.
+- **Manual verification:** both creation paths exercised over the API in the suite; the
+  gate's compose stack ran the full platform live.
 
 - **Tasks closed:** E1.2 (project-changes #13/#14; addenda PHASE1-4-01/02; DECISIONS
   D34, D35, D36)
