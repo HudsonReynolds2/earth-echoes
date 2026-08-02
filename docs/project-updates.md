@@ -1,6 +1,31 @@
 # Project Updates
 
-## 2026-08-01: Records hygiene batch — DES-batch paper trail brought current (Gate 19 GREEN)
+## 2026-08-02: E1.1 Hierarchy schema — the data model exists (Gate 20 GREEN)
+
+- **Tasks closed:** E1.1, opening batch 1 of epic E1 (branch `e1-batch-1`)
+- **Gate:** 20, GREEN
+- **Tests:** backend 186 passed (+14: 12 in the new `test_hierarchy_schema.py` constraint
+  suite, the users-admin 422 test, and the readiness seam test splitting into two), vitest
+  44 passed, Playwright 4 passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** five singular-named tables (D30) — `organization`, `deployment`, `pod`,
+  `aggregator`, `listener` — with every phase-doc fixed choice expressed as a database
+  constraint: MAC as the listener primary key with a format CHECK (D31), one aggregator per
+  pod via `uq_aggregator_pod_id`, listener names unique within their deployment via the
+  set-once `deployment_id` stamp (D32), slug format CHECK + global unique, name-in-parent
+  uniques, global `aggregator_uuid` unique, tags as GIN-indexed arrays and GPS columns
+  front-loaded for E1.4-E1.7. Migrations `ee260dc1c1a8` (tables) and `53181716569c`
+  (orphan-grant delete + role_assignment FK), both autogenerate-derived, hand-reviewed,
+  with verified empty diff at head and a full downgrade/upgrade round trip. The E0.7 seam
+  closed per D33: readiness seam test split into FK-present + audit-scope-never-FK halves,
+  `test_rbac.py` fixture additively references real deployment rows (zero assertions
+  changed), `/users` pre-validates assignment scopes (422), `verify.py` bootstraps and
+  cleans a real `verify-dep-{tag}` deployment. `docs/INTERFACES.md` gains "Owned by E1:
+  Entity schema" including the GPS-is-inventory-owned sentence E2 depends on.
+- **Manual verification:** migration round trip run twice against an ephemeral postgres
+  (`alembic check` reports no drift at head; `downgrade -2` then `upgrade head` clean); the
+  gate's compose-stack suite ran the shipped verifier end-to-end over real HTTP, which
+  exercised the new scoped-deployment bootstrap and cleanup live.
 
 - **Tasks closed:** the records-and-test-hygiene batch a post-DES review of `23eff5d..f93f061`
   motivated (project-changes #11, #12; DECISIONS D28, D29; addenda PHASE0-4-05, PHASE0-4-06,

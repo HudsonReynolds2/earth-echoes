@@ -16,7 +16,7 @@ from test_auth import PASSWORD, pg_url  # noqa: F401  (module fixture reuse)
 
 from app.auth.passwords import hash_password
 from app.main import API_PREFIX, create_app
-from app.models import AuditLog, RoleAssignment, User
+from app.models import AuditLog, Deployment, Organization, RoleAssignment, User
 from app.settings import Settings
 
 OWNER_EMAIL = "admin-owner@example.com"
@@ -195,7 +195,15 @@ def test_assignments_replace_wholesale(admin_app):
     factory = admin_app.state.session_factory
     with factory() as db:
         target_id = db.scalar(select(User.id).where(User.email == "reroles@example.com"))
-    deployment = str(uuid.uuid4())
+        # E1.1 (D33): scoped grants reference real deployments now, so this
+        # test creates one instead of inventing a UUID.
+        org = Organization(name="wholesale-org")
+        db.add(org)
+        db.flush()
+        dep = Deployment(organization_id=org.id, name="wholesale-dep", slug="wholesale-dep")
+        db.add(dep)
+        db.commit()
+        deployment = str(dep.id)
     response = owner.patch(
         f"{API_PREFIX}/users/{target_id}",
         json={"assignments": [{"role": "field_tech", "deployment_id": deployment}]},
@@ -203,6 +211,25 @@ def test_assignments_replace_wholesale(admin_app):
     )
     assert response.status_code == 200
     assert response.json()["assignments"] == [{"role": "field_tech", "deployment_id": deployment}]
+
+
+@pytest.mark.integration
+def test_unknown_assignment_deployment_is_a_validation_error(admin_app):
+    """A scoped grant naming a deployment that does not exist is a 422, not a
+    500 or a miscaught email conflict (E1.1, D33)."""
+    owner = _login(admin_app, OWNER_EMAIL)
+    assert _create_user(owner, "ghost-scope@example.com").status_code == 201
+    factory = admin_app.state.session_factory
+    with factory() as db:
+        target_id = db.scalar(select(User.id).where(User.email == "ghost-scope@example.com"))
+    response = owner.patch(
+        f"{API_PREFIX}/users/{target_id}",
+        json={"assignments": [{"role": "field_tech", "deployment_id": str(uuid.uuid4())}]},
+        headers=_csrf(owner),
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert "unknown deployment" in response.json()["error"]["message"]
 
 
 @pytest.mark.integration

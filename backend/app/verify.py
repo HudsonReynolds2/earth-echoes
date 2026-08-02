@@ -33,7 +33,7 @@ from sqlalchemy import delete, select
 
 from app.auth.passwords import hash_password
 from app.db import create_session_factory
-from app.models import RoleAssignment, Secret, User, UserSession
+from app.models import Deployment, Organization, RoleAssignment, Secret, User, UserSession
 
 API_PREFIX = "/api/v1"
 
@@ -86,6 +86,29 @@ def bootstrap_owner(database_url: str, account: TempAccount) -> uuid.UUID:
         return user.id
 
 
+def bootstrap_scope(database_url: str, run_tag: str) -> uuid.UUID:
+    """A real deployment for the scoped-operator step: since E1.1 the grant
+    carries a foreign key, so the scope can no longer be an invented UUID.
+    Reuses an existing organization when one exists (single-org rule, spec
+    12.1); cleanup() removes whatever this created."""
+    _, factory = create_session_factory(database_url)
+    with factory() as db:
+        org_id = db.scalar(select(Organization.id).limit(1))
+        if org_id is None:
+            org = Organization(name=f"verify-org-{run_tag}")
+            db.add(org)
+            db.flush()
+            org_id = org.id
+        deployment = Deployment(
+            organization_id=org_id,
+            name=f"verify-dep-{run_tag}",
+            slug=f"verify-dep-{run_tag}",
+        )
+        db.add(deployment)
+        db.commit()
+        return deployment.id
+
+
 def cleanup(database_url: str, accounts: list[TempAccount]) -> int:
     """Delete every temp account and its artifacts; audit rows survive with a
     nulled actor (immutability). Returns the number of users removed."""
@@ -101,6 +124,10 @@ def cleanup(database_url: str, accounts: list[TempAccount]) -> int:
             db.execute(delete(Secret).where(Secret.name == f"totp:{user_id}"))
             db.execute(delete(User).where(User.id == user_id))
             removed += 1
+        # Scope rows created by bootstrap_scope (E1.1): grants referencing the
+        # deployment are gone with their users above, so these drop cleanly.
+        db.execute(delete(Deployment).where(Deployment.name.like("verify-dep-%")))
+        db.execute(delete(Organization).where(Organization.name.like("verify-org-%")))
         db.commit()
     return removed
 
@@ -111,11 +138,11 @@ def run(api: str, database_url: str) -> int:
     owner = TempAccount(f"verify-owner-{run_tag}@example.com", pysecrets.token_urlsafe(16))
     viewer = TempAccount(f"verify-viewer-{run_tag}@example.com", pysecrets.token_urlsafe(16))
     operator = TempAccount(f"verify-operator-{run_tag}@example.com", pysecrets.token_urlsafe(16))
-    scoped_deployment = str(uuid.uuid4())
-
     print(f"verifying deployment at {api} (run {run_tag})")
     print("bootstrapping temporary owner ...")
     owner.user_id = bootstrap_owner(database_url, owner)
+    print("bootstrapping scope deployment ...")
+    scoped_deployment = str(bootstrap_scope(database_url, run_tag))
 
     try:
         with _client(api) as c:

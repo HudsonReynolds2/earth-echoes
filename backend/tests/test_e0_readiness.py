@@ -45,7 +45,21 @@ E0_ROUTES = {
     ("PATCH", f"{API_PREFIX}/users/{{user_id}}"),
 }
 
-E0_TABLES = {"user", "session", "role_assignment", "audit_log", "secret", "alembic_version"}
+E0_TABLES = {
+    "user",
+    "session",
+    "role_assignment",
+    "audit_log",
+    "secret",
+    "alembic_version",
+    # E1.1 (gate 20): the hierarchy tables, extended here deliberately
+    # alongside the INTERFACES.md "Owned by E1" section (D30-D32).
+    "organization",
+    "deployment",
+    "pod",
+    "aggregator",
+    "listener",
+}
 
 
 @pytest.fixture(scope="module")
@@ -140,24 +154,49 @@ def test_every_operation_declares_responses(app):
 
 
 @pytest.mark.integration
-def test_scope_columns_are_uuid_nullable_and_not_yet_foreign_keys(pg_url):
-    """E1.1 adds the deployment table and points these columns at it; until
-    then they must be plain nullable UUIDs (phase-0 E0.7, spec 12.1)."""
+def test_role_assignment_deployment_id_now_fks_the_deployment_table(pg_url):
+    """E1.1 closed the seam this test's predecessor held open (phase-0 E0.7;
+    DECISIONS D33): deployment_id carries a real FK, and it stays nullable
+    because NULL still means the grant is organization-wide."""
     engine = create_engine(pg_url)
     try:
         inspector = inspect(engine)
-        for table, column_name in (("role_assignment", "deployment_id"), ("audit_log", "scope")):
-            column = next(c for c in inspector.get_columns(table) if c["name"] == column_name)
-            assert column["nullable"] is True, f"{table}.{column_name} must be nullable"
-            assert "UUID" in str(column["type"]).upper()
-            fk_columns = {
-                name
-                for fk in inspector.get_foreign_keys(table)
-                for name in fk["constrained_columns"]
-            }
-            assert column_name not in fk_columns, (
-                f"{table}.{column_name} already has a foreign key; that seam belongs to E1.1"
-            )
+        column = next(
+            c for c in inspector.get_columns("role_assignment") if c["name"] == "deployment_id"
+        )
+        assert column["nullable"] is True, "NULL scope = org-wide grant; must stay nullable"
+        assert "UUID" in str(column["type"]).upper()
+        fk_targets = {
+            fk["referred_table"]
+            for fk in inspector.get_foreign_keys("role_assignment")
+            if "deployment_id" in fk["constrained_columns"]
+        }
+        assert fk_targets == {"deployment"}, (
+            f"role_assignment.deployment_id should FK the deployment table, got {fk_targets}"
+        )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
+def test_audit_scope_is_deliberately_never_a_foreign_key(pg_url):
+    """PERMANENT, not a seam (DECISIONS D33, D3): audit rows are immutable and
+    outlive the deployments they reference, so audit_log.scope must never gain
+    a foreign key. A later epic 'fixing' this breaks audit retention."""
+    engine = create_engine(pg_url)
+    try:
+        inspector = inspect(engine)
+        column = next(c for c in inspector.get_columns("audit_log") if c["name"] == "scope")
+        assert column["nullable"] is True, "NULL scope = organization-wide"
+        assert "UUID" in str(column["type"]).upper()
+        fk_columns = {
+            name
+            for fk in inspector.get_foreign_keys("audit_log")
+            for name in fk["constrained_columns"]
+        }
+        assert "scope" not in fk_columns, (
+            "audit_log.scope must never be a foreign key (D3 immutability; D33)"
+        )
     finally:
         engine.dispose()
 

@@ -23,7 +23,7 @@ from app.auth.deps import DbDep, require_csrf
 from app.auth.passwords import hash_password
 from app.auth.rbac import Permission, Role, require_permission
 from app.errors import AppError
-from app.models import RoleAssignment, User, UserSession, utcnow
+from app.models import Deployment, RoleAssignment, User, UserSession, utcnow
 
 router = APIRouter(
     prefix="/users", dependencies=[Depends(require_permission(Permission.MANAGE_USERS))]
@@ -81,7 +81,26 @@ def _entry(user: User) -> UserAdminEntry:
     )
 
 
+def _validate_assignment_scopes(db: DbDep, bodies: list[AssignmentBody]) -> None:
+    """Scoped grants must reference a real deployment (E1.1 added the FK,
+    DECISIONS D33). Pre-validating turns what would surface as an FK
+    IntegrityError - miscaught by the email-conflict handler - into the
+    422 the client can act on."""
+    wanted = {body.deployment_id for body in bodies if body.deployment_id is not None}
+    if not wanted:
+        return
+    found = set(db.scalars(select(Deployment.id).where(Deployment.id.in_(wanted))))
+    missing = wanted - found
+    if missing:
+        raise AppError(
+            "validation_error",
+            f"unknown deployment id(s): {', '.join(sorted(str(m) for m in missing))}",
+            status_code=422,
+        )
+
+
 def _replace_assignments(db: DbDep, user: User, bodies: list[AssignmentBody]) -> None:
+    _validate_assignment_scopes(db, bodies)
     for existing in list(user.role_assignments):
         db.delete(existing)
     db.flush()
