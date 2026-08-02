@@ -5,6 +5,48 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #12 (2026-08-01): Records hygiene batch — the DES-batch paper trail brought current
+
+- **What changed:** No product code. A records-and-test-hygiene pass closing the gaps a
+  post-DES review of `23eff5d..f93f061` found: (1) `project_planning/phase-0-foundations.md`
+  gains PHASE0-4-05 (D25's shell replacement, previously recorded everywhere except the phase
+  document) and PHASE0-4-06 (correcting PHASE0-4-04's claim that the E0.4 acceptance criteria
+  "continue to hold unchanged" — the one-file token-sheet criterion stopped holding literally
+  at the same gate that appended that addendum). (2) Entry #11 below gives Gate 17's backdrop
+  change the numbered record it never had, and records that #9 was amended in place. (3)
+  DECISIONS D28 records the fifth Gate 16 test change D26's "all four" inventory missed;
+  D29 records this batch's two test strengthenings (`test_governance.py` non-empty baseline
+  guard; `users-admin.test.tsx` renamed and made to assert D25's actual nav intent). (4) Stale
+  statements corrected in `DES.4-handoff.md` (claimed `Screens.dc.html` "isn't in this repo" —
+  it landed at Gate 16) and `DES-track-handoff.md` (claimed to be a frozen 2026-07-30 snapshot
+  while its table was updated through Gate 18). (5) `docs/frontend-guide.md` is subordinated to
+  `docs/INTERFACES.md` "Frontend composition and shared components" with a precedence note and
+  gains an owner-supplied "Starting E1" brief; INTERFACES.md cross-links back. (6)
+  `frontend/public/images/README.md` gains an explicit provenance/license TODO for
+  `forest-background.jpg` so the one compliance gap the DES batch left is tracked, not silent.
+- **Why:** Rule R1 exists so a fresh session can trust the documents in the authority order.
+  The phase doc contradicted the shipped shell and token reality, the change log had been
+  edited in place, and one test's name asserted an invariant D25 deliberately abandoned.
+- **Affects:** project_planning/phase-0-foundations.md
+- **Addendum:** PHASE0-4-06
+
+## #11 (2026-08-01): Late numbered record — Gate 17's backdrop asset change, and the in-place amendment of #9
+
+- **What changed (at Gate 17, 2026-07-30, commit `7d5400a`):** `forest-background.jpg`
+  committed web-sized (1920×1280, ~925 KB, EXIF stripped; the supplied original was a 24 MB
+  camera file) and wired to back **every** page via `.shell-content`, scrimmed by the new
+  additive token `--eoe-color-backdrop-scrim` (0.93 light / 0.94 dark, on D21's terms); the
+  login hero keeps the lighter `--eoe-color-overlay` treatment. Both treatments paint a
+  `background-color` first so a missing file degrades to a flat token color.
+- **Why this entry is late:** at Gate 17 the change was recorded by amending entry #9 in
+  place ("#9, amended" in the Gate 17 update) instead of appending a numbered entry. This log
+  is append-only; a new token, a permanently committed binary, and an all-page visual
+  treatment constitute a plan change that warrants its own number. #9's amended text stands
+  as-is — rewriting it again would repeat the mistake — and this entry plus addendum DES-7-03
+  are the durable record.
+- **Affects:** project_planning/DES-track-handoff.md
+- **Addendum:** DES-7-03
+
 ## #10 (2026-07-31): Fonts vendored and the DES track handed off to E1
 
 - **What changed:** The DES track's last open implementation item closes before E1 starts.

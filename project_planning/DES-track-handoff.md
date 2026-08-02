@@ -1,9 +1,11 @@
 # Echoes of Earth — design handoff
 
-**Track:** DES · **Date:** 2026-07-30 · **Stage:** DES.1–DES.6 delivered, DES.7 ready to start
+**Track:** DES · **Written:** 2026-07-30 · **Stage:** DES.1–DES.7 delivered (Gates 15–18), DES.8 blocked on E4–E6
 
-> **Read the addendum at the foot of this document first (DES-7-02, 2026-07-31).** DES.7 has
-> since been applied and the fonts vendored; the table below is the state as of 2026-07-30.
+> **This document is updated in place as the track moves** — it is a working handoff, not a
+> frozen snapshot. The dated addenda at the foot (DES-7-01 through DES-7-03) carry the change
+> history; the table below reflects the state as of Gate 18 (2026-07-31). Read the addenda
+> first if you are resuming the track.
 
 ## Where things stand
 
@@ -98,6 +100,15 @@ redrawn yet, and their layout is still correct.
 > E4–E6, and the un-eyeballed items it inherits are unchanged: the four v1 screens' mechanical
 > restyle (item 6, superseded by DES-7-01), the backdrop scrim across all eight routes in both
 > themes, and pixel-level QA of the `Screens v2.dc.html` frames.
+
+> **Addendum DES-7-03 (2026-08-01, ref project-changes #11):** Late numbered record for the
+> Gate 17 asset change (commit `7d5400a`, 2026-07-30): `forest-background.jpg` was committed
+> web-sized and wired to back every page via `.shell-content` behind the new additive token
+> `--eoe-color-backdrop-scrim` (0.93 light / 0.94 dark), with the login hero keeping the
+> lighter `--eoe-color-overlay` treatment. At the time this was recorded by amending
+> project-changes #9 in place rather than by a numbered entry; #11 corrects that. The
+> photograph's provenance and license remain unrecorded — tracked as a TODO in
+> `frontend/public/images/README.md` until the owner supplies them.
 
 ## Known caveat
 

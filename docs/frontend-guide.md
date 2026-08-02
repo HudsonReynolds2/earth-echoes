@@ -6,6 +6,12 @@ running it, where each kind of change belongs, and the rules the test suite enfo
 Everything here lives under `frontend/`. Nothing in this guide requires the backend, Docker,
 or Python.
 
+> **Normative source: `docs/INTERFACES.md`, "Frontend composition and shared components".**
+> That section is the contract for the shell, the shared components, the two page shapes,
+> and the composition rules — read it before touching `frontend/src`; it is what stops a new
+> session rebuilding what already exists. This guide is the tour, not the contract: where
+> the two disagree, INTERFACES.md wins.
+
 ## Run it
 
 Node 20+ and git are the only prerequisites.
@@ -125,6 +131,31 @@ Two conventions the tests do not check but the codebase holds to: interactive el
 ink (`--eoe-color-action`, near-black), never a status color — a green button in a product
 whose map uses green for "healthy" teaches the wrong thing; and the serif is display only,
 for page titles and the single hero number per screen, never body text or tables.
+
+## Starting E1
+
+Pointers for the first data-bearing epic, so the settled frame gets extended rather than
+rebuilt:
+
+- **Read `docs/INTERFACES.md` "Frontend composition and shared components" first** — the
+  shell, the page shapes, and the shared components already exist; E1 drops data into them.
+- **Need a new value? Add a token to `tokens.ext.css`** (dark value in `tokens.ext.alt.css`
+  in the same commit). Never rename an existing token — the names are an E0-owned,
+  gate-enforced contract (rules 1–4 above).
+- **Device status is a closed six-state vocabulary**, always color + shape + label — use
+  `<StatusChip>`/`<StatusLegend>`, never a hand-rolled badge. A seventh state means
+  re-cutting the glyph subset first (`public/fonts/README.md` has the recipe), or it ships
+  as tofu (rule 6).
+- **Mockups: take v1 for layout, v2 for values.** `Screens v2.dc.html` covers only three
+  screens (V2·S1–S3); `Screens.dc.html` holds the full S1–S7 set at older values. None of
+  the mockups have been visually QA'd (`DES-track-handoff.md`, "Known caveat") — eyeball
+  before building against them.
+- **The skeleton pages hold no mock data on purpose.** Replace the `EmptyState` "arrives
+  with E1" panel with the real surface; don't restyle around it.
+- **E1 starters:** `ContextBar` is the hierarchy breadcrumb's permanent home; `.admin-table`
+  (`app.css`, used by `UsersAdmin`) is the table pattern E1.8's tables generalize; TanStack
+  **Table** is not installed — only `@tanstack/react-query` is — so adding it is an explicit
+  E1 dependency decision, not an assumption.
 
 ## House style
 

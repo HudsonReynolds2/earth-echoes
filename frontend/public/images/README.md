@@ -30,3 +30,12 @@ convert original.jpg -resize 1920x -strip -quality 80 -interlace Plane forest-ba
 ```
 
 `-strip` also drops EXIF, which on a camera original carries the capture location.
+
+### Provenance and license
+
+**TODO(owner):** the photograph's origin and license are unrecorded. The Gate 17 record
+notes a 6000×4000 camera original was supplied for this web-sized derivative, but who took
+it and under what terms it ships have not been written down (contrast
+`public/fonts/README.md`, which records a license per typeface). Until this paragraph is
+replaced with a source and license, treat the image as licensed for use in this application
+only, not for redistribution.

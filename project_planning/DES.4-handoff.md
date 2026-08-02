@@ -94,8 +94,13 @@ repo access; kept for anyone picking up DES.7 next.
    repo access; still needed reading before DES.7's shell restructuring (dark top bar plus
    breadcrumb row, per `project_planning/DES-track-handoff.md`) becomes a concrete diff. Not touched in this batch
    — DES.7 is unstarted and out of scope here, this batch was DES.4 only.
+   **Update (2026-08-01):** DES.7 has since been applied (Gates 16–18, DECISIONS D25); this
+   item is closed.
 3. ~~**`frontend/tests/tokens.test.ts`**~~ Already in the repo and now widened for the D21
    extension (checks 3, 5, 7 above).
 4. **Eyeball S1–S7** in `Screens.dc.html`. Still open — that file isn't in this repo, so it
    wasn't available to check in this batch either. The preview bridge issue noted originally
    means the mockups have not been visually QA'd; source is sound, pixels are unverified.
+   **Update (2026-08-01):** `Screens.dc.html` and `Screens v2.dc.html` **are now in the repo**
+   — committed to `project_planning/` at Gate 16. The eyeball item itself remains open and is
+   inherited by DES.8 (`DES-track-handoff.md`, addendum DES-7-02).
