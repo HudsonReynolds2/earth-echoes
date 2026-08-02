@@ -1,6 +1,30 @@
 # Project Updates
 
-## 2026-08-02: E1.4 Uniqueness validation and explicit auto-suffix (Gate 23 GREEN)
+## 2026-08-02: E1.5 Report-time identity services — quarantine, alerts, membership (Gate 24 GREEN)
+
+- **Tasks closed:** E1.5, closing e1-batch-1 (E1.1 through E1.5, gates 20-24;
+  project-changes #15, addendum PHASE1-4-03, DECISIONS D37)
+- **Gate:** 24, GREEN
+- **Tests:** backend 240 passed (+10 in the new `test_identity_service.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/inventory/identity.py` — services callable without MQTT, the exact
+  seam E3.5 wires ("do not reimplement" recorded in INTERFACES with verbatim
+  signatures). `handle_reported_identity` returns MATCHED / NAME_CONFLICT / MAC_CONFLICT
+  / PROVISIONING_REQUIRED / UNKNOWN_MAC; conflicts quarantine the report and open a
+  deduped `duplicate_identity` alert while the inventory row stays byte-identical
+  (proven by full-column reload). `check_aggregator_membership` is a lookup, never
+  sentinel equality; `require_known_aggregator` is the raising variant for ingest paths.
+  Tables via migration `05c4858bfab5`: `quarantined_report` (append-only, deliberately
+  no listener FK) and `inventory_alert` (open-alert dedupe via partial unique index
+  `WHERE resolved_at IS NULL`, proven by raw insert; un-FK'd deployment scope). Alert
+  types are data — the closed D8 wire vocabulary is untouched. System audit rows
+  (`inventory.quarantine`, `inventory.alert`) with NULL actor. Services stage and never
+  commit; the rollback probe proves an uncommitted session leaves nothing.
+- **Manual verification:** migration round trip (`alembic check` clean at head,
+  downgrade/upgrade clean); the full outcome table driven directly against a live
+  ephemeral postgres; alert lifecycle (open → dedupe → resolve → fresh) walked
+  end-to-end.
 
 - **Tasks closed:** E1.4
 - **Gate:** 23, GREEN

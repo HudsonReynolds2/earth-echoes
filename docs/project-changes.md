@@ -5,6 +5,21 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #15 (2026-08-02): E1.5's "raise a condition" implemented as return-based resolutions
+
+- **What changed:** task E1.5 says the service should "raise a `duplicate_identity`
+  condition" / "raise `provisioning_required`". The shipped design returns an
+  `IdentityResolution` with an outcome enum instead of raising for expected conditions,
+  writes the alert rows the task specifies, and offers `require_known_aggregator` as a
+  raising variant. Recorded so the wording difference is a documented choice, not drift:
+  E3.5's consumer loop handles every outcome uniformly, and exception control flow for
+  expected message states would push try/except into every ingest path.
+- **Why:** the task's own acceptance tests are outcome-shaped (clean match, name
+  conflict, MAC conflict, unknown aggregator — all verified); the "condition" language
+  named the states, not the mechanism.
+- **Affects:** project_planning/phase-1-hierarchy-inventory.md
+- **Addendum:** PHASE1-4-03
+
 ## #14 (2026-08-02): POST /organizations clamped to a single organization
 
 - **What changed:** creating a second organization returns 409 `conflict` while v1 runs

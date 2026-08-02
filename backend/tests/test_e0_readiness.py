@@ -87,6 +87,11 @@ E0_TABLES = {
     "pod",
     "aggregator",
     "listener",
+    # E1.5 (gate 24): report-time identity tables (D37) - quarantine holds
+    # conflicting reports instead of inventory mutations; alerts dedupe open
+    # rows per (type, entity).
+    "quarantined_report",
+    "inventory_alert",
 }
 
 

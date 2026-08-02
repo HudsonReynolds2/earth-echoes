@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -276,3 +277,54 @@ class Listener(Base):
     )
 
     aggregator: Mapped[Aggregator] = relationship(back_populates="listeners")
+
+
+# --- E1.5 report-time identity (spec 4.3 items 2-3; DECISIONS D37) ----------
+
+
+class QuarantinedReport(Base):
+    """Spec 4.3 item 2: a conflicting reported identity lands here instead of
+    touching inventory. Deliberately NO foreign key to listener - the row must
+    survive listener deletion and must be able to describe devices that never
+    existed in inventory. Append-only evidence: every conflicting report adds
+    a row (D37); alerts dedupe, quarantine does not."""
+
+    __tablename__ = "quarantined_report"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    mac: Mapped[str] = mapped_column(String(17), index=True)
+    reported_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    aggregator_uuid: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
+    reason: Mapped[str] = mapped_column(String(40))  # name_conflict | mac_conflict
+    report: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InventoryAlert(Base):
+    """E1-owned alert rows (`duplicate_identity`, `provisioning_required`);
+    E7 unifies alert surfacing later. Open alerts dedupe per (type, entity)
+    via the partial unique index below - a second identical conflict returns
+    the existing open alert instead of stacking rows (D37). deployment_id is
+    scope for filtering, deliberately un-FK'd: an alert may outlive its
+    deployment, like audit rows (D33)."""
+
+    __tablename__ = "inventory_alert"
+    __table_args__ = (
+        Index(
+            "uq_inventory_alert_open",
+            "alert_type",
+            "entity_type",
+            "entity_key",
+            unique=True,
+            postgresql_where=text("resolved_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    alert_type: Mapped[str] = mapped_column(String(40))
+    entity_type: Mapped[str] = mapped_column(String(40))
+    entity_key: Mapped[str] = mapped_column(String(100))
+    deployment_id: Mapped[uuid.UUID | None] = mapped_column(index=True, default=None)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

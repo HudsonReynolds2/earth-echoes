@@ -49,6 +49,8 @@ Configuration overrides, the settings catalog, and effective config (E2). Anythi
 
 > **Addendum PHASE1-4-01 (2026-08-02, ref project-changes #13):** E1.2's "`GET/PATCH/DELETE` items for all five entities" loses to spec 13, which lists no DELETE for `/organizations` (consistent with spec 12.1's single-organization v1). The shipped surface is `GET/POST /organizations` and `GET/PATCH /organizations/{id}`; the other four entities carry DELETE with the 409-on-children rule unchanged. DECISIONS D34.
 
+> **Addendum PHASE1-4-03 (2026-08-02, ref project-changes #15):** E1.5's "raise a condition" ships as return-based resolutions: `handle_reported_identity` returns an `IdentityResolution` (MATCHED / NAME_CONFLICT / MAC_CONFLICT / PROVISIONING_REQUIRED / UNKNOWN_MAC) and writes the specified `quarantined_reports`→`quarantined_report` and `inventory_alerts`→`inventory_alert` rows (singular table names per D30); `require_known_aggregator` is the raising variant for ingest paths. Every acceptance case holds as written. DECISIONS D37.
+
 > **Addendum PHASE1-4-02 (2026-08-02, ref project-changes #14):** `POST /organizations` returns 409 `conflict` while an organization already exists — v1 is single-org (spec 12.1), and the clamp keeps the D32 reasoning honest (global `aggregator_uuid` uniqueness equals within-org uniqueness only while one org exists). Multi-org later removes the clamp and relaxes that constraint in the same change. DECISIONS D34.
 
 ## 5. Definition of done

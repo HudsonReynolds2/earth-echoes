@@ -4,6 +4,29 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D37 (2026-08-02): Report-time identity — return-based services, append-only quarantine, deduped alerts
+
+- **Decision:** E1.5 ships as `app/inventory/identity.py` — services plus two tables, no
+  HTTP surface, no UI (E3.5 wires MQTT and must not reimplement the logic). The API is
+  **return-based**: `handle_reported_identity(db, ReportedIdentity) ->
+  IdentityResolution{outcome, listener, quarantined, alert}` with outcomes
+  MATCHED / NAME_CONFLICT / MAC_CONFLICT / PROVISIONING_REQUIRED / UNKNOWN_MAC — friendlier
+  for E3's consumer loop than exception control flow; `require_known_aggregator` provides
+  the raising variant (`ProvisioningRequiredError`) for ingest paths.
+- **Semantics fixed here:** conflicts NEVER touch inventory rows (suite proves
+  byte-identical reload); `quarantined_report` **appends** — every conflicting report is
+  evidence — and carries **no FK to listener** (must survive deletion and describe devices
+  inventory never held); `inventory_alert` **dedupes on the open alert** per
+  (alert_type, entity_type, entity_key) via a partial unique index
+  (`WHERE resolved_at IS NULL`), app-checked first so a repeat conflict returns the
+  existing alert; a resolved alert permits a fresh one. `alert.deployment_id` is scope
+  for filtering, deliberately un-FK'd (same reasoning as audit scope, D33).
+  `duplicate_identity`/`provisioning_required` are **alert types, not wire error codes** —
+  the closed D8 vocabulary is not extended. Services stage rows and never commit; audit
+  rows (`inventory.quarantine`, `inventory.alert`) are system-originated (actor NULL).
+- **Reference:** spec 4.3 items 2-3, spec 17 item 9; phase-1 E1.5; project-changes #15
+  (PHASE1-4-03); migration `05c4858bfab5`; backend/tests/test_identity_service.py.
+
 ## D36 (2026-08-02): The deployment slug freezes at the first pod
 
 - **Decision:** the concrete rule behind the phase doc's "editable before first use":

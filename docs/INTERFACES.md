@@ -385,3 +385,27 @@ proven by `backend/tests/test_hierarchy_schema.py`:
   bodies forbid unknown fields too, so a client-sent stamp is a 422.
 - **Audit:** every mutation writes `<entity>.<verb>` with `scope` = the deployment id
   (org actions: NULL), detail = changed-field names only.
+
+### Report-time identity services (E1.5; spec 4.3 items 2-3; D37) — E3.5 calls these
+
+`app/inventory/identity.py`. **E3 wires live MQTT messages into these functions; do not
+reimplement their logic.** Signatures, verbatim:
+
+- `ReportedIdentity(mac, aggregator_uuid, name=None, reported_at=None, source="test",
+  raw={})` — frozen dataclass; `raw` is preserved verbatim in the quarantine record.
+- `handle_reported_identity(db, report: ReportedIdentity) -> IdentityResolution` —
+  `IdentityResolution{outcome, listener|None, quarantined|None, alert|None}` with
+  `IdentityOutcome` = `MATCHED | NAME_CONFLICT | MAC_CONFLICT | PROVISIONING_REQUIRED |
+  UNKNOWN_MAC`. Matching is by MAC; **conflicts never modify inventory rows** — the
+  report is quarantined and a `duplicate_identity` alert opens (deduped). UNKNOWN_MAC
+  (known reporter, unregistered MAC) has zero side effects: E3 decides per channel.
+  Stages rows, never commits — the caller owns the transaction.
+- `check_aggregator_membership(db, aggregator_uuid) -> Aggregator | None` — membership
+  lookup, never sentinel equality. `require_known_aggregator(db, aggregator_uuid)` is
+  the raising variant (`ProvisioningRequiredError`) that also opens the
+  `provisioning_required` alert; use it on metrics/analysis/object ingest paths.
+- **Tables:** `quarantined_report` (append-only evidence; no FK to listener — survives
+  deletion, holds reports about devices inventory never had) and `inventory_alert`
+  (open alerts unique per (alert_type, entity_type, entity_key) via partial unique index
+  `WHERE resolved_at IS NULL`; `deployment_id` is un-FK'd scope; `resolved_at` NULL =
+  open). Alert types are data, not D8 wire codes. E7 unifies alert surfacing later.
