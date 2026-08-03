@@ -404,6 +404,32 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
   failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
 
+### Inventory frontend (E1.8) — E2/E3/E4/E6 extend these surfaces
+
+- **Routes:** `/inventory` is a nested layout (fragment page shape: ContextBar first,
+  then the tree rail beside the routed level) — index = deployments table;
+  `deployments/:deploymentId` (pods); `pods/:podId` (aggregator card + listeners — no
+  separate aggregator route, one per pod); `listeners/:mac` (inventory facts only);
+  `import`. "/" is the Overview roll-up (#16).
+- **Vocabulary:** `.data-table` (the generalized table language — do not start another),
+  `.form`/`.form-field`/button classes (`.btn-secondary`/`.btn-tertiary`/`.btn-danger`),
+  `.tree-*` (rail), `.tag-chip`/`.tag-row`, `.skeleton*` (loading holds real geometry),
+  `.modal*`, `.outcome-*` + `tr.row-invalid` (import outcomes — NOT device states),
+  `.level-badge`/`.scope-caption`, `.hero-metric`/`.overview-*`. All in `app.css`
+  sections; E1.8 tokens added additively: `--eoe-color-danger-border` (+ dark),
+  `--eoe-indent-tree`, `--eoe-space-px`, `--eoe-duration-slow`, `--eoe-width-treerail`.
+- **Client module:** `src/lib/inventory.ts` — typed `ApiError{code,status,detail}` (the
+  409 conflict dialog reads `detail.suggestion`), one function per call, flat query
+  keys, mutations invalidate. TanStack **Table** is installed (D39), headless,
+  server-driven via the D7 grammar.
+- **ContextBar crumbs are real links since E1.8 (D41);** the final crumb carries
+  `aria-current="page"`.
+- **No fabricated status (D40, gate-enforced):** zero `[data-status]` elements render on
+  inventory routes or the Overview until E3 supplies reported state; E3 lifts that guard
+  deliberately when StatusChip columns/rollups land. Sort markers, tree carets, and the
+  tag-remove "×" (U+00D7) are CSS-drawn/vendored-safe — never glyphs outside the font
+  set (D27).
+
 ### Tag storage model (E1.7) — E2's selection engine queries this
 
 - **Storage:** `tags ARRAY(String(64)) NOT NULL DEFAULT []` on all five entity tables,

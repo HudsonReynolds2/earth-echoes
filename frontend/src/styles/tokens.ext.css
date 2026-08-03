@@ -130,5 +130,16 @@
   /* ── motion ─────────────────────────────────────────────────────────── */
   --eoe-duration-fast: 120ms;
   --eoe-duration-base: 180ms;
+  --eoe-duration-slow: 1200ms; /* skeleton shimmer (E1.8) */
   --eoe-ease: cubic-bezier(0.2, 0, 0.15, 1);
+
+  /* ── E1.8 additions: the inventory surfaces (D21 terms, all additive) ──
+   * danger-border is the destructive-button outline (never a filled red
+   * button); indent-tree is the per-depth rung of the hierarchy rail;
+   * space-px exists because gap is literal-scanned and a 1px gap is not a
+   * hairline border; width-treerail matches the S3 mockup's fixed rail. */
+  --eoe-color-danger-border: #e3bda9;
+  --eoe-indent-tree: 14px;
+  --eoe-space-px: 1px;
+  --eoe-width-treerail: 246px;
 }

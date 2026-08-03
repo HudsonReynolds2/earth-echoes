@@ -3,7 +3,12 @@ import { Route, Routes } from "react-router-dom";
 
 import { Shell } from "./components/Shell";
 import { Configuration } from "./pages/Configuration";
-import { Inventory } from "./pages/Inventory";
+import { DeploymentLevel } from "./pages/inventory/DeploymentLevel";
+import { ImportPage } from "./pages/inventory/ImportPage";
+import { InventoryLayout } from "./pages/inventory/InventoryLayout";
+import { ListenerDetail } from "./pages/inventory/ListenerDetail";
+import { OrganizationLevel } from "./pages/inventory/OrganizationLevel";
+import { PodLevel } from "./pages/inventory/PodLevel";
 import { Login } from "./pages/Login";
 import { Map } from "./pages/Map";
 import { NotFound } from "./pages/NotFound";
@@ -20,7 +25,13 @@ export function App({ queryClient }: { queryClient?: QueryClient }) {
         <Route element={<Shell />}>
           <Route index element={<Overview />} />
           <Route path="map" element={<Map />} />
-          <Route path="inventory" element={<Inventory />} />
+          <Route path="inventory" element={<InventoryLayout />}>
+            <Route index element={<OrganizationLevel />} />
+            <Route path="deployments/:deploymentId" element={<DeploymentLevel />} />
+            <Route path="pods/:podId" element={<PodLevel />} />
+            <Route path="listeners/:mac" element={<ListenerDetail />} />
+            <Route path="import" element={<ImportPage />} />
+          </Route>
           <Route path="configuration" element={<Configuration />} />
           <Route path="provisioning" element={<Provisioning />} />
           <Route path="system" element={<SystemStatus />} />

@@ -1,6 +1,41 @@
 # Project Updates
 
-## 2026-08-02: E1.7 Tags on every entity (Gate 26 GREEN)
+## 2026-08-02: E1.8 Inventory UI and the Overview roll-up (Gate 27 GREEN)
+
+- **Tasks closed:** E1.8 (+ the #16 Overview change), opening e1-batch-3 (DECISIONS
+  D39-D42; project-changes #16; addendum PHASE1-4-04)
+- **Gate:** 27, GREEN
+- **Tests:** backend 253, vitest 60 passed (+16 across five new suites), Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** the nested `/inventory` surface on the fragment page shape — ContextBar
+  (crumbs now real links, D41) over the 246px tree rail (36px rows, 14px/level indent,
+  weight ladder, mono aggregator labels, CSS-drawn carets, route-tracking selection)
+  beside four level pages. Tables run headless TanStack Table (D39, the epic's one new
+  dependency) over the generalized `.data-table` vocabulary (D42; `.admin-table` retired,
+  UsersAdmin repointed) with server-driven sort/pagination hitting the D7 wire grammar,
+  mono identifier cells, and footer captions. First reusable `.form`/button vocabulary
+  including the never-filled-red `.btn-danger`. The E1.4 conflict dialog consumes the
+  {field, suggestion} detail and retries with auto_suffix only on the explicit click
+  (suite-proven: never silent). The import screen runs dry-run-first with the partial
+  commit structurally gated behind the row report + explicit checkbox; row outcomes are
+  colored words, never device states. Overview is the V2·S1 roll-up with only E1-owned
+  data (#16): hero "Listeners registered" from the D7 total, real deployment cards,
+  honest EmptyStates naming E3/E5/E7. **D40's no-fabricated-status rule is
+  gate-enforced**: tests assert zero `[data-status]` elements on every inventory route
+  and the Overview. New tokens (danger-border + dark, indent-tree, space-px,
+  duration-slow, width-treerail) additive per D21/D24.
+- **Test changes (D42):** shell.test's route table +4 rows and the "/" heading row plus
+  two auth.test assertions follow the recorded Overview retitle; nothing weakened, suite
+  44 → 60.
+- **Manual verification:** the five new vitest suites drive every flow end-to-end in
+  jsdom against the real wire contracts (sort grammar captured off the requests, conflict
+  dialog both paths, import dry-run → partial accept, viewer read-only); Playwright
+  exercised the shell and both themes in real Chromium; the gate's compose-stack suite
+  ran the live platform. **Not done at this gate:** a per-route browser walk of the new
+  inventory surfaces — deliberately carried to Gate 28, where the E1.9 demo fixture
+  seeds real data to walk against (the E1.8 acceptance "build a full hierarchy entirely
+  in the UI" is verified there).
 
 - **Tasks closed:** E1.7, closing e1-batch-2 (E1.6-E1.7, gates 25-26)
 - **Gate:** 26, GREEN

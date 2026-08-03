@@ -33,9 +33,16 @@ describe("shell and routing", () => {
 
   it("renders each declared route", async () => {
     for (const [path, heading] of [
-      ["/", "Overview"],
+      // "/" heading changed with the E1.8 Overview roll-up (V2·S1 title;
+      // v2 wins on values — recorded with project-changes #16).
+      ["/", "Organization overview"],
       ["/system", "System"],
       ["/inventory", "Inventory"],
+      // E1.8 nested inventory routes (fixture ids from inventory-fixture.ts).
+      ["/inventory/deployments/d1000000-0000-4000-8000-000000000001", "Redwood Coast"],
+      ["/inventory/pods/b1100000-0000-4000-8000-000000000001", "Pod 01 · Alder Creek"],
+      ["/inventory/listeners/02:EE:0E:01:01:01", "alder-creek-01"],
+      ["/inventory/import", "Bulk import"],
       ["/configuration", "Inheritance editor"],
       ["/provisioning", "Provisioning"],
     ]) {

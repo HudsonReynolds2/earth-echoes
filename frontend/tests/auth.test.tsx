@@ -50,7 +50,10 @@ describe("login page", () => {
     await userEvent.type(screen.getByLabelText("Email"), "owner@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "right");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    // "Organization overview" since the E1.8 roll-up retitled "/" (V2·S1).
+    expect(
+      await screen.findByRole("heading", { name: "Organization overview" }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -84,7 +87,10 @@ describe("totp at login", () => {
     const codeInput = await screen.findByTestId("totp-input");
     await userEvent.type(codeInput, "123456");
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    // "Organization overview" since the E1.8 roll-up retitled "/" (V2·S1).
+    expect(
+      await screen.findByRole("heading", { name: "Organization overview" }),
+    ).toBeInTheDocument();
     expect(sawCode).toBe("123456");
   });
 });

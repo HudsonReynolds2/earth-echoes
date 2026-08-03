@@ -4,6 +4,59 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D42 (2026-08-02): .admin-table generalizes to .data-table; gate-27 test retitles
+
+- **Decision:** `.admin-table` (E0.9, UsersAdmin-only) becomes the shared **`.data-table`**
+  vocabulary with the v2 header treatment (raised mono uppercase band) — one table
+  language for E1.8's four tables and everything later (INTERFACES: "no second
+  vocabulary"); UsersAdmin repointed in the same commit, its `users-table` testid and
+  suite untouched. E1.8 also ships the first reusable `.form`/button vocabulary
+  (`.auth-form` stays login-specific), including `.btn-danger` as surface-fill +
+  alerting ink + tinted border — never a filled red button.
+- **Test changes at this gate (R0):** `shell.test.tsx`'s route table gains four inventory
+  rows and its `/` heading row follows the Overview retitle to "Organization overview"
+  (project-changes #16); `auth.test.tsx`'s two post-login assertions follow the same
+  retitle. Both are consequences of a recorded plan change, not weakenings; every other
+  assertion is untouched and the suite grew 44 → 60.
+- **Reference:** INTERFACES "Frontend composition"; project-changes #16; DECISIONS D25.
+
+## D41 (2026-08-02): ContextBar crumbs become real links
+
+- **Decision:** `Crumb.to` now renders a router `<Link>` (the DES.7 component rendered
+  `to` as a styled span — declared but never wired); the final crumb carries
+  `aria-current="page"`. Additive change to a DES-owned component, flagged here per
+  INTERFACES' rule: E1.8 is the ContextBar's first real consumer and the breadcrumb is
+  its reason to exist (D25). `to`-less usage (the Map page) is unaffected. Noted for
+  DES.8's review.
+- **Reference:** INTERFACES "Frontend composition" (ContextBar contract); D25.
+
+## D40 (2026-08-02): No fabricated status anywhere in E1's UI
+
+- **Decision (owner-directed, 2026-08-02):** E1.8 builds the tree, tables, and detail
+  surfaces to the design geometry with status slots designed in, but renders **no device
+  state anywhere** — no StatusChip rows, no rollup dots, no distribution bars, no
+  "devices online" hero — because no reported state exists until E3 wires MQTT, and the
+  project rule is no mock data, ever. The honesty is gate-enforced:
+  `inventory-tree.test.tsx` and `overview.test.tsx` assert **zero `[data-status]`
+  elements** on every inventory route and the Overview. Where the mockups draw status,
+  E1 shows structure/counts/identity and names the owning epic in visible copy ("Device
+  status arrives with E3 · services with E5"). E3 removes the guard deliberately when
+  real state lands. Flagged for DES.8's review (the mockups draw dots the product
+  intentionally omits).
+- **Reference:** epic plan owner decisions; S7's own copy ("Postgres-owned data stays
+  live"); DECISIONS D25.
+
+## D39 (2026-08-02): @tanstack/react-table — E1's one new frontend dependency
+
+- **Decision:** `@tanstack/react-table` ^8.21 (the phase doc's fixed choice for E1.8's
+  device tables; the frontend guide records installation as an explicit decision, made
+  here). Used strictly headless: all rendering through the shared `.data-table` classes;
+  `manualSorting`/`manualPagination` because the D7 envelope makes the server the source
+  of truth — the page serializes TanStack state to the wire grammar
+  (`sort=name|-name`, `limit`/`offset`). No form, validation, or CSV libraries were
+  added; the server is the parser and validator (D38).
+- **Reference:** phase-1 E1.8; docs/frontend-guide.md "Starting E1"; D7.
+
 ## D38 (2026-08-02): Bulk import — 200-with-report, all-or-nothing default, savepoint rows
 
 - **Decision:** `POST /listeners/import` and `POST /aggregators/import` accept
