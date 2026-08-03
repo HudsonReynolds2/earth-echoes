@@ -1,6 +1,23 @@
 # Project Updates
 
-## 2026-08-02: E1.6 Bulk import — CSV/JSON with per-row results (Gate 25 GREEN)
+## 2026-08-02: E1.7 Tags on every entity (Gate 26 GREEN)
+
+- **Tasks closed:** E1.7, closing e1-batch-2 (E1.6-E1.7, gates 25-26)
+- **Gate:** 26, GREEN
+- **Tests:** backend 253 passed (+5 in the new `test_tags.py`), vitest 44, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `GET/PUT /{entity}/{id}/tags` on all five entities (listeners by MAC) —
+  **PUT is wholesale replace, never merge**, storage normalized (trim/dedupe/sort) and
+  validated (422 on >64 chars or control characters). Filter-by-tag proven on every
+  entity list via GIN-backed containment. D35 scope rules carry over verbatim: viewers
+  read, MANAGE_DEVICES writes, out-of-scope child items 404, org/deployment routes keep
+  their 403 patterns. Tag writes audit as `<entity>.update {"changed": ["tags"]}`.
+  E0_ROUTES += 10 (total E1 surface now 36 routes, matching the epic plan's spec-13
+  parity list exactly). INTERFACES gains the tag storage model section E2's selection
+  engine builds on.
+- **Manual verification:** the tag → filter round trip walked on every entity level over
+  the live API; replace semantics confirmed against the persisted rows.
 
 - **Tasks closed:** E1.6, opening e1-batch-2 (DECISIONS D38)
 - **Gate:** 25, GREEN

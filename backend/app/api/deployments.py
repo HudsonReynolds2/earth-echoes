@@ -17,6 +17,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.hierarchy_common import (
     DeploymentOut,
+    TagsBody,
+    TagsOut,
+    clean_tags,
     deployment_out,
     get_sole_organization,
     refuse_delete_with_children,
@@ -225,3 +228,44 @@ def delete_deployment(
         detail={"name": row.name, "slug": row.slug},
     )
     db.commit()
+
+
+@router.get(
+    "/{deployment_id}/tags",
+    response_model=TagsOut,
+    dependencies=[Depends(require_permission(Permission.VIEW_STATUS, "deployment_id"))],
+)
+def get_deployment_tags(deployment_id: uuid.UUID, db: DbDep) -> TagsOut:
+    row = db.get(Deployment, deployment_id)
+    if row is None:
+        raise AppError("not_found", "deployment not found", status_code=404)
+    return TagsOut(tags=row.tags)
+
+
+@router.put(
+    "/{deployment_id}/tags",
+    response_model=TagsOut,
+    dependencies=[Depends(require_permission(Permission.MANAGE_DEVICES, "deployment_id"))],
+)
+def put_deployment_tags(
+    deployment_id: uuid.UUID,
+    body: TagsBody,
+    db: DbDep,
+    actor: Annotated[UserSession, Depends(require_csrf)],
+) -> TagsOut:
+    row = db.get(Deployment, deployment_id)
+    if row is None:
+        raise AppError("not_found", "deployment not found", status_code=404)
+    row.tags = clean_tags(body.tags)
+    record_audit(
+        db,
+        action="deployment.update",
+        entity_type="deployment",
+        entity_id=str(row.id),
+        actor_user_id=actor.user_id,
+        scope=row.id,
+        detail={"changed": ["tags"]},
+    )
+    db.commit()
+    db.refresh(row)
+    return TagsOut(tags=row.tags)

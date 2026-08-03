@@ -14,7 +14,13 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from app.api.hierarchy_common import OrganizationOut, get_sole_organization
+from app.api.hierarchy_common import (
+    OrganizationOut,
+    TagsBody,
+    TagsOut,
+    clean_tags,
+    get_sole_organization,
+)
 from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
@@ -142,3 +148,43 @@ def patch_organization(
     db.commit()
     db.refresh(row)
     return _out(row)
+
+
+@router.get(
+    "/{organization_id}/tags",
+    response_model=TagsOut,
+    dependencies=[Depends(require_any_assignment)],
+)
+def get_organization_tags(organization_id: uuid.UUID, db: DbDep) -> TagsOut:
+    row = db.get(Organization, organization_id)
+    if row is None:
+        raise AppError("not_found", "organization not found", status_code=404)
+    return TagsOut(tags=row.tags)
+
+
+@router.put(
+    "/{organization_id}/tags",
+    response_model=TagsOut,
+    dependencies=[Depends(require_permission(Permission.MANAGE_DEVICES))],
+)
+def put_organization_tags(
+    organization_id: uuid.UUID,
+    body: TagsBody,
+    db: DbDep,
+    actor: Annotated[UserSession, Depends(require_csrf)],
+) -> TagsOut:
+    row = db.get(Organization, organization_id)
+    if row is None:
+        raise AppError("not_found", "organization not found", status_code=404)
+    row.tags = clean_tags(body.tags)
+    record_audit(
+        db,
+        action="organization.update",
+        entity_type="organization",
+        entity_id=str(row.id),
+        actor_user_id=actor.user_id,
+        detail={"changed": ["tags"]},
+    )
+    db.commit()
+    db.refresh(row)
+    return TagsOut(tags=row.tags)

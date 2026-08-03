@@ -16,7 +16,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.hierarchy_common import (
     AggregatorOut,
+    TagsBody,
+    TagsOut,
     aggregator_out,
+    clean_tags,
     deployment_of_aggregator,
     not_found,
     refuse_delete_with_children,
@@ -211,3 +214,36 @@ def delete_aggregator(
         detail={"aggregator_uuid": row.aggregator_uuid},
     )
     db.commit()
+
+
+@router.get("/{aggregator_id}/tags", response_model=TagsOut)
+def get_aggregator_tags(
+    aggregator_id: uuid.UUID,
+    db: DbDep,
+    session: Annotated[UserSession, Depends(require_any_assignment)],
+) -> TagsOut:
+    row, _ = _resolve(db, session, aggregator_id, Permission.VIEW_STATUS)
+    return TagsOut(tags=row.tags)
+
+
+@router.put("/{aggregator_id}/tags", response_model=TagsOut)
+def put_aggregator_tags(
+    aggregator_id: uuid.UUID,
+    body: TagsBody,
+    db: DbDep,
+    actor: Annotated[UserSession, Depends(require_csrf)],
+) -> TagsOut:
+    row, deployment_id = _resolve(db, actor, aggregator_id, Permission.MANAGE_DEVICES)
+    row.tags = clean_tags(body.tags)
+    record_audit(
+        db,
+        action="aggregator.update",
+        entity_type="aggregator",
+        entity_id=str(row.id),
+        actor_user_id=actor.user_id,
+        scope=deployment_id,
+        detail={"changed": ["tags"]},
+    )
+    db.commit()
+    db.refresh(row)
+    return TagsOut(tags=row.tags)

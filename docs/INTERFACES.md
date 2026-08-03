@@ -404,6 +404,21 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
   failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
 
+### Tag storage model (E1.7) — E2's selection engine queries this
+
+- **Storage:** `tags ARRAY(String(64)) NOT NULL DEFAULT []` on all five entity tables,
+  GIN-indexed (`ix_<table>_tags`). Stored normalized: trimmed, deduplicated, sorted —
+  deterministic for selection queries. Validation rejects >64 chars and control
+  characters (422).
+- **API:** `GET/PUT /{entity}/{id}/tags` on all five entities (listeners by MAC).
+  **PUT is wholesale replace, never merge** — `{"tags": [...]}` in, normalized set out.
+  Reads follow VIEW_STATUS scoping; writes need MANAGE_DEVICES in scope + CSRF; the D35
+  403/404 rules carry over unchanged. Tag writes audit as `<entity>.update` with
+  `{"changed": ["tags"]}`.
+- **Filtering:** every list endpoint takes `tag=` — exact, case-sensitive containment
+  (`tags @> ARRAY[:tag]`, GIN-served). E2's `{"tag": x}` selection predicate compiles to
+  the same operator.
+
 ### Report-time identity services (E1.5; spec 4.3 items 2-3; D37) — E3.5 calls these
 
 `app/inventory/identity.py`. **E3 wires live MQTT messages into these functions; do not

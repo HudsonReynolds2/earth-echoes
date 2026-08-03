@@ -18,6 +18,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.hierarchy_common import (
     ListenerOut,
+    TagsBody,
+    TagsOut,
+    clean_tags,
     deployment_of_aggregator,
     listener_out,
     not_found,
@@ -253,3 +256,35 @@ def delete_listener(
         detail={"name": row.name},
     )
     db.commit()
+
+
+@router.get("/{mac}/tags", response_model=TagsOut)
+def get_listener_tags(
+    mac: str,
+    db: DbDep,
+    session: Annotated[UserSession, Depends(require_any_assignment)],
+) -> TagsOut:
+    return TagsOut(tags=_resolve(db, session, mac, Permission.VIEW_STATUS).tags)
+
+
+@router.put("/{mac}/tags", response_model=TagsOut)
+def put_listener_tags(
+    mac: str,
+    body: TagsBody,
+    db: DbDep,
+    actor: Annotated[UserSession, Depends(require_csrf)],
+) -> TagsOut:
+    row = _resolve(db, actor, mac, Permission.MANAGE_DEVICES)
+    row.tags = clean_tags(body.tags)
+    record_audit(
+        db,
+        action="listener.update",
+        entity_type="listener",
+        entity_id=row.mac,
+        actor_user_id=actor.user_id,
+        scope=row.deployment_id,
+        detail={"changed": ["tags"]},
+    )
+    db.commit()
+    db.refresh(row)
+    return TagsOut(tags=row.tags)

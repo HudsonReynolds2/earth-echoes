@@ -74,6 +74,17 @@ E0_ROUTES = {
     # E1.6 (gate 25): bulk import, CSV/JSON with per-row results (D38).
     ("POST", f"{API_PREFIX}/listeners/import"),
     ("POST", f"{API_PREFIX}/aggregators/import"),
+    # E1.7 (gate 26): tags on every entity, PUT = wholesale replace.
+    ("GET", f"{API_PREFIX}/organizations/{{organization_id}}/tags"),
+    ("PUT", f"{API_PREFIX}/organizations/{{organization_id}}/tags"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/tags"),
+    ("PUT", f"{API_PREFIX}/deployments/{{deployment_id}}/tags"),
+    ("GET", f"{API_PREFIX}/pods/{{pod_id}}/tags"),
+    ("PUT", f"{API_PREFIX}/pods/{{pod_id}}/tags"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/tags"),
+    ("PUT", f"{API_PREFIX}/aggregators/{{aggregator_id}}/tags"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/tags"),
+    ("PUT", f"{API_PREFIX}/listeners/{{mac}}/tags"),
 }
 
 E0_TABLES = {

@@ -16,6 +16,40 @@ from sqlalchemy.orm import Session
 from app.errors import AppError
 from app.models import Aggregator, Deployment, Listener, Organization, Pod
 
+TAG_MAX = 64
+
+
+class TagsBody(BaseModel):
+    """PUT /{entity}/{id}/tags carries the WHOLE tag set - replace, not merge
+    (task E1.7)."""
+
+    model_config = {"extra": "forbid"}
+
+    tags: list[str]
+
+
+class TagsOut(BaseModel):
+    tags: list[str]
+
+
+def clean_tags(tags: list[str]) -> list[str]:
+    """Trim, drop empties, reject oversized or control-character tags, dedupe,
+    sort - deterministic storage for E2's selection engine."""
+    cleaned: set[str] = set()
+    for tag in tags:
+        stripped = tag.strip()
+        if not stripped:
+            continue
+        if len(stripped) > TAG_MAX or any(ord(ch) < 32 for ch in stripped):
+            raise AppError(
+                "validation_error",
+                f"invalid tag {stripped[:80]!r} (max {TAG_MAX} chars, no control characters)",
+                status_code=422,
+            )
+        cleaned.add(stripped)
+    return sorted(cleaned)
+
+
 # --- Out schemas (D7 list items and item responses) ------------------------
 
 
