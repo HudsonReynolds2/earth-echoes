@@ -5,6 +5,44 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #15 (2026-08-02): E1.5's "raise a condition" implemented as return-based resolutions
+
+- **What changed:** task E1.5 says the service should "raise a `duplicate_identity`
+  condition" / "raise `provisioning_required`". The shipped design returns an
+  `IdentityResolution` with an outcome enum instead of raising for expected conditions,
+  writes the alert rows the task specifies, and offers `require_known_aggregator` as a
+  raising variant. Recorded so the wording difference is a documented choice, not drift:
+  E3.5's consumer loop handles every outcome uniformly, and exception control flow for
+  expected message states would push try/except into every ingest path.
+- **Why:** the task's own acceptance tests are outcome-shaped (clean match, name
+  conflict, MAC conflict, unknown aggregator — all verified); the "condition" language
+  named the states, not the mechanism.
+- **Affects:** project_planning/phase-1-hierarchy-inventory.md
+- **Addendum:** PHASE1-4-03
+
+## #14 (2026-08-02): POST /organizations clamped to a single organization
+
+- **What changed:** creating a second organization returns 409 `conflict` while v1 runs
+  single-org. Spec 12.1 fixes v1 as one Organization whose scoping flows through joins;
+  an unclamped POST would let two orgs exist with no scoping story and would falsify the
+  global-uniqueness-equals-within-org reasoning D32 records for `aggregator_uuid`.
+  Multi-org later removes the clamp and relaxes that constraint together (D32/D34
+  cross-reference).
+- **Why it is a plan change:** E1.2's task text implies plain POST semantics for all five
+  entities; the clamp narrows one of them deliberately.
+- **Affects:** project_planning/phase-1-hierarchy-inventory.md
+- **Addendum:** PHASE1-4-02
+
+## #13 (2026-08-02): Organizations get no DELETE endpoint
+
+- **What changed:** the E1.2 surface ships `GET/POST` collection and `GET/PATCH` item
+  routes for `/organizations` — no DELETE. Task E1.2's wording ("`GET/PATCH/DELETE` items
+  for all five entities") conflicted with spec 13, which lists no DELETE for
+  organizations, consistent with the single-org v1 of spec 12.1. The spec is first in the
+  authority order; the owner confirmed the resolution (2026-08-02) before implementation.
+- **Affects:** project_planning/phase-1-hierarchy-inventory.md
+- **Addendum:** PHASE1-4-01
+
 ## #12 (2026-08-01): Records hygiene batch — the DES-batch paper trail brought current
 
 - **What changed:** No product code. A records-and-test-hygiene pass closing the gaps a

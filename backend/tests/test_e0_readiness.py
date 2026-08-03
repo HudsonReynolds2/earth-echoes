@@ -43,9 +43,56 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/users"),
     ("POST", f"{API_PREFIX}/users"),
     ("PATCH", f"{API_PREFIX}/users/{{user_id}}"),
+    # E1.2 (gate 21): the spec-13 hierarchy surface, extended here
+    # deliberately alongside INTERFACES.md "Owned by E1" (D34, D35). Written
+    # from the OpenAPI dump, not by hand. Note: no DELETE /organizations
+    # (spec 13; D34, project-changes #13).
+    ("GET", f"{API_PREFIX}/organizations"),
+    ("POST", f"{API_PREFIX}/organizations"),
+    ("GET", f"{API_PREFIX}/organizations/{{organization_id}}"),
+    ("PATCH", f"{API_PREFIX}/organizations/{{organization_id}}"),
+    ("GET", f"{API_PREFIX}/deployments"),
+    ("POST", f"{API_PREFIX}/deployments"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}"),
+    ("PATCH", f"{API_PREFIX}/deployments/{{deployment_id}}"),
+    ("DELETE", f"{API_PREFIX}/deployments/{{deployment_id}}"),
+    ("GET", f"{API_PREFIX}/pods"),
+    ("POST", f"{API_PREFIX}/pods"),
+    ("GET", f"{API_PREFIX}/pods/{{pod_id}}"),
+    ("PATCH", f"{API_PREFIX}/pods/{{pod_id}}"),
+    ("DELETE", f"{API_PREFIX}/pods/{{pod_id}}"),
+    ("GET", f"{API_PREFIX}/aggregators"),
+    ("POST", f"{API_PREFIX}/aggregators"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}"),
+    ("PATCH", f"{API_PREFIX}/aggregators/{{aggregator_id}}"),
+    ("DELETE", f"{API_PREFIX}/aggregators/{{aggregator_id}}"),
+    ("GET", f"{API_PREFIX}/listeners"),
+    ("POST", f"{API_PREFIX}/listeners"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}"),
+    ("PATCH", f"{API_PREFIX}/listeners/{{mac}}"),
+    ("DELETE", f"{API_PREFIX}/listeners/{{mac}}"),
 }
 
-E0_TABLES = {"user", "session", "role_assignment", "audit_log", "secret", "alembic_version"}
+E0_TABLES = {
+    "user",
+    "session",
+    "role_assignment",
+    "audit_log",
+    "secret",
+    "alembic_version",
+    # E1.1 (gate 20): the hierarchy tables, extended here deliberately
+    # alongside the INTERFACES.md "Owned by E1" section (D30-D32).
+    "organization",
+    "deployment",
+    "pod",
+    "aggregator",
+    "listener",
+    # E1.5 (gate 24): report-time identity tables (D37) - quarantine holds
+    # conflicting reports instead of inventory mutations; alerts dedupe open
+    # rows per (type, entity).
+    "quarantined_report",
+    "inventory_alert",
+}
 
 
 @pytest.fixture(scope="module")
@@ -140,24 +187,49 @@ def test_every_operation_declares_responses(app):
 
 
 @pytest.mark.integration
-def test_scope_columns_are_uuid_nullable_and_not_yet_foreign_keys(pg_url):
-    """E1.1 adds the deployment table and points these columns at it; until
-    then they must be plain nullable UUIDs (phase-0 E0.7, spec 12.1)."""
+def test_role_assignment_deployment_id_now_fks_the_deployment_table(pg_url):
+    """E1.1 closed the seam this test's predecessor held open (phase-0 E0.7;
+    DECISIONS D33): deployment_id carries a real FK, and it stays nullable
+    because NULL still means the grant is organization-wide."""
     engine = create_engine(pg_url)
     try:
         inspector = inspect(engine)
-        for table, column_name in (("role_assignment", "deployment_id"), ("audit_log", "scope")):
-            column = next(c for c in inspector.get_columns(table) if c["name"] == column_name)
-            assert column["nullable"] is True, f"{table}.{column_name} must be nullable"
-            assert "UUID" in str(column["type"]).upper()
-            fk_columns = {
-                name
-                for fk in inspector.get_foreign_keys(table)
-                for name in fk["constrained_columns"]
-            }
-            assert column_name not in fk_columns, (
-                f"{table}.{column_name} already has a foreign key; that seam belongs to E1.1"
-            )
+        column = next(
+            c for c in inspector.get_columns("role_assignment") if c["name"] == "deployment_id"
+        )
+        assert column["nullable"] is True, "NULL scope = org-wide grant; must stay nullable"
+        assert "UUID" in str(column["type"]).upper()
+        fk_targets = {
+            fk["referred_table"]
+            for fk in inspector.get_foreign_keys("role_assignment")
+            if "deployment_id" in fk["constrained_columns"]
+        }
+        assert fk_targets == {"deployment"}, (
+            f"role_assignment.deployment_id should FK the deployment table, got {fk_targets}"
+        )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
+def test_audit_scope_is_deliberately_never_a_foreign_key(pg_url):
+    """PERMANENT, not a seam (DECISIONS D33, D3): audit rows are immutable and
+    outlive the deployments they reference, so audit_log.scope must never gain
+    a foreign key. A later epic 'fixing' this breaks audit retention."""
+    engine = create_engine(pg_url)
+    try:
+        inspector = inspect(engine)
+        column = next(c for c in inspector.get_columns("audit_log") if c["name"] == "scope")
+        assert column["nullable"] is True, "NULL scope = organization-wide"
+        assert "UUID" in str(column["type"]).upper()
+        fk_columns = {
+            name
+            for fk in inspector.get_foreign_keys("audit_log")
+            for name in fk["constrained_columns"]
+        }
+        assert "scope" not in fk_columns, (
+            "audit_log.scope must never be a foreign key (D3 immutability; D33)"
+        )
     finally:
         engine.dispose()
 

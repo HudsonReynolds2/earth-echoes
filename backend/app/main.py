@@ -8,9 +8,14 @@ baseline. Serve with: uvicorn app.main:create_app --factory
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.aggregators import router as aggregators_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.deployments import router as deployments_router
 from app.api.health import router as health_router
+from app.api.listeners import router as listeners_router
+from app.api.organizations import router as organizations_router
+from app.api.pods import router as pods_router
 from app.api.totp import router as totp_router
 from app.api.users import router as users_router
 from app.db import create_session_factory
@@ -66,6 +71,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(totp_router)
     api_router.include_router(audit_router)
     api_router.include_router(users_router)
+    api_router.include_router(organizations_router)
+    api_router.include_router(deployments_router)
+    api_router.include_router(pods_router)
+    api_router.include_router(aggregators_router)
+    api_router.include_router(listeners_router)
     app.include_router(api_router)
 
     return app

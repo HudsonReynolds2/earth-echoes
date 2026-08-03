@@ -234,10 +234,12 @@ The merge watchtower for every later phase. Design contract:
   enum and `ROLE_PERMISSIONS` together, deliberately), `has_permission` (pure decision
   core), `require_permission` (dependency factory).
 - **Assignment model:** `role_assignment` (migration `658a7e1ad594`): user_id FK, role
-  string, `deployment_id` UUID **nullable and un-FK'd until E1 adds the deployment table**
-  (phase-0 E0.7). **NULL scope = organization-wide grant**; a scoped grant applies only to
-  its deployment; an org-level check is satisfied only by an org-wide grant. Unique on
-  (user_id, role, deployment_id).
+  string, `deployment_id` UUID nullable — and since E1.1 (migration `53181716569c`,
+  DECISIONS D33) a **real FK to `deployment.id`**, closing the seam phase-0 E0.7 left open.
+  **NULL scope = organization-wide grant**; a scoped grant applies only to its deployment;
+  an org-level check is satisfied only by an org-wide grant. Unique on
+  (user_id, role, deployment_id). Assignment writes pre-validate deployment existence
+  (422); orphan grants were deleted, not NULLed, at migration time (D33).
 - **Usage on every later endpoint** (spec 12.3: checked at the API layer on every request):
   `Depends(require_permission(Permission.X))` for org-level,
   `Depends(require_permission(Permission.X, "deployment_id"))` to scope by a path
@@ -302,3 +304,108 @@ sidebar link hidden for non-owners.
 - **Consumers:** E4 (device-facing bundle secrets held before the separate spec-8.4
   firmware encryption is applied at export — the two schemes nest, they do not compete),
   E5 (deployment service credentials), E0.10 (TOTP secrets).
+
+## Owned by E1
+
+### Entity schema (E1.1; spec 4.1-4.3; DECISIONS D30-D33)
+
+Five tables, singular names (D30), all constraints named through the E0.2 convention and
+proven by `backend/tests/test_hierarchy_schema.py`:
+
+- **`organization`** — UUID PK; `name` unique; `tags`; timestamps. v1 is single-organization
+  (spec 12.1): access scoping flows through the FK chain by join, and **no organization_id
+  is denormalized onto any other table**.
+- **`deployment`** — UUID PK; FK `organization.id`; `name` unique within its organization;
+  **`slug String(63)`** globally unique, CHECK `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — the
+  `{dep}` MQTT topic segment (spec 7.2). E3: use the slug in topics, never the name or UUID.
+- **`pod`** — UUID PK; FK `deployment.id`; `name` unique within its deployment.
+- **`aggregator`** — UUID PK; **`pod_id` FK UNIQUE** (`uq_aggregator_pod_id`) — exactly one
+  aggregator per pod is a database constraint, not application discipline; three identity
+  columns, never conflated (spec 4.2): `id` (platform UUID), `aggregator_uuid String(64)`
+  unique + indexed (the join key unifying Prometheus/Influx/S3; global uniqueness = the
+  within-org rule while v1 is single-org, D32), `balena_uuid` nullable.
+- **`listener`** — **`mac String(17)` is the PRIMARY KEY** (D31), CHECK-constrained to
+  uppercase colon-separated `AA:BB:CC:DD:EE:FF`; FK `aggregator.id`; **`deployment_id` is a
+  set-once denormalized stamp** (D32) making `uq_listener_deployment_id` (name unique
+  within deployment, spec 4.3) expressible — parent fields are create-only across the whole
+  hierarchy, no re-parenting in v1; `gps_lat`/`gps_lon` nullable floats are
+  **inventory-owned columns** — the E2 settings catalog must register `location.gps_lat`/
+  `location.gps_lon` as inventory-resolved: config reads resolve to these columns and no
+  override row is ever created for them (spec 5.3; phase-1 E1.1).
+- **Timestamps** everywhere: `created_at`/`updated_at` timestamptz, server-default now().
+- **Tags** on every entity: `ARRAY(String(64)) NOT NULL DEFAULT []` with a GIN index
+  (`ix_<table>_tags`) — the storage model E2's selection engine queries (semantics land
+  with E1.7).
+- **Migrations:** `ee260dc1c1a8` (tables), `53181716569c` (orphan-grant delete + the
+  role_assignment FK). `audit_log.scope` is **deliberately never FK'd** (D3/D33) — a
+  readiness test now asserts this permanently.
+
+### Hierarchy API surface (E1.2; spec 13; DECISIONS D34-D36)
+
+- **Routes** (all under `/api/v1`, D7 list envelope + sort grammar, D8 error envelope):
+  `GET/POST /organizations`, `GET/PATCH /organizations/{id}` — **no DELETE** (D34), POST
+  clamped to one org while v1 is single-org; `GET/POST` + `GET/PATCH/DELETE` for
+  `/deployments`, `/pods`, `/aggregators`, and `/listeners` — **listeners addressed by
+  MAC** in every path, normalized before lookup (`aa-bb-cc-dd-ee-ff` ==
+  `AA:BB:CC:DD:EE:FF` == `aabb.ccdd.eeff`).
+- **List filters** (one query model per endpoint, extending PageParams): parent-FK params
+  (`organization_id=`, `deployment_id=`, `pod_id=`, `aggregator_id=`), `name=`
+  (icontains), `tag=` (exact array containment), plus `slug=` (deployments), `mac=`
+  (prefix, listeners), `aggregator_uuid=` (aggregators). SORTABLE: `name`/`created_at`
+  everywhere + `slug` (deployments), `mac` (listeners), `aggregator_uuid` (aggregators).
+- **One aggregator per pod, one call (E1.3):** `POST /pods` accepts an optional
+  `aggregator {aggregator_uuid?, balena_uuid?, name?}` block — create-and-attach in one
+  transaction (two audit rows, one commit; a failed aggregator insert rolls the pod back).
+  Attaching to an occupied pod via `POST /aggregators` is 409. `aggregator_uuid` is
+  platform-assigned (`uuid4().hex`) when omitted.
+- **Child counts ride the serializers** (the tree UI needs them without N+1):
+  `deployment.pod_count`/`.listener_count`, `pod.listener_count` (+ embedded
+  `pod.aggregator`), `aggregator.listener_count`.
+- **Deletion:** 409 `conflict` with `detail.children` naming blockers; a deployment
+  blocks on pods AND role assignments (D33). No cascades in v1.
+- **Slug rule (D36, E3 consumes):** generated from the name when omitted; globally
+  unique; **frozen once the deployment has any pod** (PATCH → 409). Known edge for E3 to
+  re-examine: pods deleted back to zero unfreezes it pre-E3.
+- **Scoped visibility (D35):** `app/scoping.py` — `visible_deployments(assignments,
+  permission)`, `scope_filter(statement, column, scope)`, `require_any_assignment`.
+  Reads = VIEW_STATUS scoped; child writes = MANAGE_DEVICES in scope + CSRF; org writes +
+  POST /deployments = org-level MANAGE_DEVICES. Item-route contract: deployment routes
+  403-before-lookup; child items answer identical 404s for out-of-scope and missing
+  (MAC-enumeration oracle defense — suite-asserted). Later epics reuse these helpers
+  rather than reimplementing visibility.
+- **Uniqueness and auto-suffix (E1.4; spec 4.3 item 1):** a listener-name collision
+  rejects by default with `409 conflict` and `detail: {"field": "name", "suggestion":
+  "<name-2>"}` — the wire shape the E1.8 conflict dialog consumes. `auto_suffix: true` in
+  the POST body (an **explicit** parameter, default false, never silent) creates at the
+  first free `name-N`, and the audit row records `{auto_suffixed, requested_name,
+  final_name}`. A MAC collision always rejects; no parameter overrides it. The
+  compute/flush suffix race retries once with a recomputed name, then 409s.
+- **Parent fields are create-only across the hierarchy (D32):** PATCH bodies are
+  `extra="forbid"` and never accept `mac`, parent ids, or the deployment stamp; create
+  bodies forbid unknown fields too, so a client-sent stamp is a 422.
+- **Audit:** every mutation writes `<entity>.<verb>` with `scope` = the deployment id
+  (org actions: NULL), detail = changed-field names only.
+
+### Report-time identity services (E1.5; spec 4.3 items 2-3; D37) — E3.5 calls these
+
+`app/inventory/identity.py`. **E3 wires live MQTT messages into these functions; do not
+reimplement their logic.** Signatures, verbatim:
+
+- `ReportedIdentity(mac, aggregator_uuid, name=None, reported_at=None, source="test",
+  raw={})` — frozen dataclass; `raw` is preserved verbatim in the quarantine record.
+- `handle_reported_identity(db, report: ReportedIdentity) -> IdentityResolution` —
+  `IdentityResolution{outcome, listener|None, quarantined|None, alert|None}` with
+  `IdentityOutcome` = `MATCHED | NAME_CONFLICT | MAC_CONFLICT | PROVISIONING_REQUIRED |
+  UNKNOWN_MAC`. Matching is by MAC; **conflicts never modify inventory rows** — the
+  report is quarantined and a `duplicate_identity` alert opens (deduped). UNKNOWN_MAC
+  (known reporter, unregistered MAC) has zero side effects: E3 decides per channel.
+  Stages rows, never commits — the caller owns the transaction.
+- `check_aggregator_membership(db, aggregator_uuid) -> Aggregator | None` — membership
+  lookup, never sentinel equality. `require_known_aggregator(db, aggregator_uuid)` is
+  the raising variant (`ProvisioningRequiredError`) that also opens the
+  `provisioning_required` alert; use it on metrics/analysis/object ingest paths.
+- **Tables:** `quarantined_report` (append-only evidence; no FK to listener — survives
+  deletion, holds reports about devices inventory never had) and `inventory_alert`
+  (open alerts unique per (alert_type, entity_type, entity_key) via partial unique index
+  `WHERE resolved_at IS NULL`; `deployment_id` is un-FK'd scope; `resolved_at` NULL =
+  open). Alert types are data, not D8 wire codes. E7 unifies alert surfacing later.

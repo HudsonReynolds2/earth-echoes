@@ -4,6 +4,137 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D37 (2026-08-02): Report-time identity — return-based services, append-only quarantine, deduped alerts
+
+- **Decision:** E1.5 ships as `app/inventory/identity.py` — services plus two tables, no
+  HTTP surface, no UI (E3.5 wires MQTT and must not reimplement the logic). The API is
+  **return-based**: `handle_reported_identity(db, ReportedIdentity) ->
+  IdentityResolution{outcome, listener, quarantined, alert}` with outcomes
+  MATCHED / NAME_CONFLICT / MAC_CONFLICT / PROVISIONING_REQUIRED / UNKNOWN_MAC — friendlier
+  for E3's consumer loop than exception control flow; `require_known_aggregator` provides
+  the raising variant (`ProvisioningRequiredError`) for ingest paths.
+- **Semantics fixed here:** conflicts NEVER touch inventory rows (suite proves
+  byte-identical reload); `quarantined_report` **appends** — every conflicting report is
+  evidence — and carries **no FK to listener** (must survive deletion and describe devices
+  inventory never held); `inventory_alert` **dedupes on the open alert** per
+  (alert_type, entity_type, entity_key) via a partial unique index
+  (`WHERE resolved_at IS NULL`), app-checked first so a repeat conflict returns the
+  existing alert; a resolved alert permits a fresh one. `alert.deployment_id` is scope
+  for filtering, deliberately un-FK'd (same reasoning as audit scope, D33).
+  `duplicate_identity`/`provisioning_required` are **alert types, not wire error codes** —
+  the closed D8 vocabulary is not extended. Services stage rows and never commit; audit
+  rows (`inventory.quarantine`, `inventory.alert`) are system-originated (actor NULL).
+- **Reference:** spec 4.3 items 2-3, spec 17 item 9; phase-1 E1.5; project-changes #15
+  (PHASE1-4-03); migration `05c4858bfab5`; backend/tests/test_identity_service.py.
+
+## D36 (2026-08-02): The deployment slug freezes at the first pod
+
+- **Decision:** the concrete rule behind the phase doc's "editable before first use":
+  `slug` may be set at create (else generated: NFKD-strip to ASCII, lowercase, squash
+  non-alphanumerics to hyphens, trim, cap 63, collision suffix `-2`, `-3`, …) and changed
+  via PATCH **only while the deployment has zero pods**; afterwards a differing slug is
+  409 `conflict`. "First use" means "first child pod" because the `{dep}` MQTT namespace
+  (spec 7.2) only matters once devices can exist under it. E3 may tighten this rule
+  (e.g. freeze permanently once a broker is live), never loosen it. Known edge, accepted:
+  a deployment that had pods, deleted them all, may change its slug again pre-E3 —
+  recorded in INTERFACES so E3 re-examines it.
+- **Reference:** phase-1 §2; spec 7.2; test_hierarchy_crud.py slug lifecycle tests.
+
+## D35 (2026-08-02): Scoped visibility — the filter, the permission map, and the 403/404 asymmetry
+
+- **Decision:** `app/scoping.py` is the single source for result-set visibility:
+  `visible_deployments(assignments, permission)` -> `"all" | set[ids]`,
+  `scope_filter(...)` for lists (deployments on id, pods on deployment_id, aggregators
+  via the pod join, listeners on the D32 stamp), `require_any_assignment` for surfaces
+  every role may read. Permission map: reads = VIEW_STATUS (org reads = any assignment);
+  child writes = MANAGE_DEVICES in the target deployment + CSRF; org writes and
+  POST /deployments = org-level MANAGE_DEVICES. **No change to rbac.py anywhere in E1** —
+  the locked matrix and the frontend parity test are untouched; this suite lives in the
+  new `test_scoping.py`, not in the test-critical file.
+- **The asymmetry:** `/deployments/{deployment_id}` routes keep E0.7's 403-before-lookup
+  pattern (safe: the check precedes any existence lookup). Child items answer **404 for
+  out-of-scope and missing alike** — MACs are enumerable (OUI + counter), so a
+  403-on-existing would be an existence oracle; the suite asserts the two 404 bodies are
+  byte-identical. POSTs answer 403: the client supplied the parent scope, denial confirms
+  nothing.
+- **Reference:** spec 12.3, 13; DECISIONS D32; backend/tests/test_scoping.py.
+
+## D34 (2026-08-02): Organization surface — no DELETE, single-org POST clamp
+
+- **Decision:** spec 13 lists no DELETE for `/organizations` and wins over E1.2's "all
+  five entities" wording (owner-confirmed 2026-08-02; project-changes #13, addendum
+  PHASE1-4-01). POST /organizations 409s while an organization exists (spec 12.1
+  single-org v1; project-changes #14, PHASE1-4-02). Cross-reference D32: the clamp is
+  what makes global `aggregator_uuid` uniqueness equal the spec's within-org rule; a
+  future multi-org change relaxes both together. Org reads are gated by
+  `require_any_assignment` (a deployment-scoped operator still needs the org name for
+  the tree); org writes need org-level MANAGE_DEVICES.
+- **Reference:** spec 13, 12.1; phase-1 §4 E1.2; DECISIONS D32.
+
+## D33 (2026-08-02): E1.1 flips the role_assignment FK; audit scope is never one
+
+- **Decision:** `role_assignment.deployment_id` gains its real foreign key (the seam phase-0
+  E0.7 fixed explicitly), plain NO ACTION; `audit_log.scope` is **deliberately never FK'd**,
+  permanently — D3 immutability means audit rows outlive the deployments they reference.
+- **Consequences, recorded before the gate (rule R0):** (1) readiness test
+  `test_scope_columns_are_uuid_nullable_and_not_yet_foreign_keys` is replaced by two tests —
+  the role_assignment half inverted as the test was designed to be, the audit half made
+  permanent with a test asserting NO FK ever appears. (2) `test_rbac.py` (test-critical)
+  receives an **additive fixture change only**: the module fixture inserts an organization
+  and real deployment rows for DEPLOYMENT_A/B because scoped grants now reference real rows;
+  no assertion or matrix row changed. (3) `test_users_admin.py` likewise creates a real
+  deployment; a new test pins the 422. (4) `/users` assignment bodies now pre-validate
+  deployment existence (422 `validation_error`) so an FK violation is never miscaught by the
+  email-conflict IntegrityError handler. (5) Migration `53181716569c` DELETES orphan scoped
+  grants rather than NULLing them — NULL means org-wide, so NULLing would silently escalate
+  a scoped grant; deleted orphans referenced deployments that never existed and are accepted
+  as unrestorable. (6) `verify.py` bootstraps a real `verify-dep-{tag}` deployment (and org
+  if none exists) for its scoped-operator step and removes both in cleanup.
+- **Reference:** phase-0 E0.7; phase-1 E1.1; docs/INTERFACES.md role_assignment section;
+  DECISIONS D3.
+
+## D32 (2026-08-02): Listener carries a set-once deployment_id stamp; aggregator_uuid unique globally
+
+- **Decision:** `listener.deployment_id` is a denormalized, **set-once** FK: parent fields
+  (`organization_id`/`deployment_id`/`pod_id`/`aggregator_id`) are create-only across the
+  whole hierarchy — no re-parenting in v1, PATCH models reject them (`extra="forbid"`) — so
+  the stamp is computed server-side at create (aggregator→pod→deployment walk) and cannot
+  drift. It exists because spec 4.3's "listener name unique within its Deployment" must be a
+  real constraint (phase-1 §2: "constraint plus application check") and a unique constraint
+  cannot span a 3-hop join. `aggregator_uuid` gets a plain **global** UNIQUE: v1 is
+  single-organization (spec 12.1), so global uniqueness implies the within-org rule with no
+  denormalized org column anywhere.
+- **Spec 12.1 reconciliation:** 12.1 forbids stamping the *tenant* id on every table. One
+  deployment id on exactly one table is not a tenant stamp; no `organization_id` is
+  denormalized anywhere. Multi-org later relaxes the aggregator_uuid constraint to a
+  composite in one migration (cross-reference D34's single-org clamp — both must move
+  together).
+- **Rejected:** triggers (invisible to autogenerate, unnamed by the convention); app-level
+  checks alone (phase doc demands a constraint); composite-FK chains (redundant once parents
+  are immutable).
+- **Reference:** phase-1 §2 fixed choices; spec 4.2/4.3, 12.1; test_hierarchy_schema.py.
+
+## D31 (2026-08-02): MAC is the listener primary key, literally
+
+- **Decision:** `listener.mac String(17)` is the PRIMARY KEY, CHECK-constrained to uppercase
+  colon-separated form; the API normalizes case/separators at the boundary. No surrogate
+  UUID. Spec 4.2 calls MAC "the immutable primary identity for a Listener across the whole
+  platform"; the phase doc's fixed choice is "Listeners key by MAC"; `session.id` is the
+  in-repo natural-PK precedent; `audit_log.entity_id` was sized for a MAC from E0.8.
+  Rename-safety is a non-issue: MAC is immutable by spec — PATCH never accepts it, and a
+  typo'd MAC is a different physical device, fixed by delete + recreate.
+- **Reference:** spec 4.2; phase-1 §2; readiness test `test_audit_entity_id_fits_a_mac_address`.
+
+## D30 (2026-08-02): Hierarchy tables are singular, matching E0; routes stay plural per spec
+
+- **Decision:** `organization`, `deployment`, `pod`, `aggregator`, `listener` — singular,
+  like every E0 table — although phase-1 E1.1's task text spells them plural. The naming
+  convention templates bake table names into constraint names, so consistency is
+  load-bearing; URL collections stay plural exactly as spec 13 writes them (`/organizations`
+  …), the split `user` table / `/users` route already established. Table names land verbatim
+  in the readiness `E0_TABLES` lock.
+- **Reference:** phase-1 §2 E1.1; app/db.py NAMING_CONVENTION; spec 13.
+
 ## D29 (2026-08-01): Test changes in the records-hygiene batch — two strengthenings
 
 - **Decision:** two tests change in this batch, both at a green gate and both adding

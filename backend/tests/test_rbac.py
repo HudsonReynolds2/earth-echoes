@@ -17,7 +17,7 @@ from test_auth import EMAIL, PASSWORD, pg_url  # noqa: F401  (module fixture reu
 from app.auth.passwords import hash_password
 from app.auth.rbac import ROLE_PERMISSIONS, Permission, Role, has_permission, require_permission
 from app.main import API_PREFIX, create_app
-from app.models import RoleAssignment, User
+from app.models import Deployment, Organization, RoleAssignment, User
 from app.settings import Settings
 
 DEPLOYMENT_A = uuid.UUID("00000000-0000-0000-0000-00000000000a")
@@ -133,6 +133,22 @@ def rbac_app(pg_url):  # noqa: F811
 
     factory = app.state.session_factory
     with factory() as db:
+        # Additive fixture change at E1.1 (DECISIONS D33): scoped grants now
+        # carry a real foreign key, so the two deployment UUIDs the matrix has
+        # always used must exist as rows. No assertion or matrix row changed.
+        org = Organization(name="rbac-org")
+        db.add(org)
+        db.flush()
+        db.add(
+            Deployment(
+                id=DEPLOYMENT_A, organization_id=org.id, name="rbac-dep-a", slug="rbac-dep-a"
+            )
+        )
+        db.add(
+            Deployment(
+                id=DEPLOYMENT_B, organization_id=org.id, name="rbac-dep-b", slug="rbac-dep-b"
+            )
+        )
         for role, email in ROLE_EMAILS.items():
             user = User(email=email, password_hash=hash_password(PASSWORD))
             scope = None if role in (Role.OWNER, Role.VIEWER) else DEPLOYMENT_A

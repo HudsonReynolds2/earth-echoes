@@ -1,6 +1,113 @@
 # Project Updates
 
-## 2026-08-01: Records hygiene batch — DES-batch paper trail brought current (Gate 19 GREEN)
+## 2026-08-02: E1.5 Report-time identity services — quarantine, alerts, membership (Gate 24 GREEN)
+
+- **Tasks closed:** E1.5, closing e1-batch-1 (E1.1 through E1.5, gates 20-24;
+  project-changes #15, addendum PHASE1-4-03, DECISIONS D37)
+- **Gate:** 24, GREEN
+- **Tests:** backend 240 passed (+10 in the new `test_identity_service.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/inventory/identity.py` — services callable without MQTT, the exact
+  seam E3.5 wires ("do not reimplement" recorded in INTERFACES with verbatim
+  signatures). `handle_reported_identity` returns MATCHED / NAME_CONFLICT / MAC_CONFLICT
+  / PROVISIONING_REQUIRED / UNKNOWN_MAC; conflicts quarantine the report and open a
+  deduped `duplicate_identity` alert while the inventory row stays byte-identical
+  (proven by full-column reload). `check_aggregator_membership` is a lookup, never
+  sentinel equality; `require_known_aggregator` is the raising variant for ingest paths.
+  Tables via migration `05c4858bfab5`: `quarantined_report` (append-only, deliberately
+  no listener FK) and `inventory_alert` (open-alert dedupe via partial unique index
+  `WHERE resolved_at IS NULL`, proven by raw insert; un-FK'd deployment scope). Alert
+  types are data — the closed D8 wire vocabulary is untouched. System audit rows
+  (`inventory.quarantine`, `inventory.alert`) with NULL actor. Services stage and never
+  commit; the rollback probe proves an uncommitted session leaves nothing.
+- **Manual verification:** migration round trip (`alembic check` clean at head,
+  downgrade/upgrade clean); the full outcome table driven directly against a live
+  ephemeral postgres; alert lifecycle (open → dedupe → resolve → fresh) walked
+  end-to-end.
+
+- **Tasks closed:** E1.4
+- **Gate:** 23, GREEN
+- **Tests:** backend 230 passed (+6 in the new `test_uniqueness.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** spec 4.3 item 1 implemented literally. Name collision within a
+  deployment rejects by default — `409 conflict` with `detail {"field": "name",
+  "suggestion": "<name-2>"}`, the wire shape E1.8's conflict dialog consumes.
+  `auto_suffix: true` (explicit body parameter, default false — the never-silent rule is
+  itself a test) creates at the first free `name-N` and the audit row carries
+  `{auto_suffixed, requested_name, final_name}`. MAC collision always rejects; no
+  parameter overrides it. The compute/flush suffix race retries once with a recomputed
+  name (proven by a monkeypatched stale-suffix simulation), then 409s.
+  `next_free_name` joins `app/inventory/naming.py`; INTERFACES documents the parameter
+  and the suggestion detail shape.
+- **Manual verification:** the full suffix ladder (`sensor` → `sensor-2` → `sensor-3`)
+  driven over the live API; cross-deployment name freedom re-proven.
+
+- **Tasks closed:** E1.3
+- **Gate:** 22, GREEN
+- **Tests:** backend 224 passed (+4 in the new `test_pod_aggregator.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `POST /pods` accepts an optional inline `aggregator` block — create-and-
+  attach in one transaction with two audit rows and a single commit; the rollback proof
+  shows a duplicate `aggregator_uuid` leaves neither the pod nor its audit row behind.
+  `aggregator_uuid` platform-assigned (`uuid4().hex`) when omitted (spec 4.2); attach to
+  an occupied pod stays 409 via `uq_aggregator_pod_id`. No new routes, tables, or plan
+  changes — this is the spec-13 sentence implemented literally.
+- **Manual verification:** both creation paths exercised over the API in the suite; the
+  gate's compose stack ran the full platform live.
+
+- **Tasks closed:** E1.2 (project-changes #13/#14; addenda PHASE1-4-01/02; DECISIONS
+  D34, D35, D36)
+- **Gate:** 21, GREEN
+- **Tests:** backend 220 passed (+34: `test_hierarchy_crud.py` 12, `test_scoping.py` 22
+  incl. parametrized visibility cases), vitest 44, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **First run was RED, one mypy error:** `app\api\aggregators.py:65: error: Function is
+  missing a return type annotation [no-untyped-def]` — every test suite passed on that
+  run. Fixed with an explicit `-> tuple[Aggregator, uuid.UUID]`; full rerun GREEN.
+- **Artifacts:** 24 routes (written into the readiness lock from the OpenAPI dump):
+  organizations without DELETE and with the single-org POST clamp (D34), full CRUD for
+  deployments/pods/aggregators/listeners with listeners addressed by normalized MAC in
+  every path. D7 envelopes with per-entity query models and filters (parent FKs, name
+  icontains, tag containment, slug/mac/aggregator_uuid); child counts embedded in
+  serializers for the E1.8 tree. Slug generation with collision suffixing and the D36
+  freeze-at-first-pod rule. `app/scoping.py` ships the reusable visibility layer (D35):
+  org-wide grants see all, scoped grants see their deployments, no-grant users get 403;
+  deployment item routes keep the 403-before-lookup pattern while child items answer
+  byte-identical 404s for out-of-scope and missing rows — the MAC-enumeration oracle
+  defense, asserted by test. Deletes 409 with named blockers, including role assignments
+  on deployments (D33). Every mutation audits `<entity>.<verb>` with deployment scope.
+- **Manual verification:** the gate's compose-stack suite drove the live API end-to-end;
+  scoping proven against five personas (owner, org viewer, scoped operator, scoped field
+  tech, no-grants) across all four list surfaces and the item asymmetry.
+
+- **Tasks closed:** E1.1, opening batch 1 of epic E1 (branch `e1-batch-1`)
+- **Gate:** 20, GREEN
+- **Tests:** backend 186 passed (+14: 12 in the new `test_hierarchy_schema.py` constraint
+  suite, the users-admin 422 test, and the readiness seam test splitting into two), vitest
+  44 passed, Playwright 4 passed; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** five singular-named tables (D30) — `organization`, `deployment`, `pod`,
+  `aggregator`, `listener` — with every phase-doc fixed choice expressed as a database
+  constraint: MAC as the listener primary key with a format CHECK (D31), one aggregator per
+  pod via `uq_aggregator_pod_id`, listener names unique within their deployment via the
+  set-once `deployment_id` stamp (D32), slug format CHECK + global unique, name-in-parent
+  uniques, global `aggregator_uuid` unique, tags as GIN-indexed arrays and GPS columns
+  front-loaded for E1.4-E1.7. Migrations `ee260dc1c1a8` (tables) and `53181716569c`
+  (orphan-grant delete + role_assignment FK), both autogenerate-derived, hand-reviewed,
+  with verified empty diff at head and a full downgrade/upgrade round trip. The E0.7 seam
+  closed per D33: readiness seam test split into FK-present + audit-scope-never-FK halves,
+  `test_rbac.py` fixture additively references real deployment rows (zero assertions
+  changed), `/users` pre-validates assignment scopes (422), `verify.py` bootstraps and
+  cleans a real `verify-dep-{tag}` deployment. `docs/INTERFACES.md` gains "Owned by E1:
+  Entity schema" including the GPS-is-inventory-owned sentence E2 depends on.
+- **Manual verification:** migration round trip run twice against an ephemeral postgres
+  (`alembic check` reports no drift at head; `downgrade -2` then `upgrade head` clean); the
+  gate's compose-stack suite ran the shipped verifier end-to-end over real HTTP, which
+  exercised the new scoped-deployment bootstrap and cleanup live.
 
 - **Tasks closed:** the records-and-test-hygiene batch a post-DES review of `23eff5d..f93f061`
   motivated (project-changes #11, #12; DECISIONS D28, D29; addenda PHASE0-4-05, PHASE0-4-06,
