@@ -386,6 +386,39 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **Audit:** every mutation writes `<entity>.<verb>` with `scope` = the deployment id
   (org actions: NULL), detail = changed-field names only.
 
+### Bulk import (E1.6; spec 13; D38)
+
+- **Endpoints:** `POST /listeners/import`, `POST /aggregators/import`. Bodies:
+  `application/json` `{"rows": [...]}` or raw `text/csv`. Query options: `?partial=true`
+  (default false = all-or-nothing) and `?auto_suffix=true` (listeners only, default
+  false — E1.4's never-silent rule). Limits: 1000 rows, 1 MiB. Well-formed requests
+  answer **200 with a report**: `{committed, created, failed, rows: [{row, status:
+  "created"|"error", entity_id, name, error: {code, message}|null}]}` — row codes reuse
+  the D8 strings as data. All-or-nothing failure commits nothing, including the audit
+  row; the committed=false report is the UI's dry run.
+- **CSV formats (normative; header exact, `tags` pipe-separated, blank = null):**
+  listeners `mac,name,aggregator_uuid,gps_lat,gps_lon,tags` — parents referenced by
+  `aggregator_uuid`; aggregators `pod_id,aggregator_uuid,balena_uuid,name,tags` — blank
+  `aggregator_uuid` is platform-generated (spec 4.2). Operator examples:
+  `guide/bulk-import.md` (defers here).
+- **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
+  failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
+
+### Tag storage model (E1.7) — E2's selection engine queries this
+
+- **Storage:** `tags ARRAY(String(64)) NOT NULL DEFAULT []` on all five entity tables,
+  GIN-indexed (`ix_<table>_tags`). Stored normalized: trimmed, deduplicated, sorted —
+  deterministic for selection queries. Validation rejects >64 chars and control
+  characters (422).
+- **API:** `GET/PUT /{entity}/{id}/tags` on all five entities (listeners by MAC).
+  **PUT is wholesale replace, never merge** — `{"tags": [...]}` in, normalized set out.
+  Reads follow VIEW_STATUS scoping; writes need MANAGE_DEVICES in scope + CSRF; the D35
+  403/404 rules carry over unchanged. Tag writes audit as `<entity>.update` with
+  `{"changed": ["tags"]}`.
+- **Filtering:** every list endpoint takes `tag=` — exact, case-sensitive containment
+  (`tags @> ARRAY[:tag]`, GIN-served). E2's `{"tag": x}` selection predicate compiles to
+  the same operator.
+
 ### Report-time identity services (E1.5; spec 4.3 items 2-3; D37) — E3.5 calls these
 
 `app/inventory/identity.py`. **E3 wires live MQTT messages into these functions; do not

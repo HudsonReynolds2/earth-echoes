@@ -14,7 +14,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.api.hierarchy_common import PodOut, not_found, pod_out, refuse_delete_with_children
+from app.api.hierarchy_common import (
+    PodOut,
+    TagsBody,
+    TagsOut,
+    clean_tags,
+    not_found,
+    pod_out,
+    refuse_delete_with_children,
+)
 from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
@@ -230,3 +238,35 @@ def delete_pod(
         detail={"name": row.name},
     )
     db.commit()
+
+
+@router.get("/{pod_id}/tags", response_model=TagsOut)
+def get_pod_tags(
+    pod_id: uuid.UUID,
+    db: DbDep,
+    session: Annotated[UserSession, Depends(require_any_assignment)],
+) -> TagsOut:
+    return TagsOut(tags=_visible_pod(db, session, pod_id).tags)
+
+
+@router.put("/{pod_id}/tags", response_model=TagsOut)
+def put_pod_tags(
+    pod_id: uuid.UUID,
+    body: TagsBody,
+    db: DbDep,
+    actor: Annotated[UserSession, Depends(require_csrf)],
+) -> TagsOut:
+    row = _writable_pod(db, actor, pod_id)
+    row.tags = clean_tags(body.tags)
+    record_audit(
+        db,
+        action="pod.update",
+        entity_type="pod",
+        entity_id=str(row.id),
+        actor_user_id=actor.user_id,
+        scope=row.deployment_id,
+        detail={"changed": ["tags"]},
+    )
+    db.commit()
+    db.refresh(row)
+    return TagsOut(tags=row.tags)

@@ -1,6 +1,45 @@
 # Project Updates
 
-## 2026-08-02: E1.5 Report-time identity services — quarantine, alerts, membership (Gate 24 GREEN)
+## 2026-08-02: E1.7 Tags on every entity (Gate 26 GREEN)
+
+- **Tasks closed:** E1.7, closing e1-batch-2 (E1.6-E1.7, gates 25-26)
+- **Gate:** 26, GREEN
+- **Tests:** backend 253 passed (+5 in the new `test_tags.py`), vitest 44, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `GET/PUT /{entity}/{id}/tags` on all five entities (listeners by MAC) —
+  **PUT is wholesale replace, never merge**, storage normalized (trim/dedupe/sort) and
+  validated (422 on >64 chars or control characters). Filter-by-tag proven on every
+  entity list via GIN-backed containment. D35 scope rules carry over verbatim: viewers
+  read, MANAGE_DEVICES writes, out-of-scope child items 404, org/deployment routes keep
+  their 403 patterns. Tag writes audit as `<entity>.update {"changed": ["tags"]}`.
+  E0_ROUTES += 10 (total E1 surface now 36 routes, matching the epic plan's spec-13
+  parity list exactly). INTERFACES gains the tag storage model section E2's selection
+  engine builds on.
+- **Manual verification:** the tag → filter round trip walked on every entity level over
+  the live API; replace semantics confirmed against the persisted rows.
+
+- **Tasks closed:** E1.6, opening e1-batch-2 (DECISIONS D38)
+- **Gate:** 25, GREEN
+- **Tests:** backend 248 passed (+8 in the new `test_bulk_import.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `POST /listeners/import` + `POST /aggregators/import` (JSON rows or raw
+  CSV; `?partial=`/`?auto_suffix=` on the query string; 1000-row/1 MiB limits). Always
+  200-with-report `{committed, created, failed, rows}` — row error codes reuse the D8
+  strings as data, the wire vocabulary untouched. All-or-nothing default proven to roll
+  back rows AND the request's audit record; partial accepts commit valid rows only;
+  per-row SAVEPOINTs make in-file and DB duplicates one code path (flushed rows are
+  visible to later rows' collision checks, so in-file auto-suffix ladders correctly).
+  Scope enforced per row (cross-deployment rows are row-level `forbidden`). CSV formats
+  normative in INTERFACES; `guide/bulk-import.md` gives operators worked examples.
+- **Defect found and fixed during the task:** FastAPI parses `application/json` bodies
+  before validating against a `bytes` parameter, 422ing JSON imports while CSV worked;
+  fixed by reading the raw body via an async dependency and dispatching on content type
+  in the endpoint.
+- **Manual verification:** the mixed-file dry-run → partial-accept flow walked over the
+  live API; CSV and JSON parity checked from one fixture including GPS floats and
+  pipe-separated tags.
 
 - **Tasks closed:** E1.5, closing e1-batch-1 (E1.1 through E1.5, gates 20-24;
   project-changes #15, addendum PHASE1-4-03, DECISIONS D37)
