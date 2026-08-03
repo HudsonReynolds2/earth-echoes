@@ -4,6 +4,31 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D44 (2026-08-02): qa-stack.ps1 — the manual-QA stack and the ports rule
+
+- **Decision:** `qa-stack.ps1` (repo root) is the one-command manual-QA entry point:
+  `up` builds and starts the documented compose stack under the dedicated project name
+  **`eoe-qa`**, generates `deploy/.env` with fresh local secrets when missing (never
+  printing values; `.env` is gitignored), seeds `app.seed --demo` host-side, health-
+  probes both ends, and prints the site URL + owner credentials. The seed's refusal on
+  re-run is treated as the idempotent "already seeded" path, not a failure. `down`
+  keeps the `eoe-qa_postgres_data` volume (QA data survives restarts); `reset` wipes
+  it; `status` reports. `guide/e1-verification.md` is the walkthrough it exists for.
+- **The ports rule, recorded as the fix for the gate-15-class incident:** the gate's
+  compose suites (`eoe-gate-test`, `eoe-verify-test`) bind the SAME host ports
+  (8000/5173/5432/6379), so a running QA stack reds the gate. The script prints a boxed
+  tear-down-before-gate warning on every `up`, and the walkthrough repeats it twice.
+  Distinct project names isolate containers/volumes, not ports — the warning is the
+  remedy, not a workaround.
+- **Scope note:** tooling + operator documentation only; no production code, no test
+  changes, no planning-document impact (hence no project-changes entry). Delivered
+  through the full rhythm (branch, green gate, PR) — the frontend-guide record-skipping
+  mistake (hygiene finding F6) deliberately not repeated. `guide/README.md`'s TOC also
+  gains its missing `bulk-import.md` row.
+- **Reference:** guide/e1-verification.md; guide/getting-started.md;
+  backend/tests/test_compose_stack.py; project-updates 2026-07-30 (the gate-15
+  collision); D43.
+
 ## D43 (2026-08-02): The demo fixture — seed --demo semantics and the verifier's E1 walk
 
 - **Decision:** `uv run python -m app.seed --demo` seeds the canonical hierarchy in the
