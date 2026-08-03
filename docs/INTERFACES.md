@@ -404,6 +404,51 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
   failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
 
+### The demo fixture (E1.9; D43) — E2 and E6 reference these rows BY NAME
+
+`uv run python -m app.seed --demo` (idempotence: refuses if the demo org exists; adds
+hierarchy-only when an owner already exists). Canonical, deterministic contents —
+`frontend/tests/inventory-fixture.ts` mirrors this set exactly:
+
+- **Organization:** "Earth Echoes Demo".
+- **Deployments:** "Redwood Coast" (`redwood-coast`, tags `[coastal]`) and "High Desert"
+  (`high-desert`, tags `[ridge]`).
+- **Pods/aggregators:** Redwood Coast — "Pod 01 · Alder Creek" (`demo-agg-rc-01`, 8
+  listeners, `alder-creek-NN`, MACs `02:EE:0E:01:01:NN`), "Pod 02 · Ridge Line"
+  (`demo-agg-rc-02`, 5, `ridge-line-NN`, `02:EE:0E:01:02:NN`), "Pod 03 · Tarn Meadow"
+  (`demo-agg-rc-03`, 3, `tarn-meadow-NN`, `02:EE:0E:01:03:NN`); High Desert — "Pod 01 ·
+  Basin Flat" (`demo-agg-hd-01`, 6, `basin-flat-NN`, `02:EE:0E:02:01:NN`), "Pod 02 ·
+  Mesa Rim" (`demo-agg-hd-02`, 4, `mesa-rim-NN`, `02:EE:0E:02:02:NN`), "Pod 03 · Dry
+  Wash" (`demo-agg-hd-03`, 2, `dry-wash-NN`, `02:EE:0E:02:03:NN`). 28 listeners total.
+- **Determinism rules:** even-index listeners carry GPS (47.6+i/100, −121.88−i/100);
+  each pod's first listener carries the pod's tags; nothing is random.
+
+### Inventory frontend (E1.8) — E2/E3/E4/E6 extend these surfaces
+
+- **Routes:** `/inventory` is a nested layout (fragment page shape: ContextBar first,
+  then the tree rail beside the routed level) — index = deployments table;
+  `deployments/:deploymentId` (pods); `pods/:podId` (aggregator card + listeners — no
+  separate aggregator route, one per pod); `listeners/:mac` (inventory facts only);
+  `import`. "/" is the Overview roll-up (#16).
+- **Vocabulary:** `.data-table` (the generalized table language — do not start another),
+  `.form`/`.form-field`/button classes (`.btn-secondary`/`.btn-tertiary`/`.btn-danger`),
+  `.tree-*` (rail), `.tag-chip`/`.tag-row`, `.skeleton*` (loading holds real geometry),
+  `.modal*`, `.outcome-*` + `tr.row-invalid` (import outcomes — NOT device states),
+  `.level-badge`/`.scope-caption`, `.hero-metric`/`.overview-*`. All in `app.css`
+  sections; E1.8 tokens added additively: `--eoe-color-danger-border` (+ dark),
+  `--eoe-indent-tree`, `--eoe-space-px`, `--eoe-duration-slow`, `--eoe-width-treerail`.
+- **Client module:** `src/lib/inventory.ts` — typed `ApiError{code,status,detail}` (the
+  409 conflict dialog reads `detail.suggestion`), one function per call, flat query
+  keys, mutations invalidate. TanStack **Table** is installed (D39), headless,
+  server-driven via the D7 grammar.
+- **ContextBar crumbs are real links since E1.8 (D41);** the final crumb carries
+  `aria-current="page"`.
+- **No fabricated status (D40, gate-enforced):** zero `[data-status]` elements render on
+  inventory routes or the Overview until E3 supplies reported state; E3 lifts that guard
+  deliberately when StatusChip columns/rollups land. Sort markers, tree carets, and the
+  tag-remove "×" (U+00D7) are CSS-drawn/vendored-safe — never glyphs outside the font
+  set (D27).
+
 ### Tag storage model (E1.7) — E2's selection engine queries this
 
 - **Storage:** `tags ARRAY(String(64)) NOT NULL DEFAULT []` on all five entity tables,

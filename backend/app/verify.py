@@ -33,7 +33,17 @@ from sqlalchemy import delete, select
 
 from app.auth.passwords import hash_password
 from app.db import create_session_factory
-from app.models import Deployment, Organization, RoleAssignment, Secret, User, UserSession
+from app.models import (
+    Aggregator,
+    Deployment,
+    Listener,
+    Organization,
+    Pod,
+    RoleAssignment,
+    Secret,
+    User,
+    UserSession,
+)
 
 API_PREFIX = "/api/v1"
 
@@ -124,9 +134,20 @@ def cleanup(database_url: str, accounts: list[TempAccount]) -> int:
             db.execute(delete(Secret).where(Secret.name == f"totp:{user_id}"))
             db.execute(delete(User).where(User.id == user_id))
             removed += 1
-        # Scope rows created by bootstrap_scope (E1.1): grants referencing the
-        # deployment are gone with their users above, so these drop cleanly.
-        db.execute(delete(Deployment).where(Deployment.name.like("verify-dep-%")))
+        # Hierarchy rows from bootstrap_scope and the E1 walk (safety net for
+        # a run that failed mid-walk): children first, then the deployments
+        # and any verify-created organization. Grants referencing them are
+        # gone with their users above.
+        verify_deps = list(
+            db.scalars(select(Deployment.id).where(Deployment.name.like("verify-%")))
+        )
+        if verify_deps:
+            db.execute(delete(Listener).where(Listener.deployment_id.in_(verify_deps)))
+            verify_pods = list(db.scalars(select(Pod.id).where(Pod.deployment_id.in_(verify_deps))))
+            if verify_pods:
+                db.execute(delete(Aggregator).where(Aggregator.pod_id.in_(verify_pods)))
+                db.execute(delete(Pod).where(Pod.id.in_(verify_pods)))
+            db.execute(delete(Deployment).where(Deployment.id.in_(verify_deps)))
         db.execute(delete(Organization).where(Organization.name.like("verify-org-%")))
         db.commit()
     return removed
@@ -262,6 +283,121 @@ def run(api: str, database_url: str) -> int:
                     "sessions: deactivated user's live session is revoked",
                     victim.get("/auth/me").status_code == 401,
                 )
+
+            # -- E1 hierarchy walk over real HTTP (task E1.9) ---------------
+            organizations = c.get("/organizations")
+            org_items = (
+                organizations.json().get("items", []) if organizations.status_code == 200 else []
+            )
+            report.record("hierarchy: organization visible to the owner", len(org_items) >= 1)
+            walk_dep = c.post(
+                "/deployments",
+                json={"organization_id": org_items[0]["id"], "name": f"verify-walk-{run_tag}"},
+                headers=_csrf(c),
+            )
+            report.record(
+                "hierarchy: deployment created with a generated slug",
+                walk_dep.status_code == 201
+                and walk_dep.json().get("slug") == f"verify-walk-{run_tag}",
+                walk_dep.text[:120],
+            )
+            walk_dep_id = walk_dep.json().get("id", "")
+            walk_pod = c.post(
+                "/pods",
+                json={
+                    "deployment_id": walk_dep_id,
+                    "name": "verify-pod",
+                    "aggregator": {},  # create-and-attach in one call (E1.3)
+                },
+                headers=_csrf(c),
+            )
+            report.record(
+                "hierarchy: pod created with its aggregator in one call",
+                walk_pod.status_code == 201 and walk_pod.json().get("aggregator") is not None,
+            )
+            walk_agg_id = (walk_pod.json().get("aggregator") or {}).get("id", "")
+            walk_mac = f"02:5E:1F:{run_tag[0:2]}:{run_tag[2:4]}:{run_tag[4:6]}".upper()
+            walk_listener = c.post(
+                "/listeners",
+                json={"mac": walk_mac, "name": "verify-listener", "aggregator_id": walk_agg_id},
+                headers=_csrf(c),
+            )
+            report.record(
+                "hierarchy: listener registered by MAC",
+                walk_listener.status_code == 201 and walk_listener.json().get("mac") == walk_mac,
+            )
+            dup_name = c.post(
+                "/listeners",
+                json={
+                    "mac": "02:5E:1F:00:00:FF",
+                    "name": "verify-listener",
+                    "aggregator_id": walk_agg_id,
+                },
+                headers=_csrf(c),
+            )
+            report.record(
+                "hierarchy: duplicate name rejected with a suggestion (E1.4)",
+                dup_name.status_code == 409
+                and (dup_name.json().get("error", {}).get("detail") or {}).get("suggestion")
+                == "verify-listener-2",
+            )
+            suffixed = c.post(
+                "/listeners",
+                json={
+                    "mac": "02:5E:1F:00:00:FF",
+                    "name": "verify-listener",
+                    "aggregator_id": walk_agg_id,
+                    "auto_suffix": True,
+                },
+                headers=_csrf(c),
+            )
+            report.record(
+                "hierarchy: explicit auto_suffix lands on the next free name",
+                suffixed.status_code == 201 and suffixed.json().get("name") == "verify-listener-2",
+            )
+            tagged = c.put(
+                f"/listeners/{walk_mac}/tags",
+                json={"tags": ["verify", "walk", "verify"]},
+                headers=_csrf(c),
+            )
+            report.record(
+                "hierarchy: tags replace wholesale, deduped and sorted (E1.7)",
+                tagged.status_code == 200 and tagged.json().get("tags") == ["verify", "walk"],
+            )
+            with _client(api) as scoped:
+                _login(scoped, operator)
+                visible = scoped.get("/deployments")
+                names = (
+                    {item["name"] for item in visible.json().get("items", [])}
+                    if visible.status_code == 200
+                    else set()
+                )
+                report.record(
+                    "hierarchy: scoped operator sees only their deployment (D35)",
+                    f"verify-walk-{run_tag}" not in names,
+                    f"visible={sorted(names)}",
+                )
+                report.record(
+                    "hierarchy: out-of-scope listener answers 404, not 403 (D35)",
+                    scoped.get(f"/listeners/{walk_mac}").status_code == 404,
+                )
+            blocked_delete = c.delete(f"/deployments/{walk_dep_id}", headers=_csrf(c))
+            report.record(
+                "hierarchy: delete with children is 409 with named blockers",
+                blocked_delete.status_code == 409
+                and "pods"
+                in (blocked_delete.json().get("error", {}).get("detail") or {}).get("children", {}),
+            )
+            teardown_ok = True
+            for path in (
+                f"/listeners/{walk_mac}",
+                "/listeners/02:5E:1F:00:00:FF",
+                f"/aggregators/{walk_agg_id}",
+                f"/pods/{walk_pod.json().get('id', '')}",
+                f"/deployments/{walk_dep_id}",
+            ):
+                teardown_ok = teardown_ok and c.delete(path, headers=_csrf(c)).status_code == 204
+            report.record("hierarchy: leaf-up teardown deletes cleanly", teardown_ok)
     finally:
         print("cleaning up temporary accounts ...")
         removed = cleanup(database_url, [owner, viewer, operator])

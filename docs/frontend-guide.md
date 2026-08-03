@@ -152,10 +152,12 @@ rebuilt:
   before building against them.
 - **The skeleton pages hold no mock data on purpose.** Replace the `EmptyState` "arrives
   with E1" panel with the real surface; don't restyle around it.
-- **E1 starters:** `ContextBar` is the hierarchy breadcrumb's permanent home; `.admin-table`
-  (`app.css`, used by `UsersAdmin`) is the table pattern E1.8's tables generalize; TanStack
-  **Table** is not installed — only `@tanstack/react-query` is — so adding it is an explicit
-  E1 dependency decision, not an assumption.
+- **E1 starters (shipped at gates 27-28):** `ContextBar` carries the live breadcrumb
+  (crumbs are real links since D41); the table pattern is now the shared `.data-table`
+  (D42 — `.admin-table` is gone; do not start a second vocabulary); TanStack **Table**
+  is installed (D39, headless, server-driven). The inventory surfaces are live —
+  `src/pages/inventory/` and `src/lib/inventory.ts` are the patterns E2+ extend, and
+  the no-fabricated-status guard (D40) stays until E3 lands real state.
 
 ## House style
 

@@ -18,6 +18,19 @@ present in the environment. When your stack is running via Docker Compose, point
 Optional: `EOE_SEED_OWNER_EMAIL` overrides the account email
 (default `owner@example.com`).
 
+### Demo hierarchy (optional)
+
+```
+uv run python -m app.seed --demo
+```
+
+Adds a realistic demo inventory alongside the owner: the "Earth Echoes Demo" organization
+with two deployments (Redwood Coast, High Desert), six pods with their aggregators, and 28
+listeners. Run it on a fresh database (owner + hierarchy in one command) or after a plain
+seed (hierarchy only — your owner and password are untouched). It refuses to run twice.
+The contents are fixed and documented in `docs/INTERFACES.md` ("The demo fixture"), so
+demos, tests, and tutorials can rely on the same names every time.
+
 ## Exactly what it does
 
 1. **Runs all database migrations to head.** On a completely empty database this creates

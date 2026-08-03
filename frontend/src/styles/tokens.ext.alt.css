@@ -68,4 +68,7 @@
    * is far brighter than --eoe-color-bg, so an equal alpha would lift the
    * whole page and cost the text its ratio. */
   --eoe-color-backdrop-scrim: rgb(18 22 20 / 0.94);
+
+  /* E1.8: destructive-button outline, relit for the dark surface. */
+  --eoe-color-danger-border: #5e3527;
 }

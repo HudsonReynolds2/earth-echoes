@@ -5,6 +5,22 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #16 (2026-08-02): Overview ships a minimal real roll-up ahead of E6/E7
+
+- **What changed:** the Overview page ("/") is rebuilt with the V2·S1 layout carrying
+  ONLY E1-owned data — a serif hero of **listeners registered** (honest label, not
+  "online"), a real meta line, one card per deployment with real pod/listener counts —
+  while every slot whose data belongs to a later epic stays an honest EmptyState naming
+  it (attention feed → E3/E7; status/services lines → E3/E5; no telemetry volume). The
+  page title becomes "Organization overview" (V2·S1's title; v2 wins on values), which
+  retitles one shell.test row and two auth.test assertions (recorded in D42). E1's task
+  list does not include Overview; building the E1-ownable half now mirrors how DES.7
+  shipped page skeletons ahead of their epics (#9's precedent), with the owner's explicit
+  decision (2026-08-02).
+- **Guard:** the no-fabricated-status rule (D40) is asserted by test on this page.
+- **Affects:** project_planning/phase-1-hierarchy-inventory.md
+- **Addendum:** PHASE1-4-04
+
 ## #15 (2026-08-02): E1.5's "raise a condition" implemented as return-based resolutions
 
 - **What changed:** task E1.5 says the service should "raise a `duplicate_identity`

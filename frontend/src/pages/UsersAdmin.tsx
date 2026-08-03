@@ -30,7 +30,7 @@ function UsersTable() {
     );
   }
   return (
-    <table className="admin-table" data-testid="users-table">
+    <table className="data-table" data-testid="users-table">
       <thead>
         <tr>
           <th>Email</th>

@@ -530,15 +530,19 @@ button:disabled {
   box-shadow: var(--eoe-shadow-md);
 }
 
-/* ── tables ────────────────────────────────────────────────────────────── */
+/* ── data tables ───────────────────────────────────────────────────────────
+ * E1.8 generalized .admin-table (E0.9) into the one shared table vocabulary
+ * (INTERFACES "Frontend composition": no second vocabulary). v2 treatment:
+ * raised mono header band, 36px rows, hairline separators. UsersAdmin was
+ * repointed in the same commit (DECISIONS). */
 
-.admin-table {
+.data-table {
   width: 100%;
   border-collapse: collapse;
 }
 
-.admin-table th,
-.admin-table td {
+.data-table th,
+.data-table td {
   text-align: left;
   height: var(--eoe-row-height-compact);
   padding: 0 var(--eoe-space-3);
@@ -546,12 +550,438 @@ button:disabled {
   font-size: var(--eoe-font-size-md);
 }
 
-.admin-table th {
+.data-table th {
+  background: var(--eoe-color-surface-raised);
+  color: var(--eoe-color-text-muted);
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-2xs);
+  font-weight: var(--eoe-font-weight-bold);
+  letter-spacing: var(--eoe-letter-spacing-label);
+  text-transform: uppercase;
+}
+
+.data-table tbody tr:hover {
+  background: var(--eoe-color-surface-raised);
+}
+
+.data-table td.cell-mono {
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.data-table-wrap {
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-md);
+  overflow: hidden;
+}
+
+.table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--eoe-space-2) var(--eoe-space-3);
   color: var(--eoe-color-text-muted);
   font-size: var(--eoe-font-size-sm);
+}
+
+.th-sort {
+  all: inherit;
+  cursor: pointer;
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* Sort direction is CSS-drawn (no arrow characters exist in the vendored
+ * fonts): a border chevron that appears once the column is sorted. */
+.sort-marker {
+  display: inline-block;
+  width: var(--eoe-space-1);
+  height: var(--eoe-space-1);
+  margin-left: var(--eoe-space-1);
+  visibility: hidden;
+  border-right: var(--eoe-border-width-emphasis) solid var(--eoe-color-text-muted);
+  border-bottom: var(--eoe-border-width-emphasis) solid var(--eoe-color-text-muted);
+}
+
+th[aria-sort="ascending"] .sort-marker {
+  visibility: visible;
+  transform: rotate(-135deg);
+}
+
+th[aria-sort="descending"] .sort-marker {
+  visibility: visible;
+  transform: rotate(45deg);
+}
+
+/* ── hierarchy tree (E1.8; S3 rail at v2 values) ───────────────────────── */
+
+.inventory-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.inventory-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree-line {
+  display: flex;
+  align-items: center;
+}
+
+.tree-line .tree-row {
+  flex: 1;
+}
+
+.tree-rail {
+  width: var(--eoe-width-treerail);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--eoe-color-surface);
+  border-right: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+}
+
+.tree-filter {
+  margin: var(--eoe-space-2);
+  height: var(--eoe-control-height-sm);
+  padding: 0 var(--eoe-space-2);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-bg);
+  color: var(--eoe-color-text);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-px);
+  padding: var(--eoe-space-2);
+  border-top: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  overflow-y: auto;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  height: var(--eoe-row-height-compact);
+  padding-right: var(--eoe-space-2);
+  padding-left: calc(var(--eoe-space-2) + var(--tree-depth, 0) * var(--eoe-indent-tree));
+  border-radius: var(--eoe-radius-sm);
+  color: var(--eoe-color-text);
+  text-decoration: none;
+  font-size: var(--eoe-font-size-md);
+}
+
+.tree-row:hover {
+  background: var(--eoe-color-surface-raised);
+}
+
+.tree-row[aria-current="page"] {
+  background: var(--eoe-color-accent-tint);
+  box-shadow: inset var(--eoe-border-width-selected) 0 0 var(--eoe-color-accent);
+  color: var(--eoe-color-accent);
   font-weight: var(--eoe-font-weight-bold);
 }
 
-.admin-table tbody tr:hover {
+.tree-row[data-kind="organization"] {
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.tree-row[data-kind="deployment"] {
+  font-weight: var(--eoe-font-weight-medium);
+}
+
+.tree-row[data-kind="aggregator"] .tree-label {
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* CSS-drawn caret: the ▶/▼ characters live in no vendored font (D27), so the
+ * disclosure marker is a rotated border square, never a glyph. */
+.tree-caret {
+  all: unset;
+  cursor: pointer;
+  width: var(--eoe-space-3);
+  height: var(--eoe-space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.tree-caret::before {
+  content: "";
+  width: var(--eoe-space-1);
+  height: var(--eoe-space-1);
+  border-right: var(--eoe-border-width-emphasis) solid var(--eoe-color-text-subtle);
+  border-bottom: var(--eoe-border-width-emphasis) solid var(--eoe-color-text-subtle);
+  transform: rotate(-45deg);
+}
+
+.tree-caret[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+
+.tree-count {
+  margin-left: auto;
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-subtle);
+}
+
+.level-badge {
+  display: inline-block;
+  padding: 0 var(--eoe-space-2);
   background: var(--eoe-color-surface-raised);
+  border-radius: var(--eoe-radius-sm);
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-2xs);
+  letter-spacing: var(--eoe-letter-spacing-label);
+  text-transform: uppercase;
+  color: var(--eoe-color-text-muted);
+}
+
+.scope-caption {
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* ── shared forms and buttons (E1.8: the first reusable form vocabulary;
+ * .auth-form stays login-specific) ─────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-3);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-1);
+}
+
+.form-field label {
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-medium);
+  color: var(--eoe-color-text-muted);
+}
+
+.form-field input,
+.form-field select {
+  height: var(--eoe-control-height-md);
+  padding: 0 var(--eoe-space-2);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-bg);
+  color: var(--eoe-color-text);
+  font-size: var(--eoe-font-size-md);
+}
+
+.form-field textarea {
+  padding: var(--eoe-space-2);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-bg);
+  color: var(--eoe-color-text);
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.form-field input:focus-visible,
+.form-field select:focus-visible,
+.form-field textarea:focus-visible {
+  outline: none;
+  border-color: var(--eoe-color-accent);
+  box-shadow: 0 0 0 var(--eoe-border-width-selected) var(--eoe-color-focus-ring);
+}
+
+/* ── overview roll-up (E1.8; V2·S1 with E1-owned data only) ────────────── */
+
+.hero-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.hero-number {
+  font-family: var(--eoe-font-family-display);
+  font-size: var(--eoe-font-size-2xl);
+  font-weight: var(--eoe-font-weight-bold);
+  line-height: var(--eoe-line-height-tight);
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: var(--eoe-space-5);
+  align-items: start;
+}
+
+.overview-deployments,
+.overview-attention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-3);
+}
+
+.form-help {
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-muted);
+}
+
+.form-error {
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-danger);
+  font-weight: var(--eoe-font-weight-medium);
+}
+
+.form-actions {
+  display: flex;
+  gap: var(--eoe-space-2);
+}
+
+.btn-secondary {
+  background: var(--eoe-color-surface);
+  color: var(--eoe-color-text);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+}
+
+.btn-tertiary {
+  background: transparent;
+  color: var(--eoe-color-text-muted);
+  border: none;
+}
+
+.btn-tertiary:hover {
+  background: var(--eoe-color-surface-raised);
+}
+
+/* Destructive = surface fill + alerting ink + tinted border. Never a filled
+ * red button: a colored button must never read as a colored status. */
+.btn-danger {
+  background: var(--eoe-color-surface);
+  color: var(--eoe-color-danger);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-danger-border);
+}
+
+/* ── import outcomes (E1.8) — deliberately NOT device states: the closed
+ * six-state vocabulary cannot express valid/invalid rows, so outcomes are
+ * colored words, no chips, no glyphs. The invalid tint rides the locked
+ * danger==status-alerting alias. ─────────────────────────────────────── */
+
+.outcome-created {
+  color: var(--eoe-color-success);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.outcome-error {
+  color: var(--eoe-color-danger);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+tr.row-invalid {
+  background: var(--eoe-color-status-alerting-tint);
+}
+
+.import-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--eoe-space-1) var(--eoe-space-4);
+  padding: var(--eoe-space-3);
+}
+
+.import-summary dt {
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.import-summary dd {
+  margin: 0;
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* ── skeletons (E1.8) — loading holds the real geometry (S7) ───────────── */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--eoe-color-surface-raised),
+    var(--eoe-color-border),
+    var(--eoe-color-surface-raised)
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer var(--eoe-duration-slow) var(--eoe-ease) infinite;
+  border-radius: var(--eoe-radius-sm);
+}
+
+.skeleton-row {
+  height: var(--eoe-row-height-compact);
+  margin-bottom: var(--eoe-space-1);
+}
+
+.skeleton-caption {
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ── modal (E1.8: the name-conflict dialog) ────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--eoe-color-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: var(--eoe-color-surface);
+  border-radius: var(--eoe-radius-lg);
+  box-shadow: var(--eoe-shadow-md);
+  padding: var(--eoe-space-4);
+  max-width: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-3);
+}
+
+/* ── tag chips (E1.8) ──────────────────────────────────────────────────── */
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-1);
+  padding: 0 var(--eoe-space-2);
+  height: var(--eoe-space-5);
+  background: var(--eoe-color-surface-raised);
+  border-radius: var(--eoe-radius-pill);
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text);
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eoe-space-1);
+  align-items: center;
 }
