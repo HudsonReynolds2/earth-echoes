@@ -404,6 +404,25 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
   failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
 
+### The demo fixture (E1.9; D43) — E2 and E6 reference these rows BY NAME
+
+`uv run python -m app.seed --demo` (idempotence: refuses if the demo org exists; adds
+hierarchy-only when an owner already exists). Canonical, deterministic contents —
+`frontend/tests/inventory-fixture.ts` mirrors this set exactly:
+
+- **Organization:** "Earth Echoes Demo".
+- **Deployments:** "Redwood Coast" (`redwood-coast`, tags `[coastal]`) and "High Desert"
+  (`high-desert`, tags `[ridge]`).
+- **Pods/aggregators:** Redwood Coast — "Pod 01 · Alder Creek" (`demo-agg-rc-01`, 8
+  listeners, `alder-creek-NN`, MACs `02:EE:0E:01:01:NN`), "Pod 02 · Ridge Line"
+  (`demo-agg-rc-02`, 5, `ridge-line-NN`, `02:EE:0E:01:02:NN`), "Pod 03 · Tarn Meadow"
+  (`demo-agg-rc-03`, 3, `tarn-meadow-NN`, `02:EE:0E:01:03:NN`); High Desert — "Pod 01 ·
+  Basin Flat" (`demo-agg-hd-01`, 6, `basin-flat-NN`, `02:EE:0E:02:01:NN`), "Pod 02 ·
+  Mesa Rim" (`demo-agg-hd-02`, 4, `mesa-rim-NN`, `02:EE:0E:02:02:NN`), "Pod 03 · Dry
+  Wash" (`demo-agg-hd-03`, 2, `dry-wash-NN`, `02:EE:0E:02:03:NN`). 28 listeners total.
+- **Determinism rules:** even-index listeners carry GPS (47.6+i/100, −121.88−i/100);
+  each pod's first listener carries the pod's tags; nothing is random.
+
 ### Inventory frontend (E1.8) — E2/E3/E4/E6 extend these surfaces
 
 - **Routes:** `/inventory` is a nested layout (fragment page shape: ContextBar first,

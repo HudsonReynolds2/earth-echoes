@@ -1,6 +1,33 @@
 # Project Updates
 
-## 2026-08-02: E1.8 Inventory UI and the Overview roll-up (Gate 27 GREEN)
+## 2026-08-02: E1.9 Demo fixture — epic E1 complete (Gate 28 GREEN)
+
+- **Tasks closed:** E1.9, closing e1-batch-3 and with it **every E1 task** (E1.1-E1.9,
+  gates 20-28; DECISIONS D43)
+- **Gate:** 28, GREEN
+- **Tests:** backend 255 passed (+2 in the new `test_seed_demo.py`), vitest 60,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `uv run python -m app.seed --demo` — one command, fully deterministic:
+  "Earth Echoes Demo" with Redwood Coast (`redwood-coast`) and High Desert
+  (`high-desert`), six named pods with aggregators `demo-agg-rc-01..03`/`hd-01..03`, 28
+  listeners with locally-administered MACs, even-index GPS, first-listener pod tags.
+  Fresh DB seeds owner + hierarchy with the password still printed exactly once;
+  an existing owner gets hierarchy-only; an existing demo org refuses. The no-flag path
+  is byte-identical to E0.12's (`test_seed.py` unchanged and green). The fixture is
+  documented BY NAME in INTERFACES for E2/E6 and mirrored exactly by the frontend test
+  fixture. `verify.py` gains an 11-step E1 hierarchy walk over real HTTP (one-call
+  pod+aggregator, E1.4 reject/suffix pair, E1.7 tag replace, both D35 boundary checks,
+  409-with-blockers, leaf-up teardown) with a children-first cleanup safety net.
+  `guide/seed-script.md` documents the flag for operators.
+- **Manual verification (including the walk carried from Gate 27):** an 11-check
+  Chromium walk of the live dev stack (vite → uvicorn → seeded postgres) executed the
+  E1.8 acceptance literally — logged in, verified the 28-listener hero and night theme,
+  navigated the seeded tree, then **built a deployment → pod → listener hierarchy and
+  ran a CSV import dry-run → partial-accept entirely in the UI**, exercising the
+  conflict dialog's explicit suffix path live; zero `[data-status]` elements confirmed
+  on the live inventory (D40). Screenshots retained in the session workspace. Seed
+  determinism verified twice (subprocess suite + the walk stack).
 
 - **Tasks closed:** E1.8 (+ the #16 Overview change), opening e1-batch-3 (DECISIONS
   D39-D42; project-changes #16; addendum PHASE1-4-04)

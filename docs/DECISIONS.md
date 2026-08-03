@@ -4,6 +4,27 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D43 (2026-08-02): The demo fixture — seed --demo semantics and the verifier's E1 walk
+
+- **Decision:** `uv run python -m app.seed --demo` seeds the canonical hierarchy in the
+  same one command (fresh DB: owner + hierarchy, password still printed exactly once;
+  existing owner: hierarchy only, nothing re-printed; existing demo org: refuse, exit 1).
+  The **no-flag path is byte-identical to E0.12's** — `test_seed.py` runs unchanged. The
+  fixture is fully deterministic (no randomness): org "Earth Echoes Demo"; Redwood Coast
+  (`redwood-coast`) and High Desert (`high-desert`); three named pods each; aggregators
+  `demo-agg-rc-01..03`/`demo-agg-hd-01..03`; 28 listeners at 8/5/3 + 6/4/2 with
+  locally-administered MACs (`02:EE:0E:…`), even-index GPS, first-listener pod tags —
+  documented by name in INTERFACES so E2/E6 reference rows without re-deriving them, and
+  mirrored exactly by `frontend/tests/inventory-fixture.ts`. One system audit row
+  (`inventory.seed_demo`) summarizes counts.
+- **Verifier:** `verify.py` gains an 11-step E1 walk over real HTTP (create deployment →
+  pod-with-aggregator in one call → listener by MAC → E1.4 reject/suffix pair → E1.7 tag
+  replace → D35 scoped-visibility and 404-oracle checks → 409-with-blockers → leaf-up
+  teardown); cleanup's safety net now removes hierarchy rows under any `verify-%`
+  deployment children-first, so a run that dies mid-walk still leaves nothing.
+- **Reference:** phase-1 E1.9; DECISIONS D20 precedent (verifier DB-side bootstrap);
+  backend/tests/test_seed_demo.py; guide/seed-script.md.
+
 ## D42 (2026-08-02): .admin-table generalizes to .data-table; gate-27 test retitles
 
 - **Decision:** `.admin-table` (E0.9, UsersAdmin-only) becomes the shared **`.data-table`**
