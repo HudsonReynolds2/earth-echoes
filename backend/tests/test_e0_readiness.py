@@ -71,6 +71,9 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/listeners/{{mac}}"),
     ("PATCH", f"{API_PREFIX}/listeners/{{mac}}"),
     ("DELETE", f"{API_PREFIX}/listeners/{{mac}}"),
+    # E1.6 (gate 25): bulk import, CSV/JSON with per-row results (D38).
+    ("POST", f"{API_PREFIX}/listeners/import"),
+    ("POST", f"{API_PREFIX}/aggregators/import"),
 }
 
 E0_TABLES = {

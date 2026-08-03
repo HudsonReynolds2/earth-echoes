@@ -1,6 +1,28 @@
 # Project Updates
 
-## 2026-08-02: E1.5 Report-time identity services — quarantine, alerts, membership (Gate 24 GREEN)
+## 2026-08-02: E1.6 Bulk import — CSV/JSON with per-row results (Gate 25 GREEN)
+
+- **Tasks closed:** E1.6, opening e1-batch-2 (DECISIONS D38)
+- **Gate:** 25, GREEN
+- **Tests:** backend 248 passed (+8 in the new `test_bulk_import.py`), vitest 44,
+  Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `POST /listeners/import` + `POST /aggregators/import` (JSON rows or raw
+  CSV; `?partial=`/`?auto_suffix=` on the query string; 1000-row/1 MiB limits). Always
+  200-with-report `{committed, created, failed, rows}` — row error codes reuse the D8
+  strings as data, the wire vocabulary untouched. All-or-nothing default proven to roll
+  back rows AND the request's audit record; partial accepts commit valid rows only;
+  per-row SAVEPOINTs make in-file and DB duplicates one code path (flushed rows are
+  visible to later rows' collision checks, so in-file auto-suffix ladders correctly).
+  Scope enforced per row (cross-deployment rows are row-level `forbidden`). CSV formats
+  normative in INTERFACES; `guide/bulk-import.md` gives operators worked examples.
+- **Defect found and fixed during the task:** FastAPI parses `application/json` bodies
+  before validating against a `bytes` parameter, 422ing JSON imports while CSV worked;
+  fixed by reading the raw body via an async dependency and dispatching on content type
+  in the endpoint.
+- **Manual verification:** the mixed-file dry-run → partial-accept flow walked over the
+  live API; CSV and JSON parity checked from one fixture including GPS floats and
+  pipe-separated tags.
 
 - **Tasks closed:** E1.5, closing e1-batch-1 (E1.1 through E1.5, gates 20-24;
   project-changes #15, addendum PHASE1-4-03, DECISIONS D37)

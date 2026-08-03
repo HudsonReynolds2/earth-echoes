@@ -4,6 +4,27 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D38 (2026-08-02): Bulk import — 200-with-report, all-or-nothing default, savepoint rows
+
+- **Decision:** `POST /listeners/import` and `POST /aggregators/import` accept
+  `application/json` (`{"rows": [...]}`) or raw `text/csv`; options ride the query string
+  (`?partial=`, `?auto_suffix=` — listeners only) because a CSV body cannot carry them.
+  Limits: 1000 rows, 1 MiB. A well-formed request always answers **200 with a job
+  report** `{committed, created, failed, rows: [{row, status, entity_id, name, error}]}`
+  — row results are data, not an error envelope, and row `error.code` strings reuse the
+  D8 vocabulary as data without extending the wire codes. All-or-nothing is the default:
+  any failed row rolls back every row AND the audit record (suite-proven), and the
+  committed=false report doubles as the dry run the E1.8 UI shows before an explicit
+  partial accept. Rows execute under per-row SAVEPOINTs so constraint violations become
+  row errors, and flushed rows are visible to later rows' collision checks — in-file and
+  DB duplicates share one code path. Scope is enforced **per row** (cross-scope rows are
+  row-level `forbidden`), so the endpoints need only session + CSRF. Audit: one
+  `<entity>.import` row per request with counts, flags, and created ids.
+- **CSV documentation split:** the column format is normative in `docs/INTERFACES.md`
+  (phase-doc requirement); `guide/bulk-import.md` shows operator examples and defers to
+  it (PHASE0-2-01 routes operator material to /guide) — both, no conflict.
+- **Reference:** phase-1 E1.6; spec 13; DECISIONS D8, D35; backend/tests/test_bulk_import.py.
+
 ## D37 (2026-08-02): Report-time identity — return-based services, append-only quarantine, deduped alerts
 
 - **Decision:** E1.5 ships as `app/inventory/identity.py` — services plus two tables, no

@@ -386,6 +386,24 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **Audit:** every mutation writes `<entity>.<verb>` with `scope` = the deployment id
   (org actions: NULL), detail = changed-field names only.
 
+### Bulk import (E1.6; spec 13; D38)
+
+- **Endpoints:** `POST /listeners/import`, `POST /aggregators/import`. Bodies:
+  `application/json` `{"rows": [...]}` or raw `text/csv`. Query options: `?partial=true`
+  (default false = all-or-nothing) and `?auto_suffix=true` (listeners only, default
+  false — E1.4's never-silent rule). Limits: 1000 rows, 1 MiB. Well-formed requests
+  answer **200 with a report**: `{committed, created, failed, rows: [{row, status:
+  "created"|"error", entity_id, name, error: {code, message}|null}]}` — row codes reuse
+  the D8 strings as data. All-or-nothing failure commits nothing, including the audit
+  row; the committed=false report is the UI's dry run.
+- **CSV formats (normative; header exact, `tags` pipe-separated, blank = null):**
+  listeners `mac,name,aggregator_uuid,gps_lat,gps_lon,tags` — parents referenced by
+  `aggregator_uuid`; aggregators `pod_id,aggregator_uuid,balena_uuid,name,tags` — blank
+  `aggregator_uuid` is platform-generated (spec 4.2). Operator examples:
+  `guide/bulk-import.md` (defers here).
+- **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
+  failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
+
 ### Report-time identity services (E1.5; spec 4.3 items 2-3; D37) — E3.5 calls these
 
 `app/inventory/identity.py`. **E3 wires live MQTT messages into these functions; do not

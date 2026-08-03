@@ -13,6 +13,7 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.deployments import router as deployments_router
 from app.api.health import router as health_router
+from app.api.imports import router as imports_router
 from app.api.listeners import router as listeners_router
 from app.api.organizations import router as organizations_router
 from app.api.pods import router as pods_router
@@ -76,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(pods_router)
     api_router.include_router(aggregators_router)
     api_router.include_router(listeners_router)
+    api_router.include_router(imports_router)
     app.include_router(api_router)
 
     return app
