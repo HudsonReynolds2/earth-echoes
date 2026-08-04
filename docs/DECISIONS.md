@@ -4,6 +4,26 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D45 (2026-08-04): Rules 1.1.0 — walkthrough currency joins R1 (owner-directed)
+
+- **Decision:** `.claude/rules/project-rules.json` gains `R1_record_keeping.verification_walkthrough`
+  (version 1.0.0 → 1.1.0; CLAUDE.md restates it): every epic ships its own
+  `guide/e{N}-verification.md` (indexed in guide/README.md) before its final gate, and an
+  epic that invalidates a prior walkthrough's assertions amends them **in the same batch
+  that invalidates them** — the clause that catches E3 flipping E1's no-status
+  expectations. Walkthrough changes ride gated batches like everything else.
+- **Why a rule and not convention:** the split is mechanical vs prose. `qa-stack.ps1`
+  tracks the product automatically (current images, current migrations, the test-pinned
+  demo fixture); the walkthrough is prose that nothing compels forward — exactly the
+  drift class already observed twice (frontend-guide outside the record loop, hygiene F6;
+  the stale DES handoff statements). Owner directed the amendment 2026-08-04 before E2
+  planning so E2 becomes the rule's first subject.
+- **Governance mechanics:** the new key sits BESIDE `logs`/`addendum_convention`
+  (test_governance pins `logs` as an exact set); rules-JSON structure re-validated by the
+  gate.
+- **Reference:** rule R1; guide/e1-verification.md; DECISIONS D44; hygiene finding F6
+  (project-updates 2026-08-01).
+
 ## D44 (2026-08-02): qa-stack.ps1 — the manual-QA stack and the ports rule
 
 - **Decision:** `qa-stack.ps1` (repo root) is the one-command manual-QA entry point:

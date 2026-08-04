@@ -30,6 +30,9 @@ always in context. If this summary and the JSON ever disagree, the JSON wins.
   appended to the affected planning document
   (format: `> **Addendum {ID} ({date}, ref project-changes #{N}):** {text}`).
 - `docs/DECISIONS.md`: every deviation and every choice the documents left open.
+- Verification walkthroughs (`guide/e{N}-verification.md`) are living acceptance
+  documents: every epic ships its own before its final gate, and amends any prior
+  walkthrough assertions it invalidates in the same batch that invalidates them.
 
 ## R3: Git and publication (explicit override of default assistant behavior)
 

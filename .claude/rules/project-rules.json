@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "updated": "2026-07-23",
+  "version": "1.1.0",
+  "updated": "2026-08-04",
   "project": "earth-echoes",
   "authority": "Technical Specification v1.1 is authoritative. Where a phase document fixes a concrete choice the spec left open (names, ports, library picks), that choice is also binding.",
   "source_documents": [
@@ -92,6 +92,15 @@
         "format": "> **Addendum {ID} ({YYYY-MM-DD}, ref project-changes #{N}):** {text}",
         "id_scheme": "{DOC}-{SECTION}-{seq}, e.g. PHASE0-4-01, PLAN-3-01, SPEC-12.4-01, HANDBOOK-1-01",
         "spec_note": "Handbook section 1 requires amending the spec with a version bump rather than letting sessions drift. An addendum records the drift at the point of use; a version bump remains required for substantive spec changes."
+      },
+      "verification_walkthrough": {
+        "added": "1.1.0 (2026-08-04, DECISIONS D45)",
+        "statement": "The manual-QA walkthroughs in guide/ are living acceptance documents, not release notes. The qa-stack tooling tracks the product automatically (it builds current images and seeds the current fixture); the walkthrough prose does not, so keeping it current is part of every epic's definition of done.",
+        "requirements": [
+          "Every epic ships its own verification walkthrough (guide/e{N}-verification.md, added to the guide/README.md table) before the epic's final gate closes.",
+          "An epic that invalidates assertions in a PRIOR epic's walkthrough (e.g. E3 making device status real flips E1's no-status expectations) amends those assertions IN THE SAME BATCH that invalidates them, never later.",
+          "Walkthrough changes ride gated batches like everything else; a walkthrough landing outside the record loop is the failure mode this rule exists to prevent (hygiene finding F6)."
+        ]
       }
     },
     "R2_cross_phase_conventions": {
