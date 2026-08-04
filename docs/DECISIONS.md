@@ -4,6 +4,38 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D51 (2026-08-04): Config secrets — the marker, the config: namespace, and the commit-ordering rules
+
+- **Decision:** a secret-flagged override key never stores plaintext. The row holds the
+  marker `{"$secret": "config:{entity_type}:{entity_id}:{key}"}` and the plaintext lives
+  in SecretStore under that name — the new `config:` namespace beside
+  `totp:`/`deployment:`/`bundle:` (flagged additive edit to the E0-owned SecretStore
+  contract; the readiness round-trip test covers the new shapes, including the MAC-keyed
+  listener form whose name contains colons). Wire semantics: a redacted read renders a
+  set secret as the keep sentinel `{"$secret_set": true}`; PUT accepts a plaintext
+  string (set/replace), the sentinel (keep — 422 if nothing is stored), or omission
+  (unset). Commit ordering: SecretStore commits through its own sessions, so plaintext
+  puts land immediately (an aborted caller transaction strands an unreachable secret,
+  harmless — its marker never landed) and deletions are returned to the caller as
+  `secret_names_to_delete` to run AFTER its commit, because deleting first would lose
+  the value on rollback.
+- **Reference:** spec 5.3, 12.4; phase-2 E2.2; app/config/overrides.py;
+  test_entity_overrides.py.
+
+## D50 (2026-08-04): The override level rule — at-or-above lowest level (spec over phase doc)
+
+- **Decision:** `validate_override_map` enforces spec 5.3's direction: a key may be
+  overridden at its lowest level or at any ancestor level, never below. The phase doc's
+  "below is permitted" sentence loses (project-changes #17, addendum PHASE2-4-01).
+  `lowest_level='any'` behaves as listener — settable everywhere. Errors are returned
+  per key, all at once, sorted, each naming the key (folded into one D8
+  `validation_error` 422 by the API layer in E2.4). Additional validator rules the
+  documents left open: null is never a value (remove the key to unset), `object` values
+  are capped at 2 KiB (opaque is not unbounded; capture.schedule's internal schema is
+  firmware/E4 territory), int values reject booleans (Python bool-is-int trap).
+- **Reference:** spec 5.3, 5.1; phase-2 E2.2; owner decision 2026-08-04;
+  app/config/validation.py.
+
 ## D49 (2026-08-04): Inventory resolution extends to identity.name and identity.mac
 
 - **Decision:** the catalog marks four keys `resolution='inventory'`: `location.gps_lat`

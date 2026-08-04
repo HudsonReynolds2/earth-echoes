@@ -34,6 +34,8 @@ Publishing revisions to devices, the reported side, drift, timelines, and everyt
 
 **E2.2 Sparse override storage.** `entity_overrides` with catalog validation (type, enum, range, level: writing a key below its allowed level is permitted per spec 5.3's inheritance note, writing an unknown key is not), secret-reference handling for secret-flagged keys. Acceptance: validation tests per type class; secret values round-trip through `SecretStore` and never appear in responses or logs.
 
+> **Addendum PHASE2-4-01 (2026-08-04, ref project-changes #17):** The level clause above inverts spec 5.3, which permits setting keys *higher* than their lowest level, not lower — and spec 5.1's shared-network rationale argues directly against below-level writes. The shipped validator (owner decision 2026-08-04; DECISIONS D50) enforces at-or-above: a key is writable at its lowest level or any ancestor level, rejected below it with a 422 naming the key; `lowest_level='any'` is writable everywhere. The table ships as `entity_override` (singular, D30 convention).
+
 **E2.3 Effective-config merge engine.** The spec 5.1 deep merge, Organization down to the target entity, later levels winning, deterministic and side-effect free. This is test-critical (spec 14.5): cover empty levels, partial overrides, full shadowing, secret refs, and merge at every entity level, property-based tests encouraged. Acceptance: the test suite for this module alone documents the merge semantics.
 
 **E2.4 Effective and override endpoints.** `GET /{entity}/{id}/config/effective` (computed, with per-key provenance showing which level set it) and `GET/PUT /{entity}/{id}/config/overrides` (spec 13). Acceptance: provenance is returned per key; PUT validates through E2.2 and audits.

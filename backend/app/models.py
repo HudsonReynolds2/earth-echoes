@@ -330,7 +330,7 @@ class InventoryAlert(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
-# --- E2.1 settings catalog (spec 5.3; DECISIONS D47-D49) --------------------
+# --- E2 configuration model (spec 5; DECISIONS D47-D51) ---------------------
 
 
 class SettingsCatalog(Base):
@@ -373,3 +373,35 @@ class SettingsCatalog(Base):
     notes: Mapped[str] = mapped_column(String(500), default="")
     version: Mapped[int] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EntityOverride(Base):
+    """One sparse override map per hierarchy entity (task E2.2; spec 5.1;
+    D50-D51). Singular table name per D30 (the phase doc spells it plural).
+
+    entity_id is an untyped String - UUID string for four entity kinds, MAC
+    for listeners - the audit_log precedent, deliberately un-FK'd because the
+    five targets live in five tables; cleanup rides the E1 DELETE endpoints
+    (delete_overrides_for, wired in E2.4). overrides holds flat dotted keys
+    validated against the catalog on every write; a secret-flagged key's
+    value is the marker {"$secret": "config:{entity_type}:{entity_id}:{key}"}
+    and the plaintext lives in SecretStore under that name, never here."""
+
+    __tablename__ = "entity_override"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id"),
+        CheckConstraint(
+            "entity_type IN ('organization','deployment','pod','aggregator','listener')",
+            name="entity_type_vocab",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    entity_type: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[str] = mapped_column(String(100))
+    overrides: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    catalog_version: Mapped[int] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -1,5 +1,33 @@
 # Project Updates
 
+## 2026-08-04: E2.2 sparse override storage (Gate 32 GREEN)
+
+- **Tasks closed:** E2.2 (branch `e2-batch-1`; DECISIONS D50-D51; project-changes #17
+  with addendum PHASE2-4-01).
+- **Gate:** 32, GREEN — first full run (three lint findings and one mypy finding on the
+  pre-gate check were fixed before the gate; the gate itself passed first try)
+- **Tests:** backend 281 (+19), vitest 60, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `entity_override` table (migration `c9d42be17a05`; singular per D30 —
+  one sparse JSONB map per entity, UNIQUE(entity_type, entity_id), un-FK'd untyped
+  entity_id per the audit precedent). `app/config/validation.py` — pure per-key
+  validation, every error naming its key, all errors at once: unknown key, inventory-
+  resolved (points at PATCH /listeners), service-restricted (names E5), the
+  **owner-resolved level rule** (at-or-above lowest level, never below — the phase doc's
+  inverted sentence recorded as deviation #17/PHASE2-4-01/D50), type/enum/range per
+  class, null-never-a-value, 2 KiB object cap, bool-is-not-int. `app/config/overrides.py`
+  — get/put (wholesale replace)/delete_overrides_for; secret keys store the
+  `{"$secret": "config:..."}` marker with plaintext in SecretStore under the new
+  `config:` namespace (flagged E0-contract extension, D51), keep-sentinel round-trip,
+  post-commit deletion protocol. Readiness locks: E0_TABLES 14→15; the SecretStore
+  round-trip gains both config name shapes (incl. the colon-bearing MAC form).
+  INTERFACES gains the override-storage contract.
+- **Manual verification:** fresh ephemeral database — secret put through the service:
+  row holds only the marker, plaintext absent from the stored JSON, SecretStore
+  round-trips the value under `config:pod:{id}:network.wifi_password`; below-level
+  write rejected with the spec-citing message naming the key.
+
 ## 2026-08-04: E2.1 versioned settings catalog (Gate 31 GREEN)
 
 - **Tasks closed:** E2.1 (branch `e2-batch-1`; epic E2 opens per the approved plan —

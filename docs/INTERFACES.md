@@ -297,13 +297,18 @@ sidebar link hidden for non-owners.
   against a secret manager behind the same interface.
 - **API:** `put(name, plaintext)` (upsert), `get(name)`, `exists(name)`, `delete(name)`,
   `rotate_kek(new_kek_b64) -> count`. Names are namespaced by convention:
-  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`.
+  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`, and — added by
+  E2.2 as a flagged extension of this E0-owned contract (D51) —
+  `config:{entity_type}:{entity_id}:{key}` for config override secrets (the listener
+  form embeds a MAC, so names carry interior colons; the readiness round-trip covers
+  both shapes).
 - **Guarantees (tested):** plaintext never in the database, logs, or error messages; GCM
   authentication rejects tampering; a KEK mismatch fails loudly with fingerprints, not
   values.
 - **Consumers:** E4 (device-facing bundle secrets held before the separate spec-8.4
   firmware encryption is applied at export — the two schemes nest, they do not compete),
-  E5 (deployment service credentials), E0.10 (TOTP secrets).
+  E5 (deployment service credentials), E0.10 (TOTP secrets), E2.2 (config override
+  secrets, D51).
 
 ## Owned by E1
 
@@ -519,3 +524,33 @@ reimplement their logic.** Signatures, verbatim:
   [...]}` sorted by key — a schema document, deliberately not a D7 list (D47). The
   frontend renders ALL config editors from it; a new key must ship with zero frontend
   changes (E2.7's acceptance).
+
+### Override storage (E2.2; spec 5.1; D50-D51) — E2.3 merges these, E2.4 exposes them
+
+- **Table:** `entity_override` (singular, D30) — one row per entity,
+  `UNIQUE(entity_type, entity_id)`; `entity_id` is an untyped String (UUID string or
+  listener MAC, the audit_log precedent, deliberately un-FK'd); `overrides` JSONB is the
+  sparse flat dotted-key map; `catalog_version` stamps the version validated against.
+- **Service (`app/config/overrides.py`) — signatures verbatim, stage-never-commit:**
+  - `get_overrides(db, entity_type, entity_id) -> dict` — RAW map, markers included;
+    never hand it to a response without E2.3 redaction.
+  - `put_overrides(db, secret_store, entity_type, entity_id, new_map, *, catalog,
+    catalog_version) -> OverrideChange{set_keys, unset_keys, secret_names_to_delete}` —
+    wholesale replace (the E1.7 tags precedent), raises
+    `OverrideValidationError(errors: [OverrideError{key, code, message}])` before
+    staging anything; the API folds errors into ONE 422 `validation_error` with
+    `detail {"errors": [...]}` (codes: `unknown_key | inventory_resolved |
+    service_restricted | level_rule | invalid_value` — detail vocabulary, not new D8
+    wire codes). Callers MUST delete `secret_names_to_delete` through SecretStore
+    AFTER their commit (D51 ordering).
+  - `delete_overrides_for(db, entity_type, entity_id) -> tuple[str, ...]` — entity-
+    deletion cleanup; E2.4 wires it into the four E1 DELETE endpoints; same
+    post-commit secret-deletion duty.
+- **The level rule (D50; project-changes #17):** at-or-above lowest level, never below;
+  `any` = settable everywhere. Validator extras: null is never a value; `object` ≤
+  2 KiB; int rejects bool.
+- **Secret wire semantics (D51):** stored value = marker
+  `{"$secret": "config:{entity_type}:{entity_id}:{key}"}`; redacted reads render
+  `{"$secret_set": true}` (the keep sentinel, `app/config/validation.py::KEEP_SENTINEL`);
+  PUT takes plaintext string (set/replace) | sentinel (keep; 422 if none stored) |
+  omission (unset, deletion post-commit).
