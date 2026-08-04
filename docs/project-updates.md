@@ -1,5 +1,27 @@
 # Project Updates
 
+## 2026-08-04: E2.4 effective and override endpoints (Gate 34 GREEN)
+
+- **Tasks closed:** E2.4 (branch `e2-batch-2` opens batch 2 of the E2 plan).
+- **Gate:** 34, GREEN — first full run (four long-line lint findings auto-formatted on
+  the pre-gate check)
+- **Tests:** backend 330 (+12), vitest 60, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/api/entity_config.py` — fifteen endpoints (GET effective, GET/PUT
+  overrides × five entities) over three shared helpers; E1's scope discipline verbatim
+  (org any-role read / org-wide-grant write, deployment 403-before-lookup,
+  pod/aggregator/listener identical-404 — D35); every response redacted; PUT folds all
+  validation errors into one 422 `validation_error` with detail.errors, staging
+  nothing. Audit `config.override_update` carries set/unset KEY NAMES + catalog_version,
+  never values. The four E1 DELETE endpoints now call `delete_overrides_for` and delete
+  orphaned config secrets after their commit (D51 ordering). Readiness locks:
+  E0_ROUTES 47→62.
+- **Manual verification:** ephemeral database + demo fixture over real HTTP — owner
+  session PUT wifi ssid + secret password on "Pod 01 · Alder Creek" (200, plaintext
+  absent from the response body); `alder-creek-03` effective shows the ssid with
+  source "pod", the password as the keep sentinel, and `identity.name` from inventory.
+
 ## 2026-08-04: E2.3 effective-config merge engine — test-critical suite locked (Gate 33 GREEN)
 
 - **Tasks closed:** E2.3 (branch `e2-batch-1`; DECISIONS D52-D53). This closes

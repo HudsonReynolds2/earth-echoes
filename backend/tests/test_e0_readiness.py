@@ -89,6 +89,24 @@ E0_ROUTES = {
     # D7 list (D47); seeded in-migration from app/config/catalog.py, the
     # single source a gate test pins against spec 5.3.
     ("GET", f"{API_PREFIX}/config/catalog"),
+    # E2.4 (gate 34): effective + override endpoints on all five entities
+    # (spec 13; D50-D51). Reads VIEW_STATUS, writes MANAGE_CONFIG + CSRF;
+    # the D35 scope rules carry over; responses are always redacted.
+    ("GET", f"{API_PREFIX}/organizations/{{organization_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/organizations/{{organization_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/organizations/{{organization_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/deployments/{{deployment_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/pods/{{pod_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/pods/{{pod_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/pods/{{pod_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/aggregators/{{aggregator_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/config/effective"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/listeners/{{mac}}/config/overrides"),
 }
 
 E0_TABLES = {

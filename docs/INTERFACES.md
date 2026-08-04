@@ -587,3 +587,24 @@ reimplement their logic.** Signatures, verbatim:
 - **Test dependency:** `hypothesis` (dev-only) runs the suite's property cases under the
   registered `gate` profile (derandomize=True, no deadline — registered in
   tests/conftest.py) so gates stay deterministic.
+
+### Config endpoints (E2.4; spec 13; D35, D50-D51) — the E2.7 editor's data source
+
+- **Routes (×5 entities):** `GET /{entity}/{id}/config/effective`,
+  `GET/PUT /{entity}/{id}/config/overrides` (listeners by MAC). Scope discipline is
+  E1's verbatim: org reads any-assignment / org WRITE requires an **org-wide**
+  MANAGE_CONFIG grant (it changes every deployment); deployments 403-before-lookup
+  (VIEW_STATUS read / MANAGE_CONFIG write); pod/aggregator/listener resolve-first →
+  identical 404 for missing and out-of-scope (D35). Writes + CSRF.
+- **Effective shape:** `{entity_type, entity_id, catalog_version, config: {key:
+  {value, source, source_entity_id}}}` — source ∈ level names | "default" |
+  "inventory"; every catalog key present (37 at listener, 33 elsewhere); ALWAYS
+  redacted (set secrets = the keep sentinel).
+- **Overrides shape:** `{entity_type, entity_id, catalog_version, overrides: {key:
+  value}}` — the sparse map, secrets rendered as the sentinel. PUT body
+  `{"overrides": {...}}` (extra="forbid"), wholesale replace; failures are ONE 422
+  `validation_error` with `detail.errors: [{key, code, message}]`, nothing staged.
+- **Audit:** `config.override_update`, scope = deployment id (NULL at org), detail =
+  `{set: [key names], unset: [key names], catalog_version}` — never values.
+- **Deletion cleanup:** the four E1 DELETE endpoints call `delete_overrides_for` and
+  delete orphaned config secrets AFTER their commit (D51 ordering).

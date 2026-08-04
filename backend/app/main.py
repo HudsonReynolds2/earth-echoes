@@ -13,6 +13,7 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.config import router as config_router
 from app.api.deployments import router as deployments_router
+from app.api.entity_config import router as entity_config_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
 from app.api.listeners import router as listeners_router
@@ -80,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(listeners_router)
     api_router.include_router(imports_router)
     api_router.include_router(config_router)
+    api_router.include_router(entity_config_router)
     app.include_router(api_router)
 
     return app
