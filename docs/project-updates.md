@@ -1,6 +1,32 @@
 # Project Updates
 
-## 2026-08-02: E1.9 Demo fixture — epic E1 complete (Gate 28 GREEN)
+## 2026-08-02: Manual-QA platform — qa-stack.ps1 + the E1 verification walkthrough (Gate 29 GREEN)
+
+- **Tasks closed:** the owner-requested manual-QA platform (branch `qa-platform-1`;
+  DECISIONS D44). Tooling + operator docs only; no production code or test changes.
+- **Gate:** 29, GREEN
+- **Tests:** backend 255, vitest 60, Playwright 4; 0 failed / 0 skipped / 0 xfailed /
+  0 deselected (suite unchanged by design)
+- **Command:** `./gate.ps1`
+- **Artifacts:** `qa-stack.ps1` (repo root) — `up` builds and starts the documented
+  compose stack under project `eoe-qa`, generates `deploy/.env` with fresh local secrets
+  when missing (values never printed), seeds `app.seed --demo`, health-probes both ends,
+  and prints the site URL + owner credentials with the boxed tear-down-before-gate
+  warning (the recorded remedy for gate-15-class port collisions, D44); `down` keeps QA
+  data, `reset` wipes it, `status` reports. `guide/e1-verification.md` — an 11-section
+  checkbox walkthrough with expected results for every E1 feature (roll-up numbers, both
+  themes, tree, tables, the full build-a-hierarchy CRUD walk with the conflict dialog's
+  both paths, tag replace semantics, bulk import dry-run → gated partial accept with a
+  paste-ready CSV, viewer/scoped-operator boundary probes) and a **shells audit**: one
+  checkbox per deliberately-empty surface confirming it names its owning epic.
+  `guide/README.md` TOC gains the walkthrough AND the previously missing
+  `bulk-import.md` row, plus the one-command note.
+- **Manual verification (the script proving itself):** fresh `up` from a clean volume —
+  images built, all four containers healthy, demo seeded (2/6/6/28), credentials printed
+  exactly once, health probes green; second `up` — idempotent "already seeded" path with
+  no second credential print; `status` listed four healthy services; `down` removed
+  containers, kept the volume, and freed the ports — after which this very gate ran
+  GREEN, closing the loop on the warning the script prints.
 
 - **Tasks closed:** E1.9, closing e1-batch-3 and with it **every E1 task** (E1.1-E1.9,
   gates 20-28; DECISIONS D43)

@@ -13,6 +13,8 @@ holds the specification).
 | [Getting started](getting-started.md) | Bring the platform up from nothing: prerequisites, configuration, first launch, first sign-in |
 | [The seed script](seed-script.md) | Create the initial owner account — what the script does, how to run it, and the security implications |
 | [Verify your deployment](verify-deployment.md) | Prove every platform subsystem works end to end, using a temporary account that cleans up after itself |
+| [Bulk import](bulk-import.md) | Register many listeners or aggregators at once from CSV or JSON, with per-row results |
+| [E1 verification walkthrough](e1-verification.md) | Hand-verify the hierarchy and inventory release feature by feature against a seeded local stack |
 
 ## The five-minute path
 
@@ -26,6 +28,9 @@ uv run python -m app.verify               # proves the whole platform works
 ```
 
 Then open `http://localhost:5173` and sign in with the seeded credentials.
+
+On Windows, `.\qa-stack.ps1` from the repo root does all of the above in one command
+(with the demo inventory seeded) — see the E1 verification walkthrough.
 
 ## What this platform is
 
