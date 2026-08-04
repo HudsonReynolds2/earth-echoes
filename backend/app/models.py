@@ -330,7 +330,7 @@ class InventoryAlert(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
-# --- E2 configuration model (spec 5; DECISIONS D47-D51) ---------------------
+# --- E2 configuration model (spec 5; DECISIONS D47-D56) ---------------------
 
 
 class SettingsCatalog(Base):
@@ -372,6 +372,43 @@ class SettingsCatalog(Base):
     write_restricted: Mapped[str | None] = mapped_column(String(30), default=None)
     notes: Mapped[str] = mapped_column(String(500), default="")
     version: Mapped[int] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConfigRevision(Base):
+    """Immutable desired-config snapshot (task E2.6; spec 6.1, 6.2; D55).
+    PER-DEVICE only: the spec 7.2 desired topics address Aggregators and
+    Listeners, so those are the only target types - pods and organizations
+    never carry revisions. target_id and deployment_id are deliberately
+    un-FK'd (the D33 immutable-evidence precedent): revision history outlives
+    the devices and deployments it describes and must never block deletion.
+
+    snapshot holds the device's full effective config as flat dotted keys
+    with secret MARKERS in place, never plaintext - secrets don't transit
+    desired topics (spec 5.4, 8), so the snapshot is the publishable payload
+    body and checksum (the D52 recipe) matches device echoes by
+    construction. Listener snapshots exclude the write-restricted service
+    keys (spec 5.4); aggregator snapshots include them. state is a string
+    from the spec 6.2 vocabulary; E2 writes 'draft' ONLY - every other state
+    belongs to E3's machine, gated by EOE_PUBLISH_ENABLED."""
+
+    __tablename__ = "config_revision"
+    __table_args__ = (
+        CheckConstraint("target_type IN ('aggregator','listener')", name="target_type_vocab"),
+        Index("ix_config_revision_target", "target_type", "target_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    target_type: Mapped[str] = mapped_column(String(20))
+    target_id: Mapped[str] = mapped_column(String(100))
+    deployment_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    schema_version: Mapped[int] = mapped_column(default=1)
+    checksum: Mapped[str] = mapped_column(String(80))
+    state: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), default=None
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

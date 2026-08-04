@@ -113,6 +113,14 @@ E0_ROUTES = {
     ("POST", f"{API_PREFIX}/selections/preview"),
     ("GET", f"{API_PREFIX}/selections"),
     ("POST", f"{API_PREFIX}/selections"),
+    # E2.6 (gate 36): bulk preview/apply (ONE body, ONE plan builder - the
+    # parity guarantee, D56) and the spec-13 revisions read surface no task
+    # claimed, assigned here (D55). Apply stops at draft unconditionally.
+    ("POST", f"{API_PREFIX}/config/preview"),
+    ("POST", f"{API_PREFIX}/config/apply"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/revisions"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/revisions"),
+    ("GET", f"{API_PREFIX}/revisions/{{revision_id}}"),
 }
 
 E0_TABLES = {
@@ -143,6 +151,9 @@ E0_TABLES = {
     # E2.5 (gate 35): saved selections - the validated query document
     # verbatim, re-evaluated at every use (D54).
     "selection",
+    # E2.6 (gate 36): immutable per-device desired-config snapshots (D55);
+    # E2 writes draft ONLY, E3 owns every other state.
+    "config_revision",
 }
 
 

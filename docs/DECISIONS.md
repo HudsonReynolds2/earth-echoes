@@ -4,6 +4,52 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D56 (2026-08-04): Bulk apply — one plan builder, write-at-level, draft-only, per-deployment audit
+
+- **Decision:** preview and apply share ONE body (`{selection: inline | {selection_id},
+  changes, level}`) and ONE plan builder (`app/config/plan.py`) — identical inputs
+  through identical code makes "preview matches what apply then produces" structural.
+  `level="target"` writes the change map onto each matched entity; a named level writes
+  ONCE at the single common ancestor (a split is a 422 naming the candidates;
+  organization level demands an org-wide MANAGE_CONFIG grant). The affected set is the
+  honest blast radius: every aggregator/listener whose chain includes a write target,
+  matched or not. Devices whose effective config would not change are `no_op` in
+  preview and receive NO revision — notably, replacing a secret's value keeps the same
+  marker, so it is a storage+SecretStore update with no new revision (rotation reaches
+  devices via E3's §8.7 rewrap path, not desired-config). The plan models secret
+  changes AS STORAGE HOLDS THEM (markers, keep-sentinel resolution) so plaintext can
+  never leak into snapshots — the gate-36 suite caught exactly that defect in the
+  first implementation, and the fix went into the engine. Apply is ONE transaction:
+  merged override writes + draft revisions + one `config.apply` audit row PER affected
+  deployment (detail: changed key names, revision ids, target counts, level — never
+  values). Preview is paginated (spec 14.4's streaming deferred to E8.2, a recorded
+  scale seam); preview carries no CSRF (mutates nothing) while apply does; BOTH
+  evaluate through MANAGE_CONFIG visibility, which is what makes preview==apply hold
+  per actor. `EOE_PUBLISH_ENABLED` joins Settings + .env.example, default off; apply
+  stops at draft unconditionally and only reports the flag.
+- **Reference:** spec 5.2, 14.4; phase-2 E2.6 (addendum PHASE2-4-02, project-changes
+  #18); test_config_apply.py.
+
+## D55 (2026-08-04): config_revision — per-device, un-FK'd, marker snapshots; read routes assigned to E2.6
+
+- **Decision:** revisions target DEVICES only (`aggregator`/`listener` — the spec 7.2
+  desired topics' addressees); pods and organizations never carry revisions. Shape
+  (published verbatim in INTERFACES for E3): id, target_type, target_id String(100),
+  deployment_id (both deliberately un-FK'd — the D33 immutable-evidence precedent:
+  history outlives devices and deployments), snapshot JSONB (flat dotted keys, secret
+  MARKERS never plaintext; listener snapshots exclude write-restricted service keys per
+  spec 5.4 and include inventory keys; aggregator snapshots include service keys),
+  schema_version=1 (spec 7.3), checksum via the D52 recipe (the snapshot IS the
+  publishable payload body, so device-echoed checksums match by construction), state as
+  a STRING from the spec 6.2 vocabulary (E2 writes 'draft' only; no enum migration when
+  E3 uses the rest), created_by SET NULL, created_at; state is indexed (pre-pays E3's
+  pending scan). The spec-13 revisions read routes no phase-2 task claimed —
+  GET /aggregators/{id}/revisions, GET /listeners/{mac}/revisions, GET /revisions/{id}
+  — are assigned to E2.6 because E2.8's acceptance needs them; list items omit the
+  snapshot, the item carries it; D35 identical-404 discipline throughout.
+- **Reference:** spec 6.1, 6.2, 7.3, 13, 5.4; phase-2 "Coordination with E3";
+  app/models.py::ConfigRevision; app/api/revisions.py.
+
 ## D54 (2026-08-04): Selection grammar and evaluation — re-evaluate at use, re-filter per actor
 
 - **Decision:** the spec-5.2 selection mechanism is the phase-doc's structured JSON with

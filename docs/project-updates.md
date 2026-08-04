@@ -1,5 +1,37 @@
 # Project Updates
 
+## 2026-08-04: E2.6 bulk preview/apply + revisions read (Gate 36 GREEN)
+
+- **Tasks closed:** E2.6 (branch `e2-batch-2`; DECISIONS D55-D56; project-changes #18
+  with addendum PHASE2-4-02). This closes e2-batch-2 (E2.4-E2.6) — PR next.
+- **Gate:** 36, GREEN — **the pre-gate run caught a real security defect**: the first
+  plan implementation merged raw change values into the after-state, which put a
+  secret's PLAINTEXT into the revision snapshot (storage itself was safe — only the
+  snapshot leaked). The fix models secret changes as storage holds them (markers +
+  keep-sentinel resolution) in the plan builder; the failing test now guards the
+  invariant forever. Full gate green after the fix.
+- **Tests:** backend 357 (+13), vitest 60, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `config_revision` table (migration `e8f61ab39c17`; per-device, un-FK'd,
+  marker snapshots, state-string draft-only — the E3 handoff, published verbatim in
+  INTERFACES). `app/config/plan.py` — ONE plan builder behind both endpoints (the
+  preview==apply parity guarantee), write-at-level with common-ancestor resolution
+  (422 naming candidates on a split; org level needs an org-wide grant), honest
+  blast-radius device enumeration, no_op flagging. `POST /config/preview` (paginated,
+  redacted, no CSRF) and `POST /config/apply` (one transaction: merged overrides +
+  draft revisions + one config.apply audit row per affected deployment; response
+  reports state draft + the inert `EOE_PUBLISH_ENABLED`). Revisions read surface
+  (`app/api/revisions.py`): per-device lists (D7, -created_at, state filter,
+  identical-404) + the snapshot-bearing item route. `EOE_PUBLISH_ENABLED` joined
+  Settings + deploy/.env.example (the pairing test enforces both). Readiness locks:
+  E0_ROUTES 65→70, E0_TABLES 16→17.
+- **Manual verification:** ephemeral database + demo fixture over real HTTP — previewed
+  a coastal-tag selection change (1 device, correct changed_keys, no_op false), applied
+  (state draft, publish_enabled false, 1 revision), listed the listener's revisions
+  (draft, -created_at), fetched the item (snapshot carries the new value; checksum
+  `sha256:`-prefixed).
+
 ## 2026-08-04: E2.5 selection engine (Gate 35 GREEN)
 
 - **Tasks closed:** E2.5 (branch `e2-batch-2`; DECISIONS D54).
