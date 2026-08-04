@@ -4,6 +4,27 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D54 (2026-08-04): Selection grammar and evaluation — re-evaluate at use, re-filter per actor
+
+- **Decision:** the spec-5.2 selection mechanism is the phase-doc's structured JSON with
+  four predicate forms — `{tag}` (E1.7 containment parity), `{key, op: eq|ne|in, value}`
+  (compares EFFECTIVE values through inheritance), `{key, op: exists}` (true iff an
+  override exists at the entity or any ancestor — provenance names one of the five
+  levels; inventory keys always answer false), and `{ids: [...]}` (explicit-identity
+  membership, added for the spec-5.2 checkbox path; listener ids normalize as MACs) —
+  under `all`/`any` nesting capped at depth 5 / 50 predicates. Value queries on secret
+  keys are rejected (`exists` allowed — set-ness is not a value). Saved selections store
+  the validated query VERBATIM and re-evaluate at every use, never a materialized id
+  list; every evaluation re-filters through the caller's `visible_deployments`, so a
+  stale grant never leaks a device. Key-predicate evaluation loads ancestor tables once
+  and all override rows in one tuple-IN query (a handful of queries regardless of fleet
+  size); the phase doc sanctions in-Python evaluation at v1 scale. Spec 13 ships
+  GET/POST only — no PATCH, no DELETE on selections, deliberately. POST requires
+  MANAGE_CONFIG in at least one deployment (a local check, not a new rbac primitive);
+  preview rides VIEW_STATUS (a browse tool).
+- **Reference:** spec 5.2, 13; phase-2 fixed choices + E2.5; app/config/selection.py;
+  test_selections.py.
+
 ## D53 (2026-08-04): Merge semantics — the cascade IS the deep merge; three accessors by audience
 
 - **Decision:** spec 5.1's "deep merge" is implemented as the level cascade over flat

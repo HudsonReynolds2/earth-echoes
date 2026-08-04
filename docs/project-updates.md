@@ -1,5 +1,29 @@
 # Project Updates
 
+## 2026-08-04: E2.5 selection engine (Gate 35 GREEN)
+
+- **Tasks closed:** E2.5 (branch `e2-batch-2`; DECISIONS D54).
+- **Gate:** 35, GREEN — first full run (pre-gate check surfaced five long-line lint
+  findings, auto-formatted, and four mypy findings from a reused statement variable,
+  renamed per branch)
+- **Tests:** backend 344 (+14), vitest 60, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/config/selection.py` — the spec-5.2 grammar as Pydantic models
+  (all/any nesting; tag/eq/ne/in/exists/`ids` predicates; depth 5 / 50-predicate caps;
+  secret value queries rejected, `exists` allowed) and the evaluator: SQL prefilter +
+  in-Python predicates through the pure merge engine with batch-loaded chains (constant
+  query count), ALWAYS re-filtered through the caller's visible deployments.
+  `selection` table (migration `d1e53fa27b06`) stores the validated query verbatim —
+  re-evaluated at every use, never a materialized id list. `app/api/selections.py`:
+  POST /selections/preview (VIEW_STATUS, D7 envelope, deterministic order),
+  GET /selections, POST /selections (CSRF + MANAGE_CONFIG-anywhere, 409 on duplicate
+  names, audited) — GET/POST only per spec 13, no PATCH/DELETE (D54). Readiness locks:
+  E0_ROUTES 62→65, E0_TABLES 15→16.
+- **Manual verification:** ephemeral database + demo fixture over real HTTP —
+  `{"tag": "coastal"}` matches exactly the fixture's one coastal-tagged listener
+  (`alder-creek-01`); the default-sample-rate value predicate matches all 28.
+
 ## 2026-08-04: E2.4 effective and override endpoints (Gate 34 GREEN)
 
 - **Tasks closed:** E2.4 (branch `e2-batch-2` opens batch 2 of the E2 plan).

@@ -107,6 +107,12 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/listeners/{{mac}}/config/effective"),
     ("GET", f"{API_PREFIX}/listeners/{{mac}}/config/overrides"),
     ("PUT", f"{API_PREFIX}/listeners/{{mac}}/config/overrides"),
+    # E2.5 (gate 35): the selection engine (spec 5.2, 13; D54) - preview/
+    # list/create ONLY; saved selections re-evaluate at use through the
+    # caller's visible deployments, never a materialized id list.
+    ("POST", f"{API_PREFIX}/selections/preview"),
+    ("GET", f"{API_PREFIX}/selections"),
+    ("POST", f"{API_PREFIX}/selections"),
 }
 
 E0_TABLES = {
@@ -134,6 +140,9 @@ E0_TABLES = {
     # E2.2 (gate 32): one sparse override map per hierarchy entity (D50-D51);
     # secret keys store markers, plaintext rides SecretStore.
     "entity_override",
+    # E2.5 (gate 35): saved selections - the validated query document
+    # verbatim, re-evaluated at every use (D54).
+    "selection",
 }
 
 

@@ -608,3 +608,26 @@ reimplement their logic.** Signatures, verbatim:
   `{set: [key names], unset: [key names], catalog_version}` — never values.
 - **Deletion cleanup:** the four E1 DELETE endpoints call `delete_overrides_for` and
   delete orphaned config secrets AFTER their commit (D51 ordering).
+
+### The selection engine (E2.5; spec 5.2, 13; D54) — E2.6 preview/apply consumes this
+
+- **Grammar (`app/config/selection.py::SelectionQuery`, every model extra="forbid"):**
+  `{entity_type, scope?: {deployment_id}, where?: NODE}`; NODE = `{all: [...]}` |
+  `{any: [...]}` | `{tag}` | `{key, op: eq|ne|in, value}` | `{key, op: "exists"}` |
+  `{ids: [...]}`. Caps: depth ≤ 5, ≤ 50 predicates. Semantics: tag = E1.7 containment
+  parity; eq/ne/in compare EFFECTIVE values (inheritance included; secret keys 422);
+  `exists` = override at the entity or any ancestor (inventory keys always false);
+  `ids` = explicit membership (the checkbox path — listener ids normalize as MACs).
+  Semantic errors (unknown key, secret value query, caps) fold into one 422 with
+  `detail.errors` messages naming their keys.
+- **Evaluation (`evaluate_selection(db, query, assignments, permission)`):** SQL
+  prefilter (type/scope/visibility) + in-Python predicates via the pure merge engine
+  with batch-loaded chains (constant query count). ALWAYS re-filters through
+  `visible_deployments(permission)` at evaluation time; deterministic order
+  (entity_id asc). Saved selections re-evaluate at use — never materialized.
+- **Routes:** `POST /selections/preview` (body = the grammar; `limit`/`offset` query
+  params; D7 envelope of `{entity_type, entity_id, name, deployment_id, tags}`;
+  VIEW_STATUS visibility) · `GET /selections` (D7 list; name filter) ·
+  `POST /selections` `{name, query}` → 201 (CSRF + MANAGE_CONFIG in ≥1 deployment;
+  409 duplicate name; audit `selection.create` with name + entity_type). **No
+  PATCH/DELETE** — spec 13's list, deliberate (D54).

@@ -375,6 +375,24 @@ class SettingsCatalog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Selection(Base):
+    """A saved device selection (task E2.5; spec 5.2, 13; D54). query holds
+    the validated grammar document VERBATIM and is re-evaluated at every
+    use, re-filtered through the caller's visible deployments - never a
+    materialized id list, so membership tracks the fleet and the actor's
+    grants. Spec 13 ships GET/POST only: no rename, no delete (recorded)."""
+
+    __tablename__ = "selection"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), default=None
+    )
+    query: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class EntityOverride(Base):
     """One sparse override map per hierarchy entity (task E2.2; spec 5.1;
     D50-D51). Singular table name per D30 (the phase doc spells it plural).
