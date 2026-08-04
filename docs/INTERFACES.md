@@ -487,3 +487,35 @@ reimplement their logic.** Signatures, verbatim:
   (open alerts unique per (alert_type, entity_type, entity_key) via partial unique index
   `WHERE resolved_at IS NULL`; `deployment_id` is un-FK'd scope; `resolved_at` NULL =
   open). Alert types are data, not D8 wire codes. E7 unifies alert surfacing later.
+
+---
+
+## Owned by E2
+
+### The settings catalog (E2.1; spec 5.3; D47-D49) — every config consumer reads this
+
+- **Single source:** `backend/app/config/catalog.py::CATALOG` — a frozen constant of 37
+  `CatalogEntry` rows matching spec 5.3 key for key (gate-pinned both against a
+  hardcoded spec list and against the seeded table, field for field).
+  `CATALOG_VERSION = 1`; `LEVELS = (organization, deployment, pod, aggregator,
+  listener)` is the merge order, root first.
+- **Table:** `settings_catalog` (singular, D30 convention), PK `key`. Columns:
+  `value_type` (`int|float|bool|string|object` — `object` is `capture.schedule` only),
+  `enum_values` JSONB, `min_value`/`max_value`, `default_value` JSONB (SQL NULL = no
+  default; the column name dodges the SQL keyword — the wire field is `default`),
+  `lowest_level` (spec literals + `any`, which behaves as `listener` for the level
+  rule), `secret` (6 rows), `resolution` (`override|inventory` — `inventory` on
+  `location.gps_lat/lon` + `identity.name/mac`, D49: reads resolve from listener
+  columns, override writes are rejected naming the key), `write_restricted`
+  (`service_onboarding` on all `telemetry.*` + `upload.s3_bucket/s3_endpoint/
+  s3_access_key/s3_secret_key`; **`upload.s3_prefix` is deliberately writable** —
+  owner ruling, spec 5.1; D48), `notes`, `version`.
+- **Catalog evolution rule (D47):** edit the constant + add a sync migration calling
+  `seed_catalog(connection)` + bump `CATALOG_VERSION` — always in one batch.
+  `seed_catalog` is an upsert-plus-prune that converges on the current constant, so
+  history replays and in-place upgrades produce identical tables; never seed the
+  catalog any other way.
+- **Endpoint:** `GET /config/catalog` (any assignment) → `{"version": N, "items":
+  [...]}` sorted by key — a schema document, deliberately not a D7 list (D47). The
+  frontend renders ALL config editors from it; a new key must ship with zero frontend
+  changes (E2.7's acceptance).

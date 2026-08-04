@@ -1,5 +1,31 @@
 # Project Updates
 
+## 2026-08-04: E2.1 versioned settings catalog (Gate 31 GREEN)
+
+- **Tasks closed:** E2.1 (branch `e2-batch-1`; epic E2 opens per the approved plan —
+  owner decisions of 2026-08-04 recorded in DECISIONS D47-D49).
+- **Gate:** 31, GREEN — first run
+- **Tests:** backend 262 (+7), vitest 60, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/config/` package opens (the inventory-pattern: pure core beside
+  DB service). `app/config/catalog.py` — the 37-row spec-5.3 `CATALOG` constant
+  (`CATALOG_VERSION = 1`, merge-order `LEVELS`) and the upsert-plus-prune
+  `seed_catalog()`. Migration `b7c31a90d2e4` creates `settings_catalog` (closed-vocab
+  CHECKs) and seeds it in-migration; replays converge on the constant (D47).
+  `GET /config/catalog` (any assignment) serves the schema document `{version, items}`
+  sorted by key — deliberately not a D7 list (D47). Catalog facts: 6 secret rows, 12
+  service-restricted rows (`telemetry.*` + 4 S3 keys; `upload.s3_prefix` deliberately
+  writable, owner ruling — D48), 4 inventory-resolved rows (`location.*` + `identity.*`,
+  D49). `test_settings_catalog.py` pins constant↔spec (hardcoded 37-key list) and
+  constant↔table (field for field), seed idempotence/convergence, endpoint shape/sort,
+  and the auth matrix. Readiness locks extended in-file: E0_ROUTES 46→47,
+  E0_TABLES 13→14. INTERFACES gains "Owned by E2" (catalog contract + evolution rule).
+- **Manual verification:** fresh ephemeral database migrated from scratch — 37 rows at
+  version 1 (6 secret / 12 restricted), first/last keys eyeballed against the spec
+  table; unauthenticated `GET /config/catalog` → 401. Migration up/down with data
+  re-proven by the readiness replay inside the gate.
+
 ## 2026-08-04: Rules 1.1.0 — walkthrough currency joins R1 (Gate 30 GREEN)
 
 - **Tasks closed:** the owner-directed rules amendment (branch `rules-batch-1`;

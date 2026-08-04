@@ -4,6 +4,50 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D49 (2026-08-04): Inventory resolution extends to identity.name and identity.mac
+
+- **Decision:** the catalog marks four keys `resolution='inventory'`: `location.gps_lat`
+  and `location.gps_lon` (mandated by E1's INTERFACES contract) plus `identity.name` and
+  `identity.mac`. All four read from listener columns (D31/D32 own those fields) and
+  reject override writes with a 422 naming the key and pointing at
+  `PATCH /listeners/{mac}` (arrives with E2.2's validator).
+- **Rationale:** identity.* has exactly the character the E1 contract fixed for
+  location.*: the listener row is the source of truth (MAC is the immutable key, name is
+  DB-unique per deployment). A config override shadowing either would fork the identity
+  model E1.5's services depend on.
+- **Reference:** spec 5.3, 4.2; E1 INTERFACES "hierarchy schema"; phase-2 E2.2.
+
+## D48 (2026-08-04): Service-key write block — the E5 stub (owner-directed)
+
+- **Decision:** all eight `telemetry.*` keys plus `upload.s3_bucket`, `upload.s3_endpoint`,
+  `upload.s3_access_key`, `upload.s3_secret_key` carry
+  `write_restricted='service_onboarding'`: their catalog rows exist and their defaults
+  merge into effective config (spec 16.4 needs that), but the generic override PUT
+  rejects them with a message naming E5's onboarding flow — a documented R2 stub, not a
+  missing feature. **`upload.s3_prefix` is deliberately outside the block** (owner ruling
+  2026-08-04): spec 5.1 names it an aggregator-level setting the operator sets, while
+  spec 16's flow writes the deployment-level endpoints/credentials.
+- **Rationale:** spec 5.3's closing paragraph — "the deployment services onboarding flow
+  writes them rather than the operator editing them key by key" — plus E2's out-of-scope
+  list deferring that flow to E5. Blocking now avoids two writers when E5 lands.
+- **Reference:** spec 5.3, 5.1, 16; phase-2 "Out of scope"; owner decisions 2026-08-04.
+
+## D47 (2026-08-04): Catalog storage — singular table, in-migration convergent seed, schema-document endpoint
+
+- **Decision:** the spec-5.3 catalog is a `settings_catalog` table (singular per D30)
+  seeded in-migration from the `app/config/catalog.py::CATALOG` constant — the single
+  source, gate-pinned against a hardcoded spec key list AND against the seeded rows
+  field for field. `seed_catalog()` is an upsert-plus-prune, so replays converge on the
+  current constant (neutralizing the import-app-code-in-a-migration hazard); catalog
+  evolution = constant edit + sync migration + `CATALOG_VERSION` bump in one batch.
+  `GET /config/catalog` returns `{version, items}` sorted by key — a schema document,
+  deliberately NOT a D7 list envelope (it is rendered wholesale, never paginated).
+  `lowest_level='any'` (logging.verbosity) behaves as `listener` for the level rule.
+  The DB column for the default is `default_value` (SQL keyword avoidance); the wire
+  field stays `default`. Bounds added beyond the spec table: confidence_threshold 0-1
+  (definitionally), noted in the row.
+- **Reference:** spec 5.3; phase-2 E2.1 and "Catalog storage"; test_settings_catalog.py.
+
 ## D46 (2026-08-04): Gate-30 commit message reworded — one-time deviation from R3's never-amend clause (owner-approved)
 
 - **What happened:** the original gate-30 commit message named the repository's
