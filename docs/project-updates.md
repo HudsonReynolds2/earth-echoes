@@ -1,6 +1,28 @@
 # Project Updates
 
-## 2026-08-02: Manual-QA platform — qa-stack.ps1 + the E1 verification walkthrough (Gate 29 GREEN)
+## 2026-08-04: Rules 1.1.0 — walkthrough currency joins R1 (Gate 30 GREEN)
+
+- **Tasks closed:** the owner-directed rules amendment (branch `rules-batch-1`;
+  DECISIONS D45). Docs/rules only; no production code or test changes.
+- **Gate:** 30, GREEN
+- **Tests:** backend 255, vitest 60, Playwright 4; 0 failed / 0 skipped / 0 xfailed /
+  0 deselected
+- **Command:** `./gate.ps1`
+- **First run was RED, environmental — and self-referentially so:** the owner's manual-QA
+  stack (`eoe-qa`, mid-walkthrough) held ports 5173/6379, and the gate's compose tests
+  failed to bind (`Bind for 0.0.0.0:5173 failed: port is already allocated`) — exactly
+  the D44 collision this repository documents. Remedy per D44: `qa-stack.ps1 down` (data
+  volume kept, owner resumes with one `up`), full rerun GREEN.
+- **Artifacts:** `.claude/rules/project-rules.json` 1.0.0 → 1.1.0 —
+  `R1_record_keeping.verification_walkthrough`: every epic ships its own
+  `guide/e{N}-verification.md` before its final gate, and amends prior walkthrough
+  assertions it invalidates in the same batch that invalidates them. CLAUDE.md restates
+  the rule. Rationale and mechanics in D45 (the qa-stack tooling tracks the product
+  automatically; walkthrough prose does not — the F6/stale-handoff drift class, now
+  closed by rule). PR #12 (the QA platform) was merged at the start of this batch.
+- **Manual verification:** governance suite run standalone first (13 passed — the
+  rules-JSON structure assertions are the risk point for this change); the E2 planning
+  session in flight will be the rule's first live subject.
 
 - **Tasks closed:** the owner-requested manual-QA platform (branch `qa-platform-1`;
   DECISIONS D44). Tooling + operator docs only; no production code or test changes.
