@@ -5,6 +5,22 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #17 (2026-08-04): E2.2's level rule inverted to match spec 5.3 — at-or-above, never below
+
+- **What changed:** task E2.2 says "writing a key below its allowed level is permitted
+  per spec 5.3's inheritance note". The shipped validator enforces the OPPOSITE: a key
+  may be overridden at its lowest level or at any ancestor level, never below
+  (`network.wifi_ssid`, lowest level Pod, is settable at organization/deployment/pod and
+  rejected at aggregator/listener; `lowest_level='any'` is settable everywhere).
+- **Why:** the phase-doc sentence misreads the spec. Spec 5.3's actual inheritance note
+  says "inheritance permits setting most keys **higher**" than their lowest level, and
+  spec 5.1's rationale argues directly against below-level writes (network keys resolve
+  at Pod because every Listener in the pod shares one network — a per-listener WiFi
+  password contradicts the model). Authority order: spec beats phase doc. Owner decided
+  2026-08-04 during E2 planning (the same resolution shape as #13's org-DELETE).
+- **Affects:** project_planning/phase-2-configuration-model.md §4 (task E2.2)
+- **Addendum:** PHASE2-4-01
+
 ## #16 (2026-08-02): Overview ships a minimal real roll-up ahead of E6/E7
 
 - **What changed:** the Overview page ("/") is rebuilt with the V2·S1 layout carrying

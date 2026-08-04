@@ -328,3 +328,80 @@ class InventoryAlert(Base):
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+# --- E2 configuration model (spec 5; DECISIONS D47-D51) ---------------------
+
+
+class SettingsCatalog(Base):
+    """Versioned settings schema, one row per spec-5.3 key (task E2.1).
+    Seeded in-migration from app.config.catalog.CATALOG, the single source;
+    a gate test holds table and constant equal. The catalog is data, not
+    hard-coded UI (spec 5.3): the frontend renders editors from these rows,
+    so a new key ships with no frontend change.
+
+    default_value is JSONB (named to dodge the SQL DEFAULT keyword; the API
+    field is "default"); SQL NULL means no default and the notes say which
+    kind. resolution 'inventory' marks keys that resolve from listener
+    columns and reject overrides (location.* mandated by E1's contract,
+    identity.* the same character - D49). write_restricted
+    'service_onboarding' marks keys the E5 flow writes (spec 5.3 closing
+    paragraph); the generic override PUT rejects them until then (D48)."""
+
+    __tablename__ = "settings_catalog"
+    __table_args__ = (
+        CheckConstraint(
+            "value_type IN ('int','float','bool','string','object')", name="value_type_vocab"
+        ),
+        CheckConstraint(
+            "lowest_level IN ('listener','aggregator','pod','deployment','organization','any')",
+            name="lowest_level_vocab",
+        ),
+        CheckConstraint("resolution IN ('override','inventory')", name="resolution_vocab"),
+    )
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value_type: Mapped[str] = mapped_column(String(16))
+    enum_values: Mapped[list[Any] | None] = mapped_column(JSONB, default=None)
+    min_value: Mapped[float | None] = mapped_column(Float, default=None)
+    max_value: Mapped[float | None] = mapped_column(Float, default=None)
+    default_value: Mapped[Any] = mapped_column(JSONB, nullable=True, default=None)
+    lowest_level: Mapped[str] = mapped_column(String(16))
+    secret: Mapped[bool] = mapped_column(default=False)
+    resolution: Mapped[str] = mapped_column(String(16), default="override")
+    write_restricted: Mapped[str | None] = mapped_column(String(30), default=None)
+    notes: Mapped[str] = mapped_column(String(500), default="")
+    version: Mapped[int] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EntityOverride(Base):
+    """One sparse override map per hierarchy entity (task E2.2; spec 5.1;
+    D50-D51). Singular table name per D30 (the phase doc spells it plural).
+
+    entity_id is an untyped String - UUID string for four entity kinds, MAC
+    for listeners - the audit_log precedent, deliberately un-FK'd because the
+    five targets live in five tables; cleanup rides the E1 DELETE endpoints
+    (delete_overrides_for, wired in E2.4). overrides holds flat dotted keys
+    validated against the catalog on every write; a secret-flagged key's
+    value is the marker {"$secret": "config:{entity_type}:{entity_id}:{key}"}
+    and the plaintext lives in SecretStore under that name, never here."""
+
+    __tablename__ = "entity_override"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id"),
+        CheckConstraint(
+            "entity_type IN ('organization','deployment','pod','aggregator','listener')",
+            name="entity_type_vocab",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    entity_type: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[str] = mapped_column(String(100))
+    overrides: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    catalog_version: Mapped[int] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
