@@ -17,7 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config.catalog import CATALOG_BY_KEY, CATALOG_VERSION, CatalogEntry
-from app.config.validation import OverrideError, is_keep_sentinel, validate_override_map
+from app.config.validation import (
+    OverrideError,
+    is_keep_sentinel,
+    is_secret_marker,
+    validate_override_map,
+)
 from app.models import EntityOverride
 from app.secrets import SecretStore
 
@@ -49,12 +54,6 @@ def secret_name(entity_type: str, entity_id: str, key: str) -> str:
 
 def secret_marker(entity_type: str, entity_id: str, key: str) -> dict[str, str]:
     return {"$secret": secret_name(entity_type, entity_id, key)}
-
-
-def is_secret_marker(value: Any) -> bool:
-    return (
-        isinstance(value, dict) and set(value) == {"$secret"} and isinstance(value["$secret"], str)
-    )
 
 
 def get_override_row(db: Session, entity_type: str, entity_id: str) -> EntityOverride | None:

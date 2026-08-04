@@ -4,6 +4,38 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D53 (2026-08-04): Merge semantics — the cascade IS the deep merge; three accessors by audience
+
+- **Decision:** spec 5.1's "deep merge" is implemented as the level cascade over flat
+  dotted keys: per key, the deepest chain level that sets it wins, else the catalog
+  default, and the winning value replaces WHOLESALE — capture.schedule objects included
+  (the E1.7 replace-never-merge precedent). There is no field-level merging of object
+  values, deliberately. Effective config covers every catalog key at every level (an
+  ancestor's value is what descendants inherit) except inventory keys, which materialize
+  only at listener level from listener columns; chain overrides of inventory keys and
+  unknown keys are ignored on read (storage validates writes; the merge is defensive).
+  Container values are copied on the way out — mutating a result never reaches the
+  chain or catalog. DB access is three explicit accessors by audience
+  (`app/config/service.py`): `effective_for` (REDACTED — the only router path),
+  `effective_raw` (markers verbatim — E2.6 snapshots), `effective_resolved` (plaintext —
+  INTERNAL ONLY, E3 publisher/E4 bundles, never over HTTP). The suite runs
+  property-based cases via hypothesis (new dev-only dependency, owner-approved
+  2026-08-04) under a registered derandomized profile so gates stay deterministic.
+- **Reference:** spec 5.1, 14.5; phase-2 E2.3; test_config_merge.py (the locked suite).
+
+## D52 (2026-08-04): The canonical-JSON checksum recipe — a frozen wire contract
+
+- **Decision:** revision checksums are `"sha256:" + hex(sha256(canonical_bytes))` where
+  canonical bytes are `json.dumps(snapshot, sort_keys=True, separators=(",", ":"),
+  ensure_ascii=False).encode("utf-8")` — keys sorted at every depth, compact, non-ASCII
+  preserved, no trailing newline. Checksums cover snapshots WITH secret markers in place:
+  secrets never transit desired topics (spec 5.4, 8), so the snapshot is the publishable
+  payload body and device-echoed checksums match by construction. The locked suite pins
+  three golden hex digests (defaults-only listener snapshot, non-ASCII strings, float
+  representations) plus a JSONB store/reload/recompute case; if any golden ever changes,
+  that is a wire-protocol break for E3's ack matching, never a routine test fix.
+- **Reference:** spec 6.2, 7.3; app/config/canonical.py; test_config_merge.py goldens.
+
 ## D51 (2026-08-04): Config secrets — the marker, the config: namespace, and the commit-ordering rules
 
 - **Decision:** a secret-flagged override key never stores plaintext. The row holds the

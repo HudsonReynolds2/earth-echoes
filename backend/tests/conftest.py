@@ -19,7 +19,16 @@ import time
 import uuid
 from pathlib import Path
 
+from hypothesis import settings as hypothesis_settings
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# E2.3: property-based cases in the test-critical merge suite run
+# DETERMINISTICALLY - a gate must never be red or green by luck (rule R0).
+# derandomize fixes the example stream; no deadline because gate machines
+# vary (CI shares cores with the compose builds).
+hypothesis_settings.register_profile("gate", derandomize=True, deadline=None)
+hypothesis_settings.load_profile("gate")
 
 
 def make_kek() -> str:

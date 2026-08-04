@@ -554,3 +554,36 @@ reimplement their logic.** Signatures, verbatim:
   `{"$secret_set": true}` (the keep sentinel, `app/config/validation.py::KEEP_SENTINEL`);
   PUT takes plaintext string (set/replace) | sentinel (keep; 422 if none stored) |
   omission (unset, deletion post-commit).
+
+### The merge engine (E2.3; spec 5.1, 14.5; D52-D53) — TEST-CRITICAL; E3/E4 consume this
+
+- **Pure core (`app/config/merge.py`) — signatures verbatim:**
+  `LevelOverrides{level, entity_id, overrides}` (chain link, root→target, absent levels
+  simply absent); `ResolvedValue{value, source, source_entity_id}` (source ∈ LEVELS |
+  "default" | "inventory"); `effective_config(chain, catalog, *, target_level,
+  inventory=None, inventory_entity_id=None) -> dict[str, ResolvedValue]` (RAW — markers
+  verbatim); `redact_secrets(config, catalog)` (set secrets → the keep sentinel);
+  `resolve_secret_refs(config, catalog, get)` (plaintext via injected getter —
+  INTERNAL ONLY). Semantics (D53): deepest setter wins else default; values replace
+  wholesale (objects included); every catalog key at every level except inventory keys
+  (listener-only, from columns); unknown/inventory chain overrides ignored on read;
+  malformed chains raise; results never alias inputs.
+  **tests/test_config_merge.py is the locked documentation of these semantics (rule R0)
+  — extend it, never weaken it.**
+- **DB accessors (`app/config/service.py`) — pick by audience:**
+  `ancestry(db, entity_type, entity_id) -> [(level, id)]` (E1 FK walk; LookupError on
+  holes); `override_chain(...)` (one-query row load);
+  `effective_for(...)` → **REDACTED** — the only accessor routers may call;
+  `effective_raw(...)` → markers verbatim — E2.6 revision snapshots only;
+  `effective_resolved(..., secret_store)` → plaintext — **INTERNAL ONLY: E3's publisher
+  and E4's bundle generator; wiring it into an HTTP response is a security defect.**
+- **Canonicalization + checksum (`app/config/canonical.py`) — FROZEN wire contract
+  (D52):** `canonical_config_bytes(snapshot)` = JSON, keys sorted at every depth,
+  compact separators, `ensure_ascii=False`, UTF-8, no trailing newline;
+  `config_checksum(snapshot)` = `"sha256:" + hexdigest`. Checksums cover snapshots WITH
+  markers (secrets never transit desired topics — the snapshot IS the publishable
+  payload body, so device-echoed checksums match by construction). Three golden digests
+  are pinned in the locked suite; changing any of them is a wire-protocol break.
+- **Test dependency:** `hypothesis` (dev-only) runs the suite's property cases under the
+  registered `gate` profile (derandomize=True, no deadline — registered in
+  tests/conftest.py) so gates stay deterministic.

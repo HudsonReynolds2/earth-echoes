@@ -1,5 +1,34 @@
 # Project Updates
 
+## 2026-08-04: E2.3 effective-config merge engine — test-critical suite locked (Gate 33 GREEN)
+
+- **Tasks closed:** E2.3 (branch `e2-batch-1`; DECISIONS D52-D53). This closes
+  e2-batch-1 (E2.1-E2.3) — PR next.
+- **Gate:** 33, GREEN — the pre-gate check caught one real semantic failure first:
+  the engine handed container values out BY REFERENCE, so mutating a result reached
+  back into the chain. The locked suite's side-effect-freedom case is the documented
+  semantic, so the ENGINE was fixed (containers copied on the way out), not the test.
+  Full gate green after that fix plus minor lint formatting.
+- **Tests:** backend 318 (+37: the locked merge suite 26 + service walk 9 + property
+  extras), vitest 60, Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/config/merge.py` (pure core: effective_config /redact_secrets/
+  resolve_secret_refs; deepest-setter-wins, wholesale replacement, inventory keys
+  listener-only, defensive reads, no input aliasing — D53).
+  `app/config/canonical.py` (the FROZEN checksum recipe: sorted-keys compact UTF-8
+  JSON, `sha256:` prefix, markers included — D52; three golden digests pinned).
+  `app/config/service.py` (ancestry via E1 FKs, one-query chain load, three accessors
+  by audience: effective_for REDACTED for routers, effective_raw for E2.6 snapshots,
+  effective_resolved INTERNAL ONLY for E3/E4). `hypothesis` joins the dev group
+  (owner-approved) under a derandomized `gate` profile in conftest —
+  `test_config_merge.py` is now one of the four suites no session may weaken, holding
+  15 documented example semantics, 4 property cases, the golden checksums, and (in
+  `test_config_service.py`) the JSONB round-trip stability guard.
+- **Manual verification:** fresh ephemeral database + `seed_demo_hierarchy`: set
+  `audio.sample_rate_hz=96000` on Redwood Coast, and `alder-creek-01` resolves it with
+  source "deployment"; `identity.name` resolves from the listener row with source
+  "inventory"; unset secret renders None; back-to-back checksums identical.
+
 ## 2026-08-04: E2.2 sparse override storage (Gate 32 GREEN)
 
 - **Tasks closed:** E2.2 (branch `e2-batch-1`; DECISIONS D50-D51; project-changes #17

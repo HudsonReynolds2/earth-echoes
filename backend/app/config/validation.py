@@ -47,6 +47,15 @@ def is_keep_sentinel(value: Any) -> bool:
     return bool(value == KEEP_SENTINEL)
 
 
+def is_secret_marker(value: Any) -> bool:
+    """A stored secret reference (D51): {"$secret": "config:..."}. Lives here
+    rather than overrides.py so the pure merge engine (E2.3) can recognize
+    markers without importing anything database-touching."""
+    return (
+        isinstance(value, dict) and set(value) == {"$secret"} and isinstance(value["$secret"], str)
+    )
+
+
 def validate_override_map(
     overrides: Mapping[str, Any],
     catalog: Mapping[str, CatalogEntry],
