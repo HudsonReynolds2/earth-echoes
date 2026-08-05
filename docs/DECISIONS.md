@@ -4,6 +4,32 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D58 (2026-08-04): Bulk edit UI rulings (E2.8) — gating, honest slots, folded affordances
+
+- **Commit gating is the acceptance**: Commit stays disabled until the CURRENT form
+  deep-equals the payload the server last previewed; ANY change re-disables it until
+  re-preview (test-pinned). The preview pane says which state it is in.
+- **The modal is a size/structure MODIFIER** (`.modal-wide`, two panes) on the one
+  modal vocabulary — never a second vocabulary.
+- **E3 slots stay honest**: the impact grid's "Offline now" figure and the preview
+  table's Status column render "—" with copy naming E3; zero [data-status] (D40).
+  S4's "Publish immediately" checkbox is REPLACED by one line of copy naming E3 +
+  EOE_PUBLISH_ENABLED — a disabled checkbox would imply a nearly-ready control.
+- **Selections**: checkbox multiselect on the pod listeners table (spec 5.2's simple
+  path; a leading display column behind manage_config) opens the modal with the
+  explicit `{ids}` predicate; saved selections reopen BY REFERENCE
+  (`{selection_id}`) so the server re-evaluates membership at use (D54). No
+  delete/rename affordance — the API is GET/POST only. Secret keys are excluded from
+  the bulk key picker in v1 (single-entity editors carry secrets; recorded).
+- **Deferred with the owner**: searchable key picker (native select ships), preview
+  CSV download, purpose-built schedule editor (shared with D57).
+- **The gate-38 browser walk caught a real defect** the component suites cannot see:
+  the secret cell's write-only Replace control overflowed its fixed-width cell and
+  the neighboring cell swallowed its clicks. Fixed (flex-wrap in the value cell),
+  full gate re-run green — the walkthrough exists precisely to catch this class.
+- **Reference:** phase-2 E2.8; S4; spec 5.2; bulk-edit.test.tsx;
+  guide/e2-verification.md.
+
 ## D57 (2026-08-04): The config editor's frontend rulings (E2.7)
 
 - **Desktop-only** (owner decision 2026-08-04, closing DES open question 3): the

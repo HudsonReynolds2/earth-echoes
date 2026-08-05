@@ -1,5 +1,38 @@
 # Project Updates
 
+## 2026-08-04: E2.8 bulk edit UI + the E2 walkthrough — EPIC E2 COMPLETE (Gate 38 GREEN)
+
+- **Tasks closed:** E2.8 (branch `e2-batch-3`; DECISIONS D58). **This closes epic E2**
+  (gates 31-38, three batches, PRs #14/#15 open + #16 next).
+- **Gate:** 38, GREEN — run twice deliberately: the first green run was followed by the
+  manual browser walk, which caught a REAL layout defect the component suites cannot
+  see (the secret cell's write-only Replace control overflowed its fixed-width cell;
+  the neighboring cell swallowed its clicks). One CSS fix (flex-wrap), full gate
+  re-run GREEN, walk re-run 8/8. The walkthrough exists precisely for this class.
+- **Tests:** backend 357, vitest 96 (+8: bulk-edit suite), Playwright 4; 0 failed /
+  0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** the S4 bulk-edit modal (`.modal-wide` two-pane modifier on the one
+  modal vocabulary): catalog-driven change form with write-at-level consequence copy,
+  live impact grid with the Offline-now E3 slot, server-computed preview table with
+  no-op muting and the Status E3 slot column, and the **commit-gating acceptance**
+  (Commit deep-equal-gated on the last previewed payload; any change re-disables).
+  Checkbox multiselect on the pod listeners table (spec 5.2's simple path) feeding
+  the modal via the explicit `{ids}` predicate; the saved-selections rail block in
+  the config tree (opens BY REFERENCE, D54; no delete — GET/POST only).
+  **`guide/e2-verification.md`** — the 11-section manual walkthrough (rules 1.1.0's
+  FIRST subject), added to guide/README.md; **`guide/e1-verification.md` §9 amended
+  in this same batch** (its "/configuration → empty state naming E2" and "effective
+  config with E2" assertions were invalidated by E2.7 — exactly the same-batch
+  amendment the rule demands).
+- **Manual verification:** a scripted chromium walk of the walkthrough's core path
+  against the REAL API (ephemeral postgres + uvicorn + vite, no MSW): sign-in →
+  tree/tabs/rail → pod override staged/bannered/saved in one PUT → secret set
+  write-only with plaintext provably absent from the DOM → listener inherits from
+  Pod read-only (the at-or-above rule live) → bulk multiselect → preview → gating
+  held through a form change → commit → draft revisions listed on the Revisions tab
+  → zero [data-status] anywhere. 8/8 after the layout fix above; stack torn down.
+
 ## 2026-08-04: E2.7 schema-driven config editor (Gate 37 GREEN)
 
 - **Tasks closed:** E2.7 (branch `e2-batch-3`; DECISIONS D57).

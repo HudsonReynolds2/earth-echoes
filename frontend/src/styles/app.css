@@ -1095,7 +1095,11 @@ tr.row-overridden td {
 }
 
 .secret-value {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap; /* the write-only Replace control must stay INSIDE the
+                    * fixed-width value cell - unwrapped it slid under the
+                    * neighboring cell, which then swallowed its clicks
+                    * (caught by the gate-38 browser walk) */
   align-items: center;
   gap: var(--eoe-space-2);
 }
@@ -1331,4 +1335,103 @@ tr.row-overridden td {
   text-transform: uppercase;
   letter-spacing: var(--eoe-letter-spacing-label);
   color: var(--eoe-color-text-subtle);
+}
+
+/* == bulk edit modal (E2.8; S4) ==========================================
+ * A size/structure MODIFIER on the one modal vocabulary - never a second
+ * modal. Two panes: the change form + impact grid, then the server-computed
+ * preview. The Status column and Offline-now figure are E3 slots (D40). */
+
+.modal-wide {
+  max-width: 62.5rem;
+  width: calc(100vw - var(--eoe-space-10));
+}
+
+.modal-panes {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: var(--eoe-space-4);
+  align-items: start;
+}
+
+.impact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--eoe-space-2);
+  margin: var(--eoe-space-3) 0;
+}
+
+.impact-figure {
+  display: flex;
+  flex-direction: column;
+  padding: var(--eoe-space-2);
+  background: var(--eoe-color-surface-raised);
+  border-radius: var(--eoe-radius-sm);
+}
+
+.impact-value {
+  font-size: var(--eoe-font-size-lg);
+}
+
+.impact-label {
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-muted);
+}
+
+.impact-caption {
+  font-size: var(--eoe-font-size-2xs);
+  color: var(--eoe-color-text-subtle);
+}
+
+tr.row-noop td {
+  color: var(--eoe-color-text-subtle);
+}
+
+.cell-resulting {
+  color: var(--eoe-color-success);
+  font-weight: var(--eoe-font-weight-medium);
+}
+
+.save-selection-row {
+  display: flex;
+  gap: var(--eoe-space-2);
+}
+
+.apply-revisions {
+  list-style: none;
+  margin: var(--eoe-space-2) 0;
+  padding: 0;
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-muted);
+}
+
+/* == saved selections rail block (E2.8; the tree-rail footer) ============ */
+
+.rail-block {
+  margin-top: var(--eoe-space-4);
+  padding: var(--eoe-space-3);
+  border-top: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+}
+
+.rail-block-list {
+  list-style: none;
+  margin: var(--eoe-space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-1);
+}
+
+.rail-block-link {
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  padding: var(--eoe-space-1) 0;
+  color: var(--eoe-color-accent-hover);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.rail-block-link:hover {
+  text-decoration: underline;
 }

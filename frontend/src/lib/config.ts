@@ -8,6 +8,8 @@
 import { ListEnvelope, query, request, writeHeaders } from "./http";
 import { TaggableEntity } from "./inventory";
 
+export type { ListEnvelope } from "./http";
+
 export type ConfigEntity = TaggableEntity;
 export type EntityLevel = "organization" | "deployment" | "pod" | "aggregator" | "listener";
 
@@ -133,6 +135,84 @@ export function listRevisions(
   return request<ListEnvelope<RevisionListItem>>(
     `/${entity}/${encodeURIComponent(id)}/revisions${query({ ...params })}`,
   );
+}
+
+// --- bulk edit + selections (E2.8; the E2.6 wire contract) -------------------
+
+export interface SelectionQueryWire {
+  entity_type: EntityLevel;
+  scope?: { deployment_id: string } | null;
+  where?: Record<string, unknown> | null;
+}
+
+export type PlanSelection = SelectionQueryWire | { selection_id: string };
+
+export interface PlanBody {
+  selection: PlanSelection;
+  changes: OverrideMap;
+  level: "target" | "organization" | "deployment" | "pod" | "aggregator";
+}
+
+export interface DevicePlanItem {
+  target_type: "aggregator" | "listener";
+  target_id: string;
+  name: string;
+  pod_id: string;
+  pod_name: string;
+  deployment_id: string;
+  changed_keys: string[];
+  no_op: boolean;
+  before: Record<string, EffectiveKey>;
+  after: Record<string, EffectiveKey>;
+}
+
+export interface ApplyResult {
+  state: string;
+  publish_enabled: boolean;
+  revisions: Array<{
+    revision_id: string;
+    target_type: string;
+    target_id: string;
+    deployment_id: string;
+    changed_keys: string[];
+    checksum: string;
+  }>;
+}
+
+export function previewConfig(body: PlanBody, params: { limit?: number; offset?: number } = {}) {
+  return request<ListEnvelope<DevicePlanItem>>(`/config/preview${query({ ...params })}`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify(body),
+  });
+}
+
+export function applyConfig(body: PlanBody) {
+  return request<ApplyResult>(`/config/apply`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify(body),
+  });
+}
+
+export interface SavedSelection {
+  id: string;
+  name: string;
+  query: SelectionQueryWire;
+  created_by: string | null;
+  created_at: string;
+}
+
+export function listSelections() {
+  return request<ListEnvelope<SavedSelection>>(`/selections`);
+}
+
+export function createSelection(input: { name: string; query: SelectionQueryWire }) {
+  return request<SavedSelection>(`/selections`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify(input),
+  });
 }
 
 // --- pure helpers (the unit-tested truth tables) -----------------------------

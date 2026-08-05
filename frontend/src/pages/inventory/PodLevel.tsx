@@ -12,21 +12,32 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 
-import { Can } from "../../components/Can";
+import { BulkEditModal } from "../../components/BulkEditModal";
+import { Can, useCan } from "../../components/Can";
 import { EmptyState } from "../../components/EmptyState";
 import { EntityTable } from "../../components/EntityTable";
 import { NameConflictDialog } from "../../components/NameConflictDialog";
 import { PageHeader } from "../../components/PageHeader";
 import { TagEditor } from "../../components/TagEditor";
+import { getCatalog } from "../../lib/config";
 import { ApiError, createListener, getPod, Listener, listListeners } from "../../lib/inventory";
 import { InventoryOutletContext } from "./InventoryLayout";
 
-const columns = (() => {
+/** The E2.8 selection column (spec 5.2's simple path) leads; the rest is
+ * the E1.8 table unchanged. Checkbox state lives in the page, not the
+ * table — a leading display column, never a data column. */
+function buildColumns(
+  selected: Set<string>,
+  visible: Listener[],
+  toggle: (mac: string) => void,
+  toggleAll: () => void,
+  canBulkEdit: boolean,
+) {
   const helper = createColumnHelper<Listener>();
-  return [
+  const base = [
     helper.accessor("name", {
       header: "Name",
       cell: (info) => (
@@ -56,7 +67,34 @@ const columns = (() => {
     }),
     helper.accessor("created_at", { header: "Created", meta: { mono: true } }),
   ];
-})();
+  if (!canBulkEdit) {
+    return base;
+  }
+  return [
+    helper.display({
+      id: "select",
+      header: () => (
+        <input
+          type="checkbox"
+          aria-label="Select all listeners on this page"
+          checked={visible.length > 0 && visible.every((row) => selected.has(row.mac))}
+          onChange={toggleAll}
+        />
+      ),
+      cell: (info) => (
+        <input
+          type="checkbox"
+          aria-label={`Select ${info.row.original.name}`}
+          checked={selected.has(info.row.original.mac)}
+          onChange={() => toggle(info.row.original.mac)}
+        />
+      ),
+      enableSorting: false,
+      meta: { selection: true },
+    }),
+    ...base,
+  ];
+}
 
 interface ConflictState {
   requestedName: string;
@@ -72,6 +110,8 @@ export function PodLevel() {
   const [mac, setMac] = useState("");
   const [name, setName] = useState("");
   const [conflict, setConflict] = useState<ConflictState | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const pod = useQuery({ queryKey: ["pod", podId], queryFn: () => getPod(podId) });
@@ -112,8 +152,40 @@ export function PodLevel() {
     },
   });
 
+  const canBulkEdit = useCan("manage_config", pod.data?.deployment_id ?? null);
+  const catalog = useQuery({
+    queryKey: ["config", "catalog"],
+    queryFn: getCatalog,
+    enabled: canBulkEdit,
+  });
+
   const rows = listeners.data?.items ?? [];
   const total = listeners.data?.total ?? 0;
+  const columns = useMemo(
+    () =>
+      buildColumns(
+        selected,
+        rows,
+        (toggledMac) =>
+          setSelected((current) => {
+            const next = new Set(current);
+            if (next.has(toggledMac)) {
+              next.delete(toggledMac);
+            } else {
+              next.add(toggledMac);
+            }
+            return next;
+          }),
+        () =>
+          setSelected((current) =>
+            rows.every((item) => current.has(item.mac))
+              ? new Set()
+              : new Set(rows.map((item) => item.mac)),
+          ),
+        canBulkEdit,
+      ),
+    [selected, rows, canBulkEdit],
+  );
   const table = useReactTable({
     data: rows,
     columns,
@@ -147,6 +219,16 @@ export function PodLevel() {
   return (
     <>
       <PageHeader eyebrow="Pod level" title={row.name}>
+        {selected.size > 0 && canBulkEdit && (
+          <button
+            type="button"
+            className="btn-secondary"
+            data-testid="bulk-edit-open"
+            onClick={() => setBulkOpen(true)}
+          >
+            Bulk edit ({selected.size})
+          </button>
+        )}
         <Can permission="manage_devices" deploymentId={row.deployment_id}>
           <button
             type="button"
@@ -244,6 +326,18 @@ export function PodLevel() {
           table={table}
           testId="listeners-table"
           caption={`${rows.length} of ${total} shown · sorted by ${sort.replace("-", "")}`}
+        />
+      )}
+      {bulkOpen && (
+        <BulkEditModal
+          open
+          onClose={() => setBulkOpen(false)}
+          // The spec 5.2 checkbox path: explicit identities via the E2.5
+          // `ids` predicate — normalized server-side, re-scoped per actor.
+          selection={{ entity_type: "listener", where: { ids: [...selected].sort() } }}
+          selectionLabel={`${selected.size} selected in ${row.name}`}
+          catalog={catalog.data?.items ?? []}
+          canSaveSelection={canBulkEdit}
         />
       )}
     </>
