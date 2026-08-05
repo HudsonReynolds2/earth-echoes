@@ -85,6 +85,42 @@ E0_ROUTES = {
     ("PUT", f"{API_PREFIX}/aggregators/{{aggregator_id}}/tags"),
     ("GET", f"{API_PREFIX}/listeners/{{mac}}/tags"),
     ("PUT", f"{API_PREFIX}/listeners/{{mac}}/tags"),
+    # E2.1 (gate 31): the settings-catalog read - a schema document, not a
+    # D7 list (D47); seeded in-migration from app/config/catalog.py, the
+    # single source a gate test pins against spec 5.3.
+    ("GET", f"{API_PREFIX}/config/catalog"),
+    # E2.4 (gate 34): effective + override endpoints on all five entities
+    # (spec 13; D50-D51). Reads VIEW_STATUS, writes MANAGE_CONFIG + CSRF;
+    # the D35 scope rules carry over; responses are always redacted.
+    ("GET", f"{API_PREFIX}/organizations/{{organization_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/organizations/{{organization_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/organizations/{{organization_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/deployments/{{deployment_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/pods/{{pod_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/pods/{{pod_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/pods/{{pod_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/config/effective"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/aggregators/{{aggregator_id}}/config/overrides"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/config/effective"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/config/overrides"),
+    ("PUT", f"{API_PREFIX}/listeners/{{mac}}/config/overrides"),
+    # E2.5 (gate 35): the selection engine (spec 5.2, 13; D54) - preview/
+    # list/create ONLY; saved selections re-evaluate at use through the
+    # caller's visible deployments, never a materialized id list.
+    ("POST", f"{API_PREFIX}/selections/preview"),
+    ("GET", f"{API_PREFIX}/selections"),
+    ("POST", f"{API_PREFIX}/selections"),
+    # E2.6 (gate 36): bulk preview/apply (ONE body, ONE plan builder - the
+    # parity guarantee, D56) and the spec-13 revisions read surface no task
+    # claimed, assigned here (D55). Apply stops at draft unconditionally.
+    ("POST", f"{API_PREFIX}/config/preview"),
+    ("POST", f"{API_PREFIX}/config/apply"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/revisions"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/revisions"),
+    ("GET", f"{API_PREFIX}/revisions/{{revision_id}}"),
 }
 
 E0_TABLES = {
@@ -106,6 +142,18 @@ E0_TABLES = {
     # rows per (type, entity).
     "quarantined_report",
     "inventory_alert",
+    # E2.1 (gate 31): the versioned settings catalog (spec 5.3 as data;
+    # D47-D49), upsert-seeded by its migration so replays converge.
+    "settings_catalog",
+    # E2.2 (gate 32): one sparse override map per hierarchy entity (D50-D51);
+    # secret keys store markers, plaintext rides SecretStore.
+    "entity_override",
+    # E2.5 (gate 35): saved selections - the validated query document
+    # verbatim, re-evaluated at every use (D54).
+    "selection",
+    # E2.6 (gate 36): immutable per-device desired-config snapshots (D55);
+    # E2 writes draft ONLY, E3 owns every other state.
+    "config_revision",
 }
 
 
@@ -279,6 +327,11 @@ def test_secret_store_round_trips_every_consumer_name_shape(pg_url):
         f"deployment:{deployment}:influx_token": f"v-{uuid.uuid4().hex}",
         f"bundle:{bundle}:wifi_psk": f"v-{uuid.uuid4().hex}",
         f"bundle:{bundle}:stream_key": f"v-{uuid.uuid4().hex}",
+        # E2.2 (gate 32, D51): config override secrets - flagged additive
+        # extension of this E0-owned contract (INTERFACES, SecretStore
+        # section). Note the MAC-keyed listener shape carries colons.
+        f"config:pod:{uuid.uuid4()}:network.wifi_password": f"v-{uuid.uuid4().hex}",
+        "config:listener:02:EE:0E:01:01:01:network.stream_key": f"v-{uuid.uuid4().hex}",
     }
     for name, value in shapes.items():
         store.put(name, value)

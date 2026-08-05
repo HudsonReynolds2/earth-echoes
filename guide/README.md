@@ -15,6 +15,7 @@ holds the specification).
 | [Verify your deployment](verify-deployment.md) | Prove every platform subsystem works end to end, using a temporary account that cleans up after itself |
 | [Bulk import](bulk-import.md) | Register many listeners or aggregators at once from CSV or JSON, with per-row results |
 | [E1 verification walkthrough](e1-verification.md) | Hand-verify the hierarchy and inventory release feature by feature against a seeded local stack |
+| [E2 verification walkthrough](e2-verification.md) | Hand-verify the configuration release: the inheritance editor, secrets, bulk preview/commit, and saved selections |
 
 ## The five-minute path
 

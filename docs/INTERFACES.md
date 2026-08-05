@@ -297,13 +297,18 @@ sidebar link hidden for non-owners.
   against a secret manager behind the same interface.
 - **API:** `put(name, plaintext)` (upsert), `get(name)`, `exists(name)`, `delete(name)`,
   `rotate_kek(new_kek_b64) -> count`. Names are namespaced by convention:
-  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`.
+  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`, and — added by
+  E2.2 as a flagged extension of this E0-owned contract (D51) —
+  `config:{entity_type}:{entity_id}:{key}` for config override secrets (the listener
+  form embeds a MAC, so names carry interior colons; the readiness round-trip covers
+  both shapes).
 - **Guarantees (tested):** plaintext never in the database, logs, or error messages; GCM
   authentication rejects tampering; a KEK mismatch fails loudly with fingerprints, not
   values.
 - **Consumers:** E4 (device-facing bundle secrets held before the separate spec-8.4
   firmware encryption is applied at export — the two schemes nest, they do not compete),
-  E5 (deployment service credentials), E0.10 (TOTP secrets).
+  E5 (deployment service credentials), E0.10 (TOTP secrets), E2.2 (config override
+  secrets, D51).
 
 ## Owned by E1
 
@@ -487,3 +492,220 @@ reimplement their logic.** Signatures, verbatim:
   (open alerts unique per (alert_type, entity_type, entity_key) via partial unique index
   `WHERE resolved_at IS NULL`; `deployment_id` is un-FK'd scope; `resolved_at` NULL =
   open). Alert types are data, not D8 wire codes. E7 unifies alert surfacing later.
+
+---
+
+## Owned by E2
+
+### The settings catalog (E2.1; spec 5.3; D47-D49) — every config consumer reads this
+
+- **Single source:** `backend/app/config/catalog.py::CATALOG` — a frozen constant of 37
+  `CatalogEntry` rows matching spec 5.3 key for key (gate-pinned both against a
+  hardcoded spec list and against the seeded table, field for field).
+  `CATALOG_VERSION = 1`; `LEVELS = (organization, deployment, pod, aggregator,
+  listener)` is the merge order, root first.
+- **Table:** `settings_catalog` (singular, D30 convention), PK `key`. Columns:
+  `value_type` (`int|float|bool|string|object` — `object` is `capture.schedule` only),
+  `enum_values` JSONB, `min_value`/`max_value`, `default_value` JSONB (SQL NULL = no
+  default; the column name dodges the SQL keyword — the wire field is `default`),
+  `lowest_level` (spec literals + `any`, which behaves as `listener` for the level
+  rule), `secret` (6 rows), `resolution` (`override|inventory` — `inventory` on
+  `location.gps_lat/lon` + `identity.name/mac`, D49: reads resolve from listener
+  columns, override writes are rejected naming the key), `write_restricted`
+  (`service_onboarding` on all `telemetry.*` + `upload.s3_bucket/s3_endpoint/
+  s3_access_key/s3_secret_key`; **`upload.s3_prefix` is deliberately writable** —
+  owner ruling, spec 5.1; D48), `notes`, `version`.
+- **Catalog evolution rule (D47):** edit the constant + add a sync migration calling
+  `seed_catalog(connection)` + bump `CATALOG_VERSION` — always in one batch.
+  `seed_catalog` is an upsert-plus-prune that converges on the current constant, so
+  history replays and in-place upgrades produce identical tables; never seed the
+  catalog any other way.
+- **Endpoint:** `GET /config/catalog` (any assignment) → `{"version": N, "items":
+  [...]}` sorted by key — a schema document, deliberately not a D7 list (D47). The
+  frontend renders ALL config editors from it; a new key must ship with zero frontend
+  changes (E2.7's acceptance).
+
+### Override storage (E2.2; spec 5.1; D50-D51) — E2.3 merges these, E2.4 exposes them
+
+- **Table:** `entity_override` (singular, D30) — one row per entity,
+  `UNIQUE(entity_type, entity_id)`; `entity_id` is an untyped String (UUID string or
+  listener MAC, the audit_log precedent, deliberately un-FK'd); `overrides` JSONB is the
+  sparse flat dotted-key map; `catalog_version` stamps the version validated against.
+- **Service (`app/config/overrides.py`) — signatures verbatim, stage-never-commit:**
+  - `get_overrides(db, entity_type, entity_id) -> dict` — RAW map, markers included;
+    never hand it to a response without E2.3 redaction.
+  - `put_overrides(db, secret_store, entity_type, entity_id, new_map, *, catalog,
+    catalog_version) -> OverrideChange{set_keys, unset_keys, secret_names_to_delete}` —
+    wholesale replace (the E1.7 tags precedent), raises
+    `OverrideValidationError(errors: [OverrideError{key, code, message}])` before
+    staging anything; the API folds errors into ONE 422 `validation_error` with
+    `detail {"errors": [...]}` (codes: `unknown_key | inventory_resolved |
+    service_restricted | level_rule | invalid_value` — detail vocabulary, not new D8
+    wire codes). Callers MUST delete `secret_names_to_delete` through SecretStore
+    AFTER their commit (D51 ordering).
+  - `delete_overrides_for(db, entity_type, entity_id) -> tuple[str, ...]` — entity-
+    deletion cleanup; E2.4 wires it into the four E1 DELETE endpoints; same
+    post-commit secret-deletion duty.
+- **The level rule (D50; project-changes #17):** at-or-above lowest level, never below;
+  `any` = settable everywhere. Validator extras: null is never a value; `object` ≤
+  2 KiB; int rejects bool.
+- **Secret wire semantics (D51):** stored value = marker
+  `{"$secret": "config:{entity_type}:{entity_id}:{key}"}`; redacted reads render
+  `{"$secret_set": true}` (the keep sentinel, `app/config/validation.py::KEEP_SENTINEL`);
+  PUT takes plaintext string (set/replace) | sentinel (keep; 422 if none stored) |
+  omission (unset, deletion post-commit).
+
+### The merge engine (E2.3; spec 5.1, 14.5; D52-D53) — TEST-CRITICAL; E3/E4 consume this
+
+- **Pure core (`app/config/merge.py`) — signatures verbatim:**
+  `LevelOverrides{level, entity_id, overrides}` (chain link, root→target, absent levels
+  simply absent); `ResolvedValue{value, source, source_entity_id}` (source ∈ LEVELS |
+  "default" | "inventory"); `effective_config(chain, catalog, *, target_level,
+  inventory=None, inventory_entity_id=None) -> dict[str, ResolvedValue]` (RAW — markers
+  verbatim); `redact_secrets(config, catalog)` (set secrets → the keep sentinel);
+  `resolve_secret_refs(config, catalog, get)` (plaintext via injected getter —
+  INTERNAL ONLY). Semantics (D53): deepest setter wins else default; values replace
+  wholesale (objects included); every catalog key at every level except inventory keys
+  (listener-only, from columns); unknown/inventory chain overrides ignored on read;
+  malformed chains raise; results never alias inputs.
+  **tests/test_config_merge.py is the locked documentation of these semantics (rule R0)
+  — extend it, never weaken it.**
+- **DB accessors (`app/config/service.py`) — pick by audience:**
+  `ancestry(db, entity_type, entity_id) -> [(level, id)]` (E1 FK walk; LookupError on
+  holes); `override_chain(...)` (one-query row load);
+  `effective_for(...)` → **REDACTED** — the only accessor routers may call;
+  `effective_raw(...)` → markers verbatim — E2.6 revision snapshots only;
+  `effective_resolved(..., secret_store)` → plaintext — **INTERNAL ONLY: E3's publisher
+  and E4's bundle generator; wiring it into an HTTP response is a security defect.**
+- **Canonicalization + checksum (`app/config/canonical.py`) — FROZEN wire contract
+  (D52):** `canonical_config_bytes(snapshot)` = JSON, keys sorted at every depth,
+  compact separators, `ensure_ascii=False`, UTF-8, no trailing newline;
+  `config_checksum(snapshot)` = `"sha256:" + hexdigest`. Checksums cover snapshots WITH
+  markers (secrets never transit desired topics — the snapshot IS the publishable
+  payload body, so device-echoed checksums match by construction). Three golden digests
+  are pinned in the locked suite; changing any of them is a wire-protocol break.
+- **Test dependency:** `hypothesis` (dev-only) runs the suite's property cases under the
+  registered `gate` profile (derandomize=True, no deadline — registered in
+  tests/conftest.py) so gates stay deterministic.
+
+### Config endpoints (E2.4; spec 13; D35, D50-D51) — the E2.7 editor's data source
+
+- **Routes (×5 entities):** `GET /{entity}/{id}/config/effective`,
+  `GET/PUT /{entity}/{id}/config/overrides` (listeners by MAC). Scope discipline is
+  E1's verbatim: org reads any-assignment / org WRITE requires an **org-wide**
+  MANAGE_CONFIG grant (it changes every deployment); deployments 403-before-lookup
+  (VIEW_STATUS read / MANAGE_CONFIG write); pod/aggregator/listener resolve-first →
+  identical 404 for missing and out-of-scope (D35). Writes + CSRF.
+- **Effective shape:** `{entity_type, entity_id, catalog_version, config: {key:
+  {value, source, source_entity_id}}}` — source ∈ level names | "default" |
+  "inventory"; every catalog key present (37 at listener, 33 elsewhere); ALWAYS
+  redacted (set secrets = the keep sentinel).
+- **Overrides shape:** `{entity_type, entity_id, catalog_version, overrides: {key:
+  value}}` — the sparse map, secrets rendered as the sentinel. PUT body
+  `{"overrides": {...}}` (extra="forbid"), wholesale replace; failures are ONE 422
+  `validation_error` with `detail.errors: [{key, code, message}]`, nothing staged.
+- **Audit:** `config.override_update`, scope = deployment id (NULL at org), detail =
+  `{set: [key names], unset: [key names], catalog_version}` — never values.
+- **Deletion cleanup:** the four E1 DELETE endpoints call `delete_overrides_for` and
+  delete orphaned config secrets AFTER their commit (D51 ordering).
+
+### The selection engine (E2.5; spec 5.2, 13; D54) — E2.6 preview/apply consumes this
+
+- **Grammar (`app/config/selection.py::SelectionQuery`, every model extra="forbid"):**
+  `{entity_type, scope?: {deployment_id}, where?: NODE}`; NODE = `{all: [...]}` |
+  `{any: [...]}` | `{tag}` | `{key, op: eq|ne|in, value}` | `{key, op: "exists"}` |
+  `{ids: [...]}`. Caps: depth ≤ 5, ≤ 50 predicates. Semantics: tag = E1.7 containment
+  parity; eq/ne/in compare EFFECTIVE values (inheritance included; secret keys 422);
+  `exists` = override at the entity or any ancestor (inventory keys always false);
+  `ids` = explicit membership (the checkbox path — listener ids normalize as MACs).
+  Semantic errors (unknown key, secret value query, caps) fold into one 422 with
+  `detail.errors` messages naming their keys.
+- **Evaluation (`evaluate_selection(db, query, assignments, permission)`):** SQL
+  prefilter (type/scope/visibility) + in-Python predicates via the pure merge engine
+  with batch-loaded chains (constant query count). ALWAYS re-filters through
+  `visible_deployments(permission)` at evaluation time; deterministic order
+  (entity_id asc). Saved selections re-evaluate at use — never materialized.
+- **Routes:** `POST /selections/preview` (body = the grammar; `limit`/`offset` query
+  params; D7 envelope of `{entity_type, entity_id, name, deployment_id, tags}`;
+  VIEW_STATUS visibility) · `GET /selections` (D7 list; name filter) ·
+  `POST /selections` `{name, query}` → 201 (CSRF + MANAGE_CONFIG in ≥1 deployment;
+  409 duplicate name; audit `selection.create` with name + entity_type). **No
+  PATCH/DELETE** — spec 13's list, deliberate (D54).
+
+### config_revision — THE E3 HANDOFF (E2.6; spec 6.1, 6.2, 7.3; D55-D56)
+
+- **Table shape, verbatim (E3 inherits this):** `id` UUID PK · `target_type`
+  CHECK `('aggregator','listener')` — **per-device only**, pods/orgs never carry
+  revisions · `target_id` String(100) (aggregator platform UUID / listener MAC),
+  **deliberately un-FK'd** · `deployment_id` UUID indexed, **deliberately un-FK'd**
+  (D33 precedent: immutable evidence outlives its subjects — never "fix" this) ·
+  `snapshot` JSONB — the device's full effective config, flat dotted keys, secret
+  MARKERS never plaintext; **composition rule:** listener snapshots exclude
+  `write_restricted` service keys (spec 5.4) and include inventory keys; aggregator
+  snapshots include service keys · `schema_version` int = 1 (spec 7.3 payload field) ·
+  `checksum` — `config_checksum(snapshot)`, the D52 recipe; **the snapshot IS the
+  publishable payload body**, so device-echoed checksums match by construction ·
+  `state` String from the spec 6.2 vocabulary — **E2 writes 'draft' ONLY**; every
+  transition belongs to E3's machine · `created_by` SET-NULL FK · `created_at`.
+  Indexed: (target_type, target_id, created_at), deployment_id, state (pre-pays E3's
+  pending scan). **`publish_revision(revision_id)` does not exist yet — E3 adds it**,
+  gated by `EOE_PUBLISH_ENABLED` (Settings.publish_enabled, default False; E2 only
+  reports it in the apply response).
+- **Secret rotation note (D56):** replacing a secret's value keeps the same marker →
+  no new revision. Rotation reaches devices via E3's §8.7 rewrap path, never
+  desired-config.
+
+### Bulk preview/apply (E2.6; spec 5.2, 14.4; D56) — the E2.8 modal's contract
+
+- **One body for both:** `{selection: <grammar> | {selection_id}, changes: {key:
+  value}, level: "target"|"organization"|"deployment"|"pod"|"aggregator"}` (default
+  "target"). ONE plan builder computes both — preview==apply is structural. Both
+  evaluate through MANAGE_CONFIG visibility. Named level = ONE write at the single
+  common ancestor (422 `detail:{level, ancestors}` on a split; org level needs an
+  org-wide grant → 403). Changes validate through E2.2 at the write level (same
+  errors verbatim).
+- **`POST /config/preview`** (no CSRF — mutates nothing): paginated D7-shaped
+  envelope, deterministic order (deployment_id, target_type, target_id); items
+  `{target_type, target_id, name, pod_id, pod_name, deployment_id, changed_keys,
+  no_op, before, after}` — before/after in the redacted ResolvedValue shape; the
+  affected set is the honest blast radius (every device under a write target). NO
+  status field (D40). Streaming deferred to E8.2 (recorded seam).
+- **`POST /config/apply`** (CSRF): ONE transaction — merged override writes at the
+  targets, a draft revision per non-no_op device, one `config.apply` audit row per
+  affected deployment (detail: changed key names, revision ids, target counts, level).
+  Response `{state: "draft", publish_enabled, revisions: [{revision_id, target_type,
+  target_id, deployment_id, changed_keys, checksum}]}`.
+- **Revisions read surface:** `GET /aggregators/{id}/revisions`,
+  `GET /listeners/{mac}/revisions` (D7, default `-created_at`, `state=` filter,
+  identical-404; list items omit the snapshot) · `GET /revisions/{revision_id}`
+  (full row incl. snapshot; VIEW_STATUS against the row's deployment_id).
+
+### Config frontend (E2.7; D57) — E3/E6 extend these surfaces
+
+- **Routes:** `/configuration` is a nested layout on the shared tree
+  (`lib/hierarchy.ts::useHierarchyTree` — the SAME query keys as /inventory, zero
+  extra fetches): index = organization editor; `deployments/:deploymentId`;
+  `pods/:podId`; `aggregators/:aggregatorId` (own route — overrides write at
+  aggregator level); `listeners/:mac`. Tabs Settings/Tags/Revisions ride `?tab=`
+  (ContextBar's tab slot, first consumer).
+- **Client module:** `src/lib/config.ts` over the extracted `src/lib/http.ts`
+  (ApiError re-exported from lib/inventory.ts). PURE helpers carry the logic —
+  `editableAt` (the D50 truth table), `provenanceOf`, `buildDraftPut` (the one-PUT
+  body: server map + staged edits − reverts), `groupOf`, `unitOf`, `isSecretSet` —
+  all unit-tested in config-lib.test.ts.
+- **Vocabulary (additive to D42):** `.config-table` on `.data-table` (grouped,
+  unsorted, unpaginated — NOT TanStack, by design); `.provenance-chip
+  [data-provenance]` (non-status; never data-status — the D40 zero-[data-status]
+  guard is test-asserted on config routes); `.toggle` (role="switch", ink track);
+  `.draft-banner`; `.draft-diff` (CSS-drawn arrow); `.chain-*`; `.secret-chip`;
+  `.config-fact*` (the ListenerDetail card). New tokens (+dark same commit):
+  `--eoe-color-warning-border`, `--eoe-width-configrail`.
+- **Draft semantics:** edits stage locally, save is ONE wholesale PUT per level;
+  the banner counts unsaved keys ("nothing reaches devices until you publish" —
+  literally true, publish is E3's; the Publish button renders disabled naming E3 +
+  EOE_PUBLISH_ENABLED). Secrets: bullets + set-ness, write-only Replace, diff says
+  "replaced"; the sentinel round-trips redacted GETs through PUT.
+- **Test fixture:** `frontend/tests/config-fixture.ts` — catalog v4 spanning every
+  editor type + the acceptance key `test.demo_knob` (no src/ reference); an
+  in-memory override store + miniature D53 merge back the MSW handlers, so
+  provenance and no-op detection are real in tests.

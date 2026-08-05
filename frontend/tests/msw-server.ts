@@ -5,6 +5,7 @@
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 
+import { CATALOG_FIXTURE, fixtureEffective, fixtureOverrides } from "./config-fixture";
 import {
   ORG,
   aggregators,
@@ -107,4 +108,23 @@ export const server = setupServer(
           { status: 404 },
         );
   }),
+  // --- E2.7 config reads (global — every config page render needs them;
+  // PUT overrides and preview/apply are per-test server.use overrides) -----
+  http.get("http://api.test/api/v1/config/catalog", () => HttpResponse.json(CATALOG_FIXTURE)),
+  http.get("http://api.test/api/v1/:entity/:id/config/effective", ({ params }) =>
+    HttpResponse.json(
+      fixtureEffective(String(params.entity), decodeURIComponent(String(params.id))),
+    ),
+  ),
+  http.get("http://api.test/api/v1/:entity/:id/config/overrides", ({ params }) =>
+    HttpResponse.json(
+      fixtureOverrides(String(params.entity), decodeURIComponent(String(params.id))),
+    ),
+  ),
+  http.get("http://api.test/api/v1/:entity/:id/revisions", () =>
+    HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+  ),
+  http.get("http://api.test/api/v1/selections", () =>
+    HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+  ),
 );

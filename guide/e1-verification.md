@@ -175,12 +175,16 @@ placeholders pretending to be data:
 
 - [ ] **/map** — the reserved map region plus the six-state status legend (the one place
       the status vocabulary legitimately shows, as a legend); the copy names **E6**.
-- [ ] **/configuration** — empty state naming **E2**.
+- [ ] **/configuration** — ~~empty state naming E2~~ *(amended 2026-08-04, E2.7: the
+      live inheritance editor now lives here — verify it via
+      [the E2 walkthrough](e2-verification.md); its Publish affordances name **E3**)*.
 - [ ] **/provisioning** — empty state naming **E4** and **E5**.
 - [ ] **Overview → Needs attention** — names **E3/E7**.
 - [ ] **Deployment cards** — "Device status arrives with E3 · services with E5".
-- [ ] **Listener detail** — footer "Live status arrives with E3 · effective config with
-      E2 · telemetry with E5"; GPS fields are plain inputs (the guided flow is E4.11).
+- [ ] **Listener detail** — footer "Live status arrives with E3 · telemetry with E5"
+      *(amended 2026-08-04, E2.7: the "effective config with E2" promise is delivered —
+      the page now carries an **Effective config** card with an Edit deep-link into
+      /configuration)*; GPS fields are plain inputs (the guided flow is E4.11).
 - [ ] **Empty states with actions** — an empty pod offers listener creation and the
       import link; a fresh org would offer "New deployment" + "Import inventory CSV".
 

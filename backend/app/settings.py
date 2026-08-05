@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     cors_origins: str = Field(default="", validation_alias="EOE_CORS_ORIGINS")
     build_sha: str = Field(default="dev", validation_alias="EOE_BUILD_SHA")
     session_ttl_seconds: int = Field(default=43200, validation_alias="EOE_SESSION_TTL_SECONDS")
+    # E2.6 (D56): gates E3's publish call-through. E2's apply stops at draft
+    # revisions UNCONDITIONALLY - the flag exists so E3 can flip it, nothing
+    # in E2 reads it beyond reporting it in the apply response.
+    publish_enabled: bool = Field(default=False, validation_alias="EOE_PUBLISH_ENABLED")
 
     @property
     def cors_origin_list(self) -> list[str]:

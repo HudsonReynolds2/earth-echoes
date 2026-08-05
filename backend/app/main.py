@@ -11,12 +11,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.aggregators import router as aggregators_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.config import router as config_router
 from app.api.deployments import router as deployments_router
+from app.api.entity_config import router as entity_config_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
 from app.api.listeners import router as listeners_router
 from app.api.organizations import router as organizations_router
 from app.api.pods import router as pods_router
+from app.api.revisions import router as revisions_router
+from app.api.selections import router as selections_router
 from app.api.totp import router as totp_router
 from app.api.users import router as users_router
 from app.db import create_session_factory
@@ -78,6 +82,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(aggregators_router)
     api_router.include_router(listeners_router)
     api_router.include_router(imports_router)
+    api_router.include_router(config_router)
+    api_router.include_router(entity_config_router)
+    api_router.include_router(selections_router)
+    api_router.include_router(revisions_router)
     app.include_router(api_router)
 
     return app

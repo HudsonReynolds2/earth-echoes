@@ -6,12 +6,14 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { Can } from "../../components/Can";
 import { EmptyState } from "../../components/EmptyState";
 import { PageHeader } from "../../components/PageHeader";
 import { TagEditor } from "../../components/TagEditor";
+import { getEffectiveConfig } from "../../lib/config";
 import { deleteListener, getListener, patchListener } from "../../lib/inventory";
 
 export function ListenerDetail() {
@@ -109,10 +111,9 @@ export function ListenerDetail() {
           <dt>Registered</dt>
           <dd>{row.created_at}</dd>
         </dl>
-        <p className="muted">
-          Live status arrives with E3 · effective config with E2 · telemetry with E5.
-        </p>
+        <p className="muted">Live status arrives with E3 · telemetry with E5.</p>
       </section>
+      <EffectiveConfigCard mac={row.mac} />
       {editing && (
         <section className="card">
           <form
@@ -158,4 +159,67 @@ export function ListenerDetail() {
       {remove.isError && <p className="form-error">{(remove.error as Error).message}</p>}
     </>
   );
+}
+
+/**
+ * Compact effective-config card (E2.7; V2·S2 fact-section treatment — an
+ * additive change to this E1 page, recorded): a handful of resolved values
+ * with provenance, and an Edit deep-link into the full editor. Overridden
+ * rows get the accent inset treatment; secrets stay redacted (the sentinel
+ * renders as "set").
+ */
+const CARD_KEYS = [
+  "audio.sample_rate_hz",
+  "audio.bits_per_sample",
+  "capture.mode",
+  "logging.verbosity",
+  "network.wifi_ssid",
+];
+
+function EffectiveConfigCard({ mac }: { mac: string }) {
+  const effective = useQuery({
+    queryKey: ["config", "effective", "listeners", mac],
+    queryFn: () => getEffectiveConfig("listeners", mac),
+  });
+  if (!effective.data) {
+    return null; // the card appears when the config surface answers
+  }
+  const config = effective.data.config;
+  const total = Object.keys(config).length;
+  return (
+    <section className="card" data-testid="effective-config-card">
+      <h2>
+        Effective config{" "}
+        <Link className="btn-tertiary" to={`/configuration/listeners/${encodeURIComponent(mac)}`}>
+          Edit
+        </Link>
+      </h2>
+      <dl className="config-facts">
+        {CARD_KEYS.filter((key) => key in config).map((key) => (
+          <div
+            key={key}
+            className="config-fact"
+            data-overridden={config[key].source === "listener" || undefined}
+          >
+            <dt className="mono">{key}</dt>
+            <dd>
+              <span className="mono">{formatFact(config[key].value)}</span>
+              <span className="config-fact-source">{config[key].source}</span>
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="muted">{Math.max(total - CARD_KEYS.length, 0)} more keys in the editor.</p>
+    </section>
+  );
+}
+
+function formatFact(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (typeof value === "object") {
+    return "$secret_set" in (value as object) ? "set" : JSON.stringify(value);
+  }
+  return String(value);
 }
