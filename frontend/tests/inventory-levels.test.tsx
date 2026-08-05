@@ -82,4 +82,19 @@ describe("level pages", () => {
     expect(screen.getByTestId("listener-mac")).toHaveTextContent("02:EE:0E:01:01:01");
     expect(screen.getByTestId("listener-facts")).toHaveTextContent("Live status arrives with E3");
   });
+
+  it("listener detail carries the E2.7 effective-config card with an Edit deep-link", async () => {
+    actAsOwner();
+    renderAt(`/inventory/listeners/${FIXTURE_IDS.firstListenerMac}`);
+    const card = await screen.findByTestId("effective-config-card");
+    // The listener's own 192k override reads as overridden (V2·S2 inset).
+    const rateFact = within(card).getByText("audio.sample_rate_hz").closest(".config-fact")!;
+    expect(rateFact).toHaveAttribute("data-overridden");
+    expect(within(card).getByText("192000")).toBeInTheDocument();
+    const edit = within(card).getByRole("link", { name: "Edit" });
+    expect(edit).toHaveAttribute(
+      "href",
+      `/configuration/listeners/${encodeURIComponent(FIXTURE_IDS.firstListenerMac)}`,
+    );
+  });
 });

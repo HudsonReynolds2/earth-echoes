@@ -1,5 +1,39 @@
 # Project Updates
 
+## 2026-08-04: E2.7 schema-driven config editor (Gate 37 GREEN)
+
+- **Tasks closed:** E2.7 (branch `e2-batch-3`; DECISIONS D57).
+- **Gate:** 37 — first full run RED on `frontend: eslint` (Prettier formatting across
+  the ten new/touched files; my standalone eslint check hadn't run the format half of
+  the lint script). `prettier --write`, rerun GREEN. Three test-authoring fixes on the
+  pre-gate vitest run (ambiguous text matches scoped to the chip class; a missing
+  cleanup() between renders) — all test-side, no production changes.
+- **Tests:** backend 357, vitest 88 (+28: config-editor 10, config-secrets 3,
+  config-rbac 5, config-lib 9, shell +2 rows, inventory-levels +1), Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** the /configuration editor — shared-tree layout (`lib/hierarchy.ts`
+  extraction; InventoryLayout repointed, behavior-neutral), five level routes incl.
+  the aggregator's own, ContextBar tabs (first consumer; Settings/Tags/Revisions,
+  S3's five folded per D57), the S3 provenance table on the .data-table vocabulary
+  (quiet/loud rows, group headers with rationale captions, U+00D7 revert), catalog-
+  driven editors for every type (bool = new ink-track ToggleSwitch; schedule = raw
+  JSON v1; unknown types fall back safely), the **test-key acceptance** (fixture-only
+  `test.demo_knob` grows a working editor, gate-pinned), secret rows (bullets,
+  write-only Replace, diff says "replaced", plaintext-never-in-DOM test), local
+  staging with the draft banner/diff and ONE wholesale PUT, per-key 422 landing,
+  the inheritance chain with live ancestor counts, Field-Tech/viewer LOCKED treatment
+  (aria-described), the D40 zero-[data-status] guard extended to config routes,
+  Publish rendered disabled naming E3, and the ListenerDetail effective-config card
+  with its Edit deep-link. Tokens: `--eoe-color-warning-border`,
+  `--eoe-width-configrail` (+dark values same commit). The E1 shell Configuration
+  page is deleted; shell.test's route table updated in the same commit.
+- **Manual verification:** the component suites ARE the walk at this gate (the
+  test-key acceptance, provenance walk, secret discipline, and RBAC treatments all
+  assert against rendered DOM over the MSW fixture's real miniature merge); the
+  full in-browser walkthrough is gate 38's deliverable (guide/e2-verification.md)
+  per the E1 gate-27/28 precedent, honestly recorded here rather than claimed early.
+
 ## 2026-08-04: E2.6 bulk preview/apply + revisions read (Gate 36 GREEN)
 
 - **Tasks closed:** E2.6 (branch `e2-batch-2`; DECISIONS D55-D56; project-changes #18

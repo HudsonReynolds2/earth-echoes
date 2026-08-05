@@ -71,4 +71,7 @@
 
   /* E1.8: destructive-button outline, relit for the dark surface. */
   --eoe-color-danger-border: #5e3527;
+
+  /* E2.7: the draft banner's outline, relit for the dark surface. */
+  --eoe-color-warning-border: #56451e;
 }

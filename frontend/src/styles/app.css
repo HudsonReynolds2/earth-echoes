@@ -985,3 +985,350 @@ tr.row-invalid {
   gap: var(--eoe-space-1);
   align-items: center;
 }
+
+/* == config editor (E2.7; S3 at v2 values; D50-D51) ======================
+ * The provenance table extends .data-table (D42: one table vocabulary,
+ * additive classes only). Quiet inherited rows, loud overridden rows;
+ * the revert control is text U+00D7; the diff arrow is CSS-drawn (D27). */
+
+.config-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--eoe-width-configrail);
+  gap: var(--eoe-space-4);
+  align-items: start;
+}
+
+.config-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-3);
+}
+
+.config-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  margin-bottom: var(--eoe-space-2);
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.config-table {
+  table-layout: fixed;
+}
+
+.config-table .config-key {
+  width: 32%;
+}
+
+.config-table .config-value {
+  width: 190px;
+}
+
+.config-table .config-source {
+  width: 116px;
+  color: var(--eoe-color-text-muted);
+}
+
+.config-table .config-state {
+  width: 96px;
+}
+
+.config-table .config-revert {
+  width: 30px;
+}
+
+.config-group th {
+  padding-top: var(--eoe-space-4);
+  background: var(--eoe-color-surface-raised);
+  text-transform: uppercase;
+  letter-spacing: var(--eoe-letter-spacing-label);
+  font-size: var(--eoe-font-size-2xs);
+}
+
+.config-group-caption {
+  margin-left: var(--eoe-space-3);
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--eoe-color-text-subtle);
+  font-weight: normal;
+}
+
+tr.row-overridden td {
+  background: var(--eoe-color-accent-tint);
+}
+
+.config-cell-note {
+  margin: var(--eoe-space-1) 0 0;
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-muted);
+}
+
+.config-readonly {
+  color: var(--eoe-color-text);
+}
+
+.config-revert-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--eoe-font-size-md);
+  color: var(--eoe-color-text-muted);
+  line-height: 1;
+  padding: var(--eoe-space-1);
+}
+
+.config-revert-btn:hover {
+  color: var(--eoe-color-danger);
+}
+
+.secret-chip {
+  display: inline-block;
+  margin-left: var(--eoe-space-2);
+  padding: 0 var(--eoe-space-2);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-pill);
+  font-size: var(--eoe-font-size-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--eoe-letter-spacing-label);
+  color: var(--eoe-color-text-muted);
+}
+
+.secret-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+}
+
+.editor-with-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+}
+
+.editor-unit,
+.editor-json-note {
+  color: var(--eoe-color-text-subtle);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.config-locked {
+  padding: var(--eoe-space-2) var(--eoe-space-3);
+  background: var(--eoe-color-surface-raised);
+  border-radius: var(--eoe-radius-sm);
+  color: var(--eoe-color-text-muted);
+}
+
+.config-footer {
+  margin-top: var(--eoe-space-3);
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* == provenance chips (E2.7) - NON-status vocabulary (the .outcome-*
+ * precedent): own attribute, colored words, no glyphs, never data-status.
+ * "edited" rides the warning alias, "set here" the accent - emphasis and
+ * in-flight-ness, not device health (flagged for DES.8 review). */
+
+.provenance-chip {
+  display: inline-block;
+  padding: 0 var(--eoe-space-2);
+  border-radius: var(--eoe-radius-pill);
+  font-size: var(--eoe-font-size-sm);
+  background: var(--eoe-color-surface-raised);
+  color: var(--eoe-color-text-muted);
+}
+
+.provenance-chip[data-provenance="overridden"] {
+  background: var(--eoe-color-accent-tint);
+  color: var(--eoe-color-accent-hover);
+}
+
+.provenance-chip[data-provenance="edited"] {
+  background: var(--eoe-color-status-degraded-tint);
+  color: var(--eoe-color-warning);
+}
+
+.provenance-chip[data-provenance="default"] {
+  background: none;
+  border: var(--eoe-border-width-hairline) dashed var(--eoe-color-border-strong);
+}
+
+/* == toggle switch (E2.7) - ink track, not green (interactive-is-ink;
+ * deviation from the mockup recorded) ==================================== */
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.toggle-track {
+  display: inline-flex;
+  align-items: center;
+  width: 34px;
+  height: 18px;
+  padding: var(--eoe-space-px);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-pill);
+  background: var(--eoe-color-surface);
+  transition: background var(--eoe-duration-fast) var(--eoe-ease);
+}
+
+.toggle-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--eoe-radius-round);
+  background: var(--eoe-color-border-strong);
+  transition: transform var(--eoe-duration-fast) var(--eoe-ease);
+}
+
+.toggle[aria-checked="true"] .toggle-track {
+  background: var(--eoe-color-action);
+  border-color: var(--eoe-color-action);
+}
+
+.toggle[aria-checked="true"] .toggle-thumb {
+  background: var(--eoe-color-action-contrast);
+  transform: translateX(16px);
+}
+
+.toggle-word {
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-muted);
+  min-width: 2ch;
+}
+
+/* == draft banner + diff (E2.7) ========================================== */
+
+.draft-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  margin-bottom: var(--eoe-space-3);
+  padding: var(--eoe-space-2) var(--eoe-space-3);
+  background: var(--eoe-color-status-degraded-tint);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-warning-border);
+  border-radius: var(--eoe-radius-sm);
+  color: var(--eoe-color-text);
+}
+
+.draft-diff {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-2);
+}
+
+.diff-key {
+  display: block;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.diff-values {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.diff-old {
+  color: var(--eoe-color-danger);
+  text-decoration: line-through;
+}
+
+.diff-new {
+  color: var(--eoe-color-success);
+  font-weight: var(--eoe-font-weight-medium);
+}
+
+.diff-arrow {
+  width: 8px;
+  height: 8px;
+  border-top: var(--eoe-border-width-emphasis) solid var(--eoe-color-text-subtle);
+  border-right: var(--eoe-border-width-emphasis) solid var(--eoe-color-text-subtle);
+  transform: rotate(45deg);
+}
+
+/* == inheritance chain (E2.7) ============================================ */
+
+.chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chain-rung {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: var(--eoe-space-2);
+  align-items: baseline;
+  padding: var(--eoe-space-2) 0;
+  border-left: var(--eoe-border-width-emphasis) solid var(--eoe-color-border);
+  padding-left: var(--eoe-space-3);
+}
+
+.chain-rung[data-current] {
+  border-left-color: var(--eoe-color-accent);
+  background: var(--eoe-color-accent-tint);
+}
+
+.chain-level {
+  text-transform: uppercase;
+  letter-spacing: var(--eoe-letter-spacing-label);
+  font-size: var(--eoe-font-size-2xs);
+  color: var(--eoe-color-text-subtle);
+}
+
+.chain-count {
+  font-size: var(--eoe-font-size-sm);
+  color: var(--eoe-color-text-muted);
+}
+
+/* == listener effective-config card (E2.7; V2-S2 fact treatment) ========= */
+
+.config-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.config-fact {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--eoe-space-3);
+  padding: var(--eoe-space-2) var(--eoe-space-2);
+}
+
+.config-fact[data-overridden] {
+  background: var(--eoe-color-accent-tint);
+  border-left: var(--eoe-border-width-selected) solid var(--eoe-color-accent);
+}
+
+.config-fact dt {
+  font-size: var(--eoe-font-size-sm);
+}
+
+.config-fact dd {
+  margin: 0;
+  display: inline-flex;
+  gap: var(--eoe-space-2);
+  align-items: baseline;
+}
+
+.config-fact-source {
+  font-size: var(--eoe-font-size-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--eoe-letter-spacing-label);
+  color: var(--eoe-color-text-subtle);
+}

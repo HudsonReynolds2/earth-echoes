@@ -4,6 +4,39 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D57 (2026-08-04): The config editor's frontend rulings (E2.7)
+
+- **Desktop-only** (owner decision 2026-08-04, closing DES open question 3): the
+  246px-rail + provenance-table + 290px-rail layout targets 1440px; no tablet layout is
+  built or promised. Field techs — the tablet role — have config read-only anyway.
+- **Tab set folded**: S3's five-tab strip (Settings/Network/Secrets/Tags/Revisions)
+  ships as THREE — Network is a settings group, secrets are rows inside Settings (the
+  SECRET chip + bullets + write-only Replace), Tags remounts the E1.7 TagEditor,
+  Revisions lists per-device drafts. First real consumer of ContextBar's tab slot;
+  tab state rides `?tab=` for deep links.
+- **Interactive-is-ink**: the new ToggleSwitch fills its track with ACTION ink, not the
+  mockup's green (green is a status color). S3's "Show provenance" toggle is dropped —
+  provenance is the screen's point, always on. "Only overridden" ships.
+- **Editors**: all catalog-driven (the spec 5.3 acceptance is a fixture-only
+  `test.demo_knob` growing a working editor with zero src/ references, gate-pinned);
+  `capture.schedule` edits as validated raw JSON in v1 (purpose-built schedule editor
+  deferred); unknown value types fall back to the JSON editor, keeping the acceptance
+  true for future types. Client validation stays soft; the server's folded 422 lands
+  per-key on the named rows.
+- **Provenance chips** are a NON-status vocabulary (`data-provenance`, the .outcome-*
+  precedent — no glyphs, never data-status; the D40 zero-[data-status] guard is
+  asserted on config routes). "edited" rides the warning alias, "set here" the accent —
+  flagged for DES.8 review. The revert control is text U+00D7 (no ↺ in the vendored
+  fonts, D27); the diff arrow is CSS-drawn.
+- **Additive changes to E1 surfaces**: HierarchyTree gains optional
+  testId/ariaLabel/footer props (defaults preserve E1); InventoryLayout repointed onto
+  the extracted `useHierarchyTree` hook (identical query keys — behavior-neutral,
+  regression-netted by the E1 suites); ListenerDetail gains the V2·S2 effective-config
+  card with an Edit deep-link, and its footer promise drops the now-delivered E2 line.
+  lib/http.ts extracted from lib/inventory.ts (ApiError re-exported).
+- **Reference:** phase-2 E2.7; S3/V2·S2; owner decisions 2026-08-04; the E2 design
+  checklist; config-editor/config-secrets/config-rbac/config-lib test suites.
+
 ## D56 (2026-08-04): Bulk apply — one plan builder, write-at-level, draft-only, per-deployment audit
 
 - **Decision:** preview and apply share ONE body (`{selection: inline | {selection_id},
