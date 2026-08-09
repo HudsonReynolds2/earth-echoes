@@ -7,7 +7,7 @@
  * arrives with E3 (DECISIONS: no fabricated status). The caret is CSS-drawn;
  * the ▶/▼ characters exist in no vendored font (D27).
  */
-import { CSSProperties, useState } from "react";
+import { CSSProperties, ReactNode, useState } from "react";
 import { NavLink } from "react-router-dom";
 
 export interface TreeNode {
@@ -63,10 +63,23 @@ function TreeRow({ node, depth, filter }: { node: TreeNode; depth: number; filte
   );
 }
 
-export function HierarchyTree({ nodes }: { nodes: TreeNode[] }) {
+export function HierarchyTree({
+  nodes,
+  // Additive props since E2.7 (recorded in DECISIONS): defaults preserve the
+  // E1 contract exactly; /configuration passes its own identity, and footer
+  // is the rail mount point for the E2.8 saved-selections block.
+  testId = "tree-rail",
+  ariaLabel = "Inventory tree",
+  footer,
+}: {
+  nodes: TreeNode[];
+  testId?: string;
+  ariaLabel?: string;
+  footer?: ReactNode;
+}) {
   const [filter, setFilter] = useState("");
   return (
-    <aside className="tree-rail" data-testid="tree-rail">
+    <aside className="tree-rail" data-testid={testId}>
       <input
         className="tree-filter"
         placeholder="Filter hierarchy"
@@ -74,11 +87,12 @@ export function HierarchyTree({ nodes }: { nodes: TreeNode[] }) {
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
       />
-      <nav className="tree" aria-label="Inventory tree">
+      <nav className="tree" aria-label={ariaLabel}>
         {nodes.map((node) => (
           <TreeRow key={node.id} node={node} depth={0} filter={filter.toLowerCase()} />
         ))}
       </nav>
+      {footer}
     </aside>
   );
 }

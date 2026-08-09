@@ -1,30 +1,14 @@
 /**
- * Hierarchy/inventory client (task E1.8). Follows the users.ts template —
- * envelope-aware error parsing, CSRF header on writes — plus a typed ApiError
- * the UI can branch on (the 409 name-conflict dialog reads error.detail).
+ * Hierarchy/inventory client (task E1.8). The request/error plumbing moved
+ * to lib/http.ts in E2.7 so lib/config.ts shares it; ApiError and
+ * ListEnvelope re-export from here for the existing consumers - same types,
+ * same behavior (the 409 name-conflict dialog still reads error.detail).
  */
-import { apiBaseUrl } from "./api";
 import { readCsrfToken } from "./auth";
+import { ListEnvelope, query, request, writeHeaders } from "./http";
 
-export class ApiError extends Error {
-  code: string;
-  status: number;
-  detail: unknown;
-
-  constructor(code: string, message: string, status: number, detail: unknown) {
-    super(message);
-    this.code = code;
-    this.status = status;
-    this.detail = detail;
-  }
-}
-
-export interface ListEnvelope<ItemT> {
-  items: ItemT[];
-  total: number;
-  limit: number;
-  offset: number;
-}
+export { ApiError } from "./http";
+export type { ListEnvelope } from "./http";
 
 export interface ListParams {
   limit?: number;
@@ -102,54 +86,6 @@ export interface ImportReport {
   created: number;
   failed: number;
   rows: ImportRowResult[];
-}
-
-async function parseError(response: Response): Promise<never> {
-  let code = "internal_error";
-  let message = `request failed: ${response.status}`;
-  let detail: unknown = null;
-  try {
-    const body = (await response.json()) as {
-      error?: { code?: string; message?: string; detail?: unknown };
-    };
-    if (body.error) {
-      code = body.error.code ?? code;
-      message = body.error.message ?? message;
-      detail = body.error.detail ?? null;
-    }
-  } catch {
-    // keep the status-based message
-  }
-  throw new ApiError(code, message, response.status, detail);
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl()}/api/v1${path}`, {
-    credentials: "include",
-    ...init,
-  });
-  if (!response.ok) {
-    return parseError(response);
-  }
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
-}
-
-function writeHeaders(): Record<string, string> {
-  return { "Content-Type": "application/json", "X-CSRF-Token": readCsrfToken() };
-}
-
-function query(params: Record<string, string | number | undefined>): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== "") {
-      search.set(key, String(value));
-    }
-  }
-  const text = search.toString();
-  return text ? `?${text}` : "";
 }
 
 // --- lists and items ---------------------------------------------------------

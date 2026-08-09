@@ -43,7 +43,11 @@ describe("shell and routing", () => {
       ["/inventory/pods/b1100000-0000-4000-8000-000000000001", "Pod 01 · Alder Creek"],
       ["/inventory/listeners/02:EE:0E:01:01:01", "alder-creek-01"],
       ["/inventory/import", "Bulk import"],
-      ["/configuration", "Inheritance editor"],
+      // E2.7: the live editor replaced the E1 shell; every level answers
+      // the same "Configuration" title with the entity in the crumb.
+      ["/configuration", "Configuration"],
+      ["/configuration/pods/b1100000-0000-4000-8000-000000000001", "Configuration"],
+      ["/configuration/listeners/02:EE:0E:01:01:01", "Configuration"],
       ["/provisioning", "Provisioning"],
     ]) {
       renderAt(path);

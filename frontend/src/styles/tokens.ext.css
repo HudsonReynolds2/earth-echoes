@@ -142,4 +142,11 @@
   --eoe-indent-tree: 14px;
   --eoe-space-px: 1px;
   --eoe-width-treerail: 246px;
+
+  /* ── E2.7 additions: the config editor (all additive) ──────────────────
+   * warning-border mirrors danger-border for the draft banner's outline
+   * (the amber band rides the degraded tint per the row-invalid precedent);
+   * width-configrail is the S3 side rail (inheritance chain + draft diff). */
+  --eoe-color-warning-border: #e0cba0;
+  --eoe-width-configrail: 290px;
 }

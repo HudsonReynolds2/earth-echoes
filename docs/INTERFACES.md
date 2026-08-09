@@ -679,3 +679,33 @@ reimplement their logic.** Signatures, verbatim:
   `GET /listeners/{mac}/revisions` (D7, default `-created_at`, `state=` filter,
   identical-404; list items omit the snapshot) · `GET /revisions/{revision_id}`
   (full row incl. snapshot; VIEW_STATUS against the row's deployment_id).
+
+### Config frontend (E2.7; D57) — E3/E6 extend these surfaces
+
+- **Routes:** `/configuration` is a nested layout on the shared tree
+  (`lib/hierarchy.ts::useHierarchyTree` — the SAME query keys as /inventory, zero
+  extra fetches): index = organization editor; `deployments/:deploymentId`;
+  `pods/:podId`; `aggregators/:aggregatorId` (own route — overrides write at
+  aggregator level); `listeners/:mac`. Tabs Settings/Tags/Revisions ride `?tab=`
+  (ContextBar's tab slot, first consumer).
+- **Client module:** `src/lib/config.ts` over the extracted `src/lib/http.ts`
+  (ApiError re-exported from lib/inventory.ts). PURE helpers carry the logic —
+  `editableAt` (the D50 truth table), `provenanceOf`, `buildDraftPut` (the one-PUT
+  body: server map + staged edits − reverts), `groupOf`, `unitOf`, `isSecretSet` —
+  all unit-tested in config-lib.test.ts.
+- **Vocabulary (additive to D42):** `.config-table` on `.data-table` (grouped,
+  unsorted, unpaginated — NOT TanStack, by design); `.provenance-chip
+  [data-provenance]` (non-status; never data-status — the D40 zero-[data-status]
+  guard is test-asserted on config routes); `.toggle` (role="switch", ink track);
+  `.draft-banner`; `.draft-diff` (CSS-drawn arrow); `.chain-*`; `.secret-chip`;
+  `.config-fact*` (the ListenerDetail card). New tokens (+dark same commit):
+  `--eoe-color-warning-border`, `--eoe-width-configrail`.
+- **Draft semantics:** edits stage locally, save is ONE wholesale PUT per level;
+  the banner counts unsaved keys ("nothing reaches devices until you publish" —
+  literally true, publish is E3's; the Publish button renders disabled naming E3 +
+  EOE_PUBLISH_ENABLED). Secrets: bullets + set-ness, write-only Replace, diff says
+  "replaced"; the sentinel round-trips redacted GETs through PUT.
+- **Test fixture:** `frontend/tests/config-fixture.ts` — catalog v4 spanning every
+  editor type + the acceptance key `test.demo_knob` (no src/ reference); an
+  in-memory override store + miniature D53 merge back the MSW handlers, so
+  provenance and no-op detection are real in tests.

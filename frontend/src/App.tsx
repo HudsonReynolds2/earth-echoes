@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
 
 import { Shell } from "./components/Shell";
-import { Configuration } from "./pages/Configuration";
+import { ConfigEditorPage } from "./pages/configuration/ConfigEditorPage";
+import { ConfigurationLayout } from "./pages/configuration/ConfigurationLayout";
 import { DeploymentLevel } from "./pages/inventory/DeploymentLevel";
 import { ImportPage } from "./pages/inventory/ImportPage";
 import { InventoryLayout } from "./pages/inventory/InventoryLayout";
@@ -32,7 +33,19 @@ export function App({ queryClient }: { queryClient?: QueryClient }) {
             <Route path="listeners/:mac" element={<ListenerDetail />} />
             <Route path="import" element={<ImportPage />} />
           </Route>
-          <Route path="configuration" element={<Configuration />} />
+          <Route path="configuration" element={<ConfigurationLayout />}>
+            <Route index element={<ConfigEditorPage level="organization" />} />
+            <Route
+              path="deployments/:deploymentId"
+              element={<ConfigEditorPage level="deployment" />}
+            />
+            <Route path="pods/:podId" element={<ConfigEditorPage level="pod" />} />
+            <Route
+              path="aggregators/:aggregatorId"
+              element={<ConfigEditorPage level="aggregator" />}
+            />
+            <Route path="listeners/:mac" element={<ConfigEditorPage level="listener" />} />
+          </Route>
           <Route path="provisioning" element={<Provisioning />} />
           <Route path="system" element={<SystemStatus />} />
           <Route path="users" element={<UsersAdmin />} />
