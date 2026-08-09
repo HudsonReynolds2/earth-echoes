@@ -10,7 +10,7 @@ the check runs before any lookup, so it never confirms existence.
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +28,7 @@ from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
 from app.auth.rbac import Permission, require_permission
+from app.config.overrides import delete_overrides_for
 from app.errors import AppError
 from app.inventory.naming import next_free_slug, slugify
 from app.models import Deployment, Pod, RoleAssignment, UserSession
@@ -200,6 +201,7 @@ def patch_deployment(
 def delete_deployment(
     deployment_id: uuid.UUID,
     db: DbDep,
+    request: Request,
     actor: Annotated[UserSession, Depends(require_csrf)],
 ) -> None:
     row = db.get(Deployment, deployment_id)
@@ -217,6 +219,7 @@ def delete_deployment(
             or 0,
         },
     )
+    orphaned_secrets = delete_overrides_for(db, "deployment", str(row.id))  # E2.4 cleanup (D51)
     db.delete(row)
     record_audit(
         db,
@@ -228,6 +231,8 @@ def delete_deployment(
         detail={"name": row.name, "slug": row.slug},
     )
     db.commit()
+    for name in orphaned_secrets:  # D51: only ever AFTER the commit
+        request.app.state.secret_store.delete(name)
 
 
 @router.get(

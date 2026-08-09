@@ -21,6 +21,25 @@ referenced planning document; an entry with no addendum is incomplete.
 - **Affects:** project_planning/phase-2-configuration-model.md §4 (task E2.2)
 - **Addendum:** PHASE2-4-01
 
+## #18 (2026-08-04): E2.6 concretized — write-at-level, per-device draft revisions, revisions routes assigned
+
+- **What changed:** task E2.6's sketch left three things open that the shipped design
+  fixes: (a) apply gains an explicit **write-at-level** control — `level="target"`
+  (default) writes onto each matched entity, a named level writes once at the single
+  common ancestor or 422s on a split; (b) revisions are **per-device only**
+  (aggregator/listener, per spec 6.1/7.2's topic addressees) with marker-bearing
+  snapshots composed per spec 5.4, and the phase doc's "target entity type and id"
+  sketch is narrowed accordingly; (c) the spec-13 **revisions read routes**
+  (GET /{device}/{id}/revisions, GET /revisions/{id}), which no phase-2 task claimed,
+  land in E2.6 because E2.8's acceptance ("sees draft revisions listed") needs them.
+  Apply stops at draft unconditionally; `EOE_PUBLISH_ENABLED` exists, defaults off, and
+  is only reported until E3's publisher consumes it.
+- **Why:** spec 6.1 defines desired config per Aggregator/Listener; a selection is not
+  a topic addressee. The common-ancestor rule keeps a bulk edit one auditable write
+  instead of N copies. Owner decisions of 2026-08-04 (the E2 plan).
+- **Affects:** project_planning/phase-2-configuration-model.md §4 (task E2.6)
+- **Addendum:** PHASE2-4-02
+
 ## #16 (2026-08-02): Overview ships a minimal real roll-up ahead of E6/E7
 
 - **What changed:** the Overview page ("/") is rebuilt with the V2·S1 layout carrying

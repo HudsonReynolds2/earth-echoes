@@ -9,7 +9,7 @@ device self-declaration).
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +28,7 @@ from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
 from app.auth.rbac import Permission, has_permission
+from app.config.overrides import delete_overrides_for
 from app.errors import AppError
 from app.models import Aggregator, Listener, Pod, UserSession
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
@@ -193,6 +194,7 @@ def patch_aggregator(
 def delete_aggregator(
     aggregator_id: uuid.UUID,
     db: DbDep,
+    request: Request,
     actor: Annotated[UserSession, Depends(require_csrf)],
 ) -> None:
     row, deployment_id = _resolve(db, actor, aggregator_id, Permission.MANAGE_DEVICES)
@@ -203,6 +205,7 @@ def delete_aggregator(
             or 0,
         },
     )
+    orphaned_secrets = delete_overrides_for(db, "aggregator", str(row.id))  # E2.4 cleanup (D51)
     db.delete(row)
     record_audit(
         db,
@@ -214,6 +217,8 @@ def delete_aggregator(
         detail={"aggregator_uuid": row.aggregator_uuid},
     )
     db.commit()
+    for name in orphaned_secrets:  # D51: only ever AFTER the commit
+        request.app.state.secret_store.delete(name)
 
 
 @router.get("/{aggregator_id}/tags", response_model=TagsOut)

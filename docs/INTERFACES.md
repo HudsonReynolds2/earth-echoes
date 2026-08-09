@@ -587,3 +587,95 @@ reimplement their logic.** Signatures, verbatim:
 - **Test dependency:** `hypothesis` (dev-only) runs the suite's property cases under the
   registered `gate` profile (derandomize=True, no deadline — registered in
   tests/conftest.py) so gates stay deterministic.
+
+### Config endpoints (E2.4; spec 13; D35, D50-D51) — the E2.7 editor's data source
+
+- **Routes (×5 entities):** `GET /{entity}/{id}/config/effective`,
+  `GET/PUT /{entity}/{id}/config/overrides` (listeners by MAC). Scope discipline is
+  E1's verbatim: org reads any-assignment / org WRITE requires an **org-wide**
+  MANAGE_CONFIG grant (it changes every deployment); deployments 403-before-lookup
+  (VIEW_STATUS read / MANAGE_CONFIG write); pod/aggregator/listener resolve-first →
+  identical 404 for missing and out-of-scope (D35). Writes + CSRF.
+- **Effective shape:** `{entity_type, entity_id, catalog_version, config: {key:
+  {value, source, source_entity_id}}}` — source ∈ level names | "default" |
+  "inventory"; every catalog key present (37 at listener, 33 elsewhere); ALWAYS
+  redacted (set secrets = the keep sentinel).
+- **Overrides shape:** `{entity_type, entity_id, catalog_version, overrides: {key:
+  value}}` — the sparse map, secrets rendered as the sentinel. PUT body
+  `{"overrides": {...}}` (extra="forbid"), wholesale replace; failures are ONE 422
+  `validation_error` with `detail.errors: [{key, code, message}]`, nothing staged.
+- **Audit:** `config.override_update`, scope = deployment id (NULL at org), detail =
+  `{set: [key names], unset: [key names], catalog_version}` — never values.
+- **Deletion cleanup:** the four E1 DELETE endpoints call `delete_overrides_for` and
+  delete orphaned config secrets AFTER their commit (D51 ordering).
+
+### The selection engine (E2.5; spec 5.2, 13; D54) — E2.6 preview/apply consumes this
+
+- **Grammar (`app/config/selection.py::SelectionQuery`, every model extra="forbid"):**
+  `{entity_type, scope?: {deployment_id}, where?: NODE}`; NODE = `{all: [...]}` |
+  `{any: [...]}` | `{tag}` | `{key, op: eq|ne|in, value}` | `{key, op: "exists"}` |
+  `{ids: [...]}`. Caps: depth ≤ 5, ≤ 50 predicates. Semantics: tag = E1.7 containment
+  parity; eq/ne/in compare EFFECTIVE values (inheritance included; secret keys 422);
+  `exists` = override at the entity or any ancestor (inventory keys always false);
+  `ids` = explicit membership (the checkbox path — listener ids normalize as MACs).
+  Semantic errors (unknown key, secret value query, caps) fold into one 422 with
+  `detail.errors` messages naming their keys.
+- **Evaluation (`evaluate_selection(db, query, assignments, permission)`):** SQL
+  prefilter (type/scope/visibility) + in-Python predicates via the pure merge engine
+  with batch-loaded chains (constant query count). ALWAYS re-filters through
+  `visible_deployments(permission)` at evaluation time; deterministic order
+  (entity_id asc). Saved selections re-evaluate at use — never materialized.
+- **Routes:** `POST /selections/preview` (body = the grammar; `limit`/`offset` query
+  params; D7 envelope of `{entity_type, entity_id, name, deployment_id, tags}`;
+  VIEW_STATUS visibility) · `GET /selections` (D7 list; name filter) ·
+  `POST /selections` `{name, query}` → 201 (CSRF + MANAGE_CONFIG in ≥1 deployment;
+  409 duplicate name; audit `selection.create` with name + entity_type). **No
+  PATCH/DELETE** — spec 13's list, deliberate (D54).
+
+### config_revision — THE E3 HANDOFF (E2.6; spec 6.1, 6.2, 7.3; D55-D56)
+
+- **Table shape, verbatim (E3 inherits this):** `id` UUID PK · `target_type`
+  CHECK `('aggregator','listener')` — **per-device only**, pods/orgs never carry
+  revisions · `target_id` String(100) (aggregator platform UUID / listener MAC),
+  **deliberately un-FK'd** · `deployment_id` UUID indexed, **deliberately un-FK'd**
+  (D33 precedent: immutable evidence outlives its subjects — never "fix" this) ·
+  `snapshot` JSONB — the device's full effective config, flat dotted keys, secret
+  MARKERS never plaintext; **composition rule:** listener snapshots exclude
+  `write_restricted` service keys (spec 5.4) and include inventory keys; aggregator
+  snapshots include service keys · `schema_version` int = 1 (spec 7.3 payload field) ·
+  `checksum` — `config_checksum(snapshot)`, the D52 recipe; **the snapshot IS the
+  publishable payload body**, so device-echoed checksums match by construction ·
+  `state` String from the spec 6.2 vocabulary — **E2 writes 'draft' ONLY**; every
+  transition belongs to E3's machine · `created_by` SET-NULL FK · `created_at`.
+  Indexed: (target_type, target_id, created_at), deployment_id, state (pre-pays E3's
+  pending scan). **`publish_revision(revision_id)` does not exist yet — E3 adds it**,
+  gated by `EOE_PUBLISH_ENABLED` (Settings.publish_enabled, default False; E2 only
+  reports it in the apply response).
+- **Secret rotation note (D56):** replacing a secret's value keeps the same marker →
+  no new revision. Rotation reaches devices via E3's §8.7 rewrap path, never
+  desired-config.
+
+### Bulk preview/apply (E2.6; spec 5.2, 14.4; D56) — the E2.8 modal's contract
+
+- **One body for both:** `{selection: <grammar> | {selection_id}, changes: {key:
+  value}, level: "target"|"organization"|"deployment"|"pod"|"aggregator"}` (default
+  "target"). ONE plan builder computes both — preview==apply is structural. Both
+  evaluate through MANAGE_CONFIG visibility. Named level = ONE write at the single
+  common ancestor (422 `detail:{level, ancestors}` on a split; org level needs an
+  org-wide grant → 403). Changes validate through E2.2 at the write level (same
+  errors verbatim).
+- **`POST /config/preview`** (no CSRF — mutates nothing): paginated D7-shaped
+  envelope, deterministic order (deployment_id, target_type, target_id); items
+  `{target_type, target_id, name, pod_id, pod_name, deployment_id, changed_keys,
+  no_op, before, after}` — before/after in the redacted ResolvedValue shape; the
+  affected set is the honest blast radius (every device under a write target). NO
+  status field (D40). Streaming deferred to E8.2 (recorded seam).
+- **`POST /config/apply`** (CSRF): ONE transaction — merged override writes at the
+  targets, a draft revision per non-no_op device, one `config.apply` audit row per
+  affected deployment (detail: changed key names, revision ids, target counts, level).
+  Response `{state: "draft", publish_enabled, revisions: [{revision_id, target_type,
+  target_id, deployment_id, changed_keys, checksum}]}`.
+- **Revisions read surface:** `GET /aggregators/{id}/revisions`,
+  `GET /listeners/{mac}/revisions` (D7, default `-created_at`, `state=` filter,
+  identical-404; list items omit the snapshot) · `GET /revisions/{revision_id}`
+  (full row incl. snapshot; VIEW_STATUS against the row's deployment_id).
