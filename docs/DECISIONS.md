@@ -4,6 +4,114 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D53 (2026-08-04): Merge semantics — the cascade IS the deep merge; three accessors by audience
+
+- **Decision:** spec 5.1's "deep merge" is implemented as the level cascade over flat
+  dotted keys: per key, the deepest chain level that sets it wins, else the catalog
+  default, and the winning value replaces WHOLESALE — capture.schedule objects included
+  (the E1.7 replace-never-merge precedent). There is no field-level merging of object
+  values, deliberately. Effective config covers every catalog key at every level (an
+  ancestor's value is what descendants inherit) except inventory keys, which materialize
+  only at listener level from listener columns; chain overrides of inventory keys and
+  unknown keys are ignored on read (storage validates writes; the merge is defensive).
+  Container values are copied on the way out — mutating a result never reaches the
+  chain or catalog. DB access is three explicit accessors by audience
+  (`app/config/service.py`): `effective_for` (REDACTED — the only router path),
+  `effective_raw` (markers verbatim — E2.6 snapshots), `effective_resolved` (plaintext —
+  INTERNAL ONLY, E3 publisher/E4 bundles, never over HTTP). The suite runs
+  property-based cases via hypothesis (new dev-only dependency, owner-approved
+  2026-08-04) under a registered derandomized profile so gates stay deterministic.
+- **Reference:** spec 5.1, 14.5; phase-2 E2.3; test_config_merge.py (the locked suite).
+
+## D52 (2026-08-04): The canonical-JSON checksum recipe — a frozen wire contract
+
+- **Decision:** revision checksums are `"sha256:" + hex(sha256(canonical_bytes))` where
+  canonical bytes are `json.dumps(snapshot, sort_keys=True, separators=(",", ":"),
+  ensure_ascii=False).encode("utf-8")` — keys sorted at every depth, compact, non-ASCII
+  preserved, no trailing newline. Checksums cover snapshots WITH secret markers in place:
+  secrets never transit desired topics (spec 5.4, 8), so the snapshot is the publishable
+  payload body and device-echoed checksums match by construction. The locked suite pins
+  three golden hex digests (defaults-only listener snapshot, non-ASCII strings, float
+  representations) plus a JSONB store/reload/recompute case; if any golden ever changes,
+  that is a wire-protocol break for E3's ack matching, never a routine test fix.
+- **Reference:** spec 6.2, 7.3; app/config/canonical.py; test_config_merge.py goldens.
+
+## D51 (2026-08-04): Config secrets — the marker, the config: namespace, and the commit-ordering rules
+
+- **Decision:** a secret-flagged override key never stores plaintext. The row holds the
+  marker `{"$secret": "config:{entity_type}:{entity_id}:{key}"}` and the plaintext lives
+  in SecretStore under that name — the new `config:` namespace beside
+  `totp:`/`deployment:`/`bundle:` (flagged additive edit to the E0-owned SecretStore
+  contract; the readiness round-trip test covers the new shapes, including the MAC-keyed
+  listener form whose name contains colons). Wire semantics: a redacted read renders a
+  set secret as the keep sentinel `{"$secret_set": true}`; PUT accepts a plaintext
+  string (set/replace), the sentinel (keep — 422 if nothing is stored), or omission
+  (unset). Commit ordering: SecretStore commits through its own sessions, so plaintext
+  puts land immediately (an aborted caller transaction strands an unreachable secret,
+  harmless — its marker never landed) and deletions are returned to the caller as
+  `secret_names_to_delete` to run AFTER its commit, because deleting first would lose
+  the value on rollback.
+- **Reference:** spec 5.3, 12.4; phase-2 E2.2; app/config/overrides.py;
+  test_entity_overrides.py.
+
+## D50 (2026-08-04): The override level rule — at-or-above lowest level (spec over phase doc)
+
+- **Decision:** `validate_override_map` enforces spec 5.3's direction: a key may be
+  overridden at its lowest level or at any ancestor level, never below. The phase doc's
+  "below is permitted" sentence loses (project-changes #17, addendum PHASE2-4-01).
+  `lowest_level='any'` behaves as listener — settable everywhere. Errors are returned
+  per key, all at once, sorted, each naming the key (folded into one D8
+  `validation_error` 422 by the API layer in E2.4). Additional validator rules the
+  documents left open: null is never a value (remove the key to unset), `object` values
+  are capped at 2 KiB (opaque is not unbounded; capture.schedule's internal schema is
+  firmware/E4 territory), int values reject booleans (Python bool-is-int trap).
+- **Reference:** spec 5.3, 5.1; phase-2 E2.2; owner decision 2026-08-04;
+  app/config/validation.py.
+
+## D49 (2026-08-04): Inventory resolution extends to identity.name and identity.mac
+
+- **Decision:** the catalog marks four keys `resolution='inventory'`: `location.gps_lat`
+  and `location.gps_lon` (mandated by E1's INTERFACES contract) plus `identity.name` and
+  `identity.mac`. All four read from listener columns (D31/D32 own those fields) and
+  reject override writes with a 422 naming the key and pointing at
+  `PATCH /listeners/{mac}` (arrives with E2.2's validator).
+- **Rationale:** identity.* has exactly the character the E1 contract fixed for
+  location.*: the listener row is the source of truth (MAC is the immutable key, name is
+  DB-unique per deployment). A config override shadowing either would fork the identity
+  model E1.5's services depend on.
+- **Reference:** spec 5.3, 4.2; E1 INTERFACES "hierarchy schema"; phase-2 E2.2.
+
+## D48 (2026-08-04): Service-key write block — the E5 stub (owner-directed)
+
+- **Decision:** all eight `telemetry.*` keys plus `upload.s3_bucket`, `upload.s3_endpoint`,
+  `upload.s3_access_key`, `upload.s3_secret_key` carry
+  `write_restricted='service_onboarding'`: their catalog rows exist and their defaults
+  merge into effective config (spec 16.4 needs that), but the generic override PUT
+  rejects them with a message naming E5's onboarding flow — a documented R2 stub, not a
+  missing feature. **`upload.s3_prefix` is deliberately outside the block** (owner ruling
+  2026-08-04): spec 5.1 names it an aggregator-level setting the operator sets, while
+  spec 16's flow writes the deployment-level endpoints/credentials.
+- **Rationale:** spec 5.3's closing paragraph — "the deployment services onboarding flow
+  writes them rather than the operator editing them key by key" — plus E2's out-of-scope
+  list deferring that flow to E5. Blocking now avoids two writers when E5 lands.
+- **Reference:** spec 5.3, 5.1, 16; phase-2 "Out of scope"; owner decisions 2026-08-04.
+
+## D47 (2026-08-04): Catalog storage — singular table, in-migration convergent seed, schema-document endpoint
+
+- **Decision:** the spec-5.3 catalog is a `settings_catalog` table (singular per D30)
+  seeded in-migration from the `app/config/catalog.py::CATALOG` constant — the single
+  source, gate-pinned against a hardcoded spec key list AND against the seeded rows
+  field for field. `seed_catalog()` is an upsert-plus-prune, so replays converge on the
+  current constant (neutralizing the import-app-code-in-a-migration hazard); catalog
+  evolution = constant edit + sync migration + `CATALOG_VERSION` bump in one batch.
+  `GET /config/catalog` returns `{version, items}` sorted by key — a schema document,
+  deliberately NOT a D7 list envelope (it is rendered wholesale, never paginated).
+  `lowest_level='any'` (logging.verbosity) behaves as `listener` for the level rule.
+  The DB column for the default is `default_value` (SQL keyword avoidance); the wire
+  field stays `default`. Bounds added beyond the spec table: confidence_threshold 0-1
+  (definitionally), noted in the row.
+- **Reference:** spec 5.3; phase-2 E2.1 and "Catalog storage"; test_settings_catalog.py.
+
 ## D46 (2026-08-04): Gate-30 commit message reworded — one-time deviation from R3's never-amend clause (owner-approved)
 
 - **What happened:** the original gate-30 commit message named the repository's

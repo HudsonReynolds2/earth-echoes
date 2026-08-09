@@ -85,6 +85,10 @@ E0_ROUTES = {
     ("PUT", f"{API_PREFIX}/aggregators/{{aggregator_id}}/tags"),
     ("GET", f"{API_PREFIX}/listeners/{{mac}}/tags"),
     ("PUT", f"{API_PREFIX}/listeners/{{mac}}/tags"),
+    # E2.1 (gate 31): the settings-catalog read - a schema document, not a
+    # D7 list (D47); seeded in-migration from app/config/catalog.py, the
+    # single source a gate test pins against spec 5.3.
+    ("GET", f"{API_PREFIX}/config/catalog"),
 }
 
 E0_TABLES = {
@@ -106,6 +110,12 @@ E0_TABLES = {
     # rows per (type, entity).
     "quarantined_report",
     "inventory_alert",
+    # E2.1 (gate 31): the versioned settings catalog (spec 5.3 as data;
+    # D47-D49), upsert-seeded by its migration so replays converge.
+    "settings_catalog",
+    # E2.2 (gate 32): one sparse override map per hierarchy entity (D50-D51);
+    # secret keys store markers, plaintext rides SecretStore.
+    "entity_override",
 }
 
 
@@ -279,6 +289,11 @@ def test_secret_store_round_trips_every_consumer_name_shape(pg_url):
         f"deployment:{deployment}:influx_token": f"v-{uuid.uuid4().hex}",
         f"bundle:{bundle}:wifi_psk": f"v-{uuid.uuid4().hex}",
         f"bundle:{bundle}:stream_key": f"v-{uuid.uuid4().hex}",
+        # E2.2 (gate 32, D51): config override secrets - flagged additive
+        # extension of this E0-owned contract (INTERFACES, SecretStore
+        # section). Note the MAC-keyed listener shape carries colons.
+        f"config:pod:{uuid.uuid4()}:network.wifi_password": f"v-{uuid.uuid4().hex}",
+        "config:listener:02:EE:0E:01:01:01:network.stream_key": f"v-{uuid.uuid4().hex}",
     }
     for name, value in shapes.items():
         store.put(name, value)

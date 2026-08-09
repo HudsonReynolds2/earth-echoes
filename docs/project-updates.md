@@ -1,5 +1,88 @@
 # Project Updates
 
+## 2026-08-04: E2.3 effective-config merge engine — test-critical suite locked (Gate 33 GREEN)
+
+- **Tasks closed:** E2.3 (branch `e2-batch-1`; DECISIONS D52-D53). This closes
+  e2-batch-1 (E2.1-E2.3) — PR next.
+- **Gate:** 33, GREEN — the pre-gate check caught one real semantic failure first:
+  the engine handed container values out BY REFERENCE, so mutating a result reached
+  back into the chain. The locked suite's side-effect-freedom case is the documented
+  semantic, so the ENGINE was fixed (containers copied on the way out), not the test.
+  Full gate green after that fix plus minor lint formatting.
+- **Tests:** backend 318 (+37: the locked merge suite 26 + service walk 9 + property
+  extras), vitest 60, Playwright 4; 0 failed / 0 skipped / 0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/config/merge.py` (pure core: effective_config /redact_secrets/
+  resolve_secret_refs; deepest-setter-wins, wholesale replacement, inventory keys
+  listener-only, defensive reads, no input aliasing — D53).
+  `app/config/canonical.py` (the FROZEN checksum recipe: sorted-keys compact UTF-8
+  JSON, `sha256:` prefix, markers included — D52; three golden digests pinned).
+  `app/config/service.py` (ancestry via E1 FKs, one-query chain load, three accessors
+  by audience: effective_for REDACTED for routers, effective_raw for E2.6 snapshots,
+  effective_resolved INTERNAL ONLY for E3/E4). `hypothesis` joins the dev group
+  (owner-approved) under a derandomized `gate` profile in conftest —
+  `test_config_merge.py` is now one of the four suites no session may weaken, holding
+  15 documented example semantics, 4 property cases, the golden checksums, and (in
+  `test_config_service.py`) the JSONB round-trip stability guard.
+- **Manual verification:** fresh ephemeral database + `seed_demo_hierarchy`: set
+  `audio.sample_rate_hz=96000` on Redwood Coast, and `alder-creek-01` resolves it with
+  source "deployment"; `identity.name` resolves from the listener row with source
+  "inventory"; unset secret renders None; back-to-back checksums identical.
+
+## 2026-08-04: E2.2 sparse override storage (Gate 32 GREEN)
+
+- **Tasks closed:** E2.2 (branch `e2-batch-1`; DECISIONS D50-D51; project-changes #17
+  with addendum PHASE2-4-01).
+- **Gate:** 32, GREEN — first full run (three lint findings and one mypy finding on the
+  pre-gate check were fixed before the gate; the gate itself passed first try)
+- **Tests:** backend 281 (+19), vitest 60, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `entity_override` table (migration `c9d42be17a05`; singular per D30 —
+  one sparse JSONB map per entity, UNIQUE(entity_type, entity_id), un-FK'd untyped
+  entity_id per the audit precedent). `app/config/validation.py` — pure per-key
+  validation, every error naming its key, all errors at once: unknown key, inventory-
+  resolved (points at PATCH /listeners), service-restricted (names E5), the
+  **owner-resolved level rule** (at-or-above lowest level, never below — the phase doc's
+  inverted sentence recorded as deviation #17/PHASE2-4-01/D50), type/enum/range per
+  class, null-never-a-value, 2 KiB object cap, bool-is-not-int. `app/config/overrides.py`
+  — get/put (wholesale replace)/delete_overrides_for; secret keys store the
+  `{"$secret": "config:..."}` marker with plaintext in SecretStore under the new
+  `config:` namespace (flagged E0-contract extension, D51), keep-sentinel round-trip,
+  post-commit deletion protocol. Readiness locks: E0_TABLES 14→15; the SecretStore
+  round-trip gains both config name shapes (incl. the colon-bearing MAC form).
+  INTERFACES gains the override-storage contract.
+- **Manual verification:** fresh ephemeral database — secret put through the service:
+  row holds only the marker, plaintext absent from the stored JSON, SecretStore
+  round-trips the value under `config:pod:{id}:network.wifi_password`; below-level
+  write rejected with the spec-citing message naming the key.
+
+## 2026-08-04: E2.1 versioned settings catalog (Gate 31 GREEN)
+
+- **Tasks closed:** E2.1 (branch `e2-batch-1`; epic E2 opens per the approved plan —
+  owner decisions of 2026-08-04 recorded in DECISIONS D47-D49).
+- **Gate:** 31, GREEN — first run
+- **Tests:** backend 262 (+7), vitest 60, Playwright 4; 0 failed / 0 skipped /
+  0 xfailed / 0 deselected
+- **Command:** `./gate.ps1`
+- **Artifacts:** `app/config/` package opens (the inventory-pattern: pure core beside
+  DB service). `app/config/catalog.py` — the 37-row spec-5.3 `CATALOG` constant
+  (`CATALOG_VERSION = 1`, merge-order `LEVELS`) and the upsert-plus-prune
+  `seed_catalog()`. Migration `b7c31a90d2e4` creates `settings_catalog` (closed-vocab
+  CHECKs) and seeds it in-migration; replays converge on the constant (D47).
+  `GET /config/catalog` (any assignment) serves the schema document `{version, items}`
+  sorted by key — deliberately not a D7 list (D47). Catalog facts: 6 secret rows, 12
+  service-restricted rows (`telemetry.*` + 4 S3 keys; `upload.s3_prefix` deliberately
+  writable, owner ruling — D48), 4 inventory-resolved rows (`location.*` + `identity.*`,
+  D49). `test_settings_catalog.py` pins constant↔spec (hardcoded 37-key list) and
+  constant↔table (field for field), seed idempotence/convergence, endpoint shape/sort,
+  and the auth matrix. Readiness locks extended in-file: E0_ROUTES 46→47,
+  E0_TABLES 13→14. INTERFACES gains "Owned by E2" (catalog contract + evolution rule).
+- **Manual verification:** fresh ephemeral database migrated from scratch — 37 rows at
+  version 1 (6 secret / 12 restricted), first/last keys eyeballed against the spec
+  table; unauthenticated `GET /config/catalog` → 401. Migration up/down with data
+  re-proven by the readiness replay inside the gate.
+
 ## 2026-08-04: Rules 1.1.0 — walkthrough currency joins R1 (Gate 30 GREEN)
 
 - **Tasks closed:** the owner-directed rules amendment (branch `rules-batch-1`;

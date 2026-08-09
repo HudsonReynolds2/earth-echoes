@@ -297,13 +297,18 @@ sidebar link hidden for non-owners.
   against a secret manager behind the same interface.
 - **API:** `put(name, plaintext)` (upsert), `get(name)`, `exists(name)`, `delete(name)`,
   `rotate_kek(new_kek_b64) -> count`. Names are namespaced by convention:
-  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`.
+  `totp:{user_id}`, `deployment:{id}:{service_key}`, `bundle:{id}:{key}`, and — added by
+  E2.2 as a flagged extension of this E0-owned contract (D51) —
+  `config:{entity_type}:{entity_id}:{key}` for config override secrets (the listener
+  form embeds a MAC, so names carry interior colons; the readiness round-trip covers
+  both shapes).
 - **Guarantees (tested):** plaintext never in the database, logs, or error messages; GCM
   authentication rejects tampering; a KEK mismatch fails loudly with fingerprints, not
   values.
 - **Consumers:** E4 (device-facing bundle secrets held before the separate spec-8.4
   firmware encryption is applied at export — the two schemes nest, they do not compete),
-  E5 (deployment service credentials), E0.10 (TOTP secrets).
+  E5 (deployment service credentials), E0.10 (TOTP secrets), E2.2 (config override
+  secrets, D51).
 
 ## Owned by E1
 
@@ -487,3 +492,98 @@ reimplement their logic.** Signatures, verbatim:
   (open alerts unique per (alert_type, entity_type, entity_key) via partial unique index
   `WHERE resolved_at IS NULL`; `deployment_id` is un-FK'd scope; `resolved_at` NULL =
   open). Alert types are data, not D8 wire codes. E7 unifies alert surfacing later.
+
+---
+
+## Owned by E2
+
+### The settings catalog (E2.1; spec 5.3; D47-D49) — every config consumer reads this
+
+- **Single source:** `backend/app/config/catalog.py::CATALOG` — a frozen constant of 37
+  `CatalogEntry` rows matching spec 5.3 key for key (gate-pinned both against a
+  hardcoded spec list and against the seeded table, field for field).
+  `CATALOG_VERSION = 1`; `LEVELS = (organization, deployment, pod, aggregator,
+  listener)` is the merge order, root first.
+- **Table:** `settings_catalog` (singular, D30 convention), PK `key`. Columns:
+  `value_type` (`int|float|bool|string|object` — `object` is `capture.schedule` only),
+  `enum_values` JSONB, `min_value`/`max_value`, `default_value` JSONB (SQL NULL = no
+  default; the column name dodges the SQL keyword — the wire field is `default`),
+  `lowest_level` (spec literals + `any`, which behaves as `listener` for the level
+  rule), `secret` (6 rows), `resolution` (`override|inventory` — `inventory` on
+  `location.gps_lat/lon` + `identity.name/mac`, D49: reads resolve from listener
+  columns, override writes are rejected naming the key), `write_restricted`
+  (`service_onboarding` on all `telemetry.*` + `upload.s3_bucket/s3_endpoint/
+  s3_access_key/s3_secret_key`; **`upload.s3_prefix` is deliberately writable** —
+  owner ruling, spec 5.1; D48), `notes`, `version`.
+- **Catalog evolution rule (D47):** edit the constant + add a sync migration calling
+  `seed_catalog(connection)` + bump `CATALOG_VERSION` — always in one batch.
+  `seed_catalog` is an upsert-plus-prune that converges on the current constant, so
+  history replays and in-place upgrades produce identical tables; never seed the
+  catalog any other way.
+- **Endpoint:** `GET /config/catalog` (any assignment) → `{"version": N, "items":
+  [...]}` sorted by key — a schema document, deliberately not a D7 list (D47). The
+  frontend renders ALL config editors from it; a new key must ship with zero frontend
+  changes (E2.7's acceptance).
+
+### Override storage (E2.2; spec 5.1; D50-D51) — E2.3 merges these, E2.4 exposes them
+
+- **Table:** `entity_override` (singular, D30) — one row per entity,
+  `UNIQUE(entity_type, entity_id)`; `entity_id` is an untyped String (UUID string or
+  listener MAC, the audit_log precedent, deliberately un-FK'd); `overrides` JSONB is the
+  sparse flat dotted-key map; `catalog_version` stamps the version validated against.
+- **Service (`app/config/overrides.py`) — signatures verbatim, stage-never-commit:**
+  - `get_overrides(db, entity_type, entity_id) -> dict` — RAW map, markers included;
+    never hand it to a response without E2.3 redaction.
+  - `put_overrides(db, secret_store, entity_type, entity_id, new_map, *, catalog,
+    catalog_version) -> OverrideChange{set_keys, unset_keys, secret_names_to_delete}` —
+    wholesale replace (the E1.7 tags precedent), raises
+    `OverrideValidationError(errors: [OverrideError{key, code, message}])` before
+    staging anything; the API folds errors into ONE 422 `validation_error` with
+    `detail {"errors": [...]}` (codes: `unknown_key | inventory_resolved |
+    service_restricted | level_rule | invalid_value` — detail vocabulary, not new D8
+    wire codes). Callers MUST delete `secret_names_to_delete` through SecretStore
+    AFTER their commit (D51 ordering).
+  - `delete_overrides_for(db, entity_type, entity_id) -> tuple[str, ...]` — entity-
+    deletion cleanup; E2.4 wires it into the four E1 DELETE endpoints; same
+    post-commit secret-deletion duty.
+- **The level rule (D50; project-changes #17):** at-or-above lowest level, never below;
+  `any` = settable everywhere. Validator extras: null is never a value; `object` ≤
+  2 KiB; int rejects bool.
+- **Secret wire semantics (D51):** stored value = marker
+  `{"$secret": "config:{entity_type}:{entity_id}:{key}"}`; redacted reads render
+  `{"$secret_set": true}` (the keep sentinel, `app/config/validation.py::KEEP_SENTINEL`);
+  PUT takes plaintext string (set/replace) | sentinel (keep; 422 if none stored) |
+  omission (unset, deletion post-commit).
+
+### The merge engine (E2.3; spec 5.1, 14.5; D52-D53) — TEST-CRITICAL; E3/E4 consume this
+
+- **Pure core (`app/config/merge.py`) — signatures verbatim:**
+  `LevelOverrides{level, entity_id, overrides}` (chain link, root→target, absent levels
+  simply absent); `ResolvedValue{value, source, source_entity_id}` (source ∈ LEVELS |
+  "default" | "inventory"); `effective_config(chain, catalog, *, target_level,
+  inventory=None, inventory_entity_id=None) -> dict[str, ResolvedValue]` (RAW — markers
+  verbatim); `redact_secrets(config, catalog)` (set secrets → the keep sentinel);
+  `resolve_secret_refs(config, catalog, get)` (plaintext via injected getter —
+  INTERNAL ONLY). Semantics (D53): deepest setter wins else default; values replace
+  wholesale (objects included); every catalog key at every level except inventory keys
+  (listener-only, from columns); unknown/inventory chain overrides ignored on read;
+  malformed chains raise; results never alias inputs.
+  **tests/test_config_merge.py is the locked documentation of these semantics (rule R0)
+  — extend it, never weaken it.**
+- **DB accessors (`app/config/service.py`) — pick by audience:**
+  `ancestry(db, entity_type, entity_id) -> [(level, id)]` (E1 FK walk; LookupError on
+  holes); `override_chain(...)` (one-query row load);
+  `effective_for(...)` → **REDACTED** — the only accessor routers may call;
+  `effective_raw(...)` → markers verbatim — E2.6 revision snapshots only;
+  `effective_resolved(..., secret_store)` → plaintext — **INTERNAL ONLY: E3's publisher
+  and E4's bundle generator; wiring it into an HTTP response is a security defect.**
+- **Canonicalization + checksum (`app/config/canonical.py`) — FROZEN wire contract
+  (D52):** `canonical_config_bytes(snapshot)` = JSON, keys sorted at every depth,
+  compact separators, `ensure_ascii=False`, UTF-8, no trailing newline;
+  `config_checksum(snapshot)` = `"sha256:" + hexdigest`. Checksums cover snapshots WITH
+  markers (secrets never transit desired topics — the snapshot IS the publishable
+  payload body, so device-echoed checksums match by construction). Three golden digests
+  are pinned in the locked suite; changing any of them is a wire-protocol break.
+- **Test dependency:** `hypothesis` (dev-only) runs the suite's property cases under the
+  registered `gate` profile (derandomize=True, no deadline — registered in
+  tests/conftest.py) so gates stay deterministic.
