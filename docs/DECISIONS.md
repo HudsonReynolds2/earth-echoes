@@ -4,6 +4,59 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D66 (2026-08-10): Async tests ride anyio's pytest plugin, not pytest-asyncio (E3.2)
+
+- **Decision:** the `anyio_backend` fixture in `backend/tests/conftest.py` pins the single
+  backend `"asyncio"`, and async tests carry `pytest.mark.anyio`. No new dev dependency.
+- **Why:** anyio is already installed — Starlette depends on it — and its plugin does
+  everything pytest-asyncio would here. Pinning one backend also keeps one test per test:
+  anyio parametrizes over trio by default, which would double the async suite for a runtime
+  the app never uses, and every one of those duplicates counts against the gate's clock.
+- **The one new RUNTIME dependency at E3.2 is `aiomqtt`** (plus its `paho-mqtt`), which the
+  phase document fixes as the client choice. Nothing else was added.
+
+## D65 (2026-08-10): A pinned broker CA REPLACES the public trust store (E3.2)
+
+- **Decision:** when a `deployment_service` row carries `ca_cert_pem`, `tls_context()` builds
+  a context trusting that CA and nothing else. Only a row with no stored PEM falls back to
+  the system trust store (the E5 path, for a broker with a publicly-issued certificate).
+- **Why:** spec 7.1 identifies a deployment's broker by its own CA, and `ssl` offers both
+  shapes — `create_default_context()` then `load_verify_locations` ADDS an anchor, which
+  reads like hardening and is the opposite. With the public roots still loaded, any
+  certificate any public CA would issue for the broker's hostname also verifies, so the
+  stored PEM stops being a constraint and becomes decoration.
+- **What stays true in both branches:** `check_hostname` on, `CERT_REQUIRED`, minimum TLS
+  1.2. aiomqtt's `tls_insecure` is not used anywhere and should never be.
+- **Consequence:** re-running `app.devbroker` rotates the CA, so a manager holding older
+  coordinates fails to verify until it reloads them. That is the correct failure — it is a
+  different broker identity — and the reload happens on the manager restart E3.7 owns.
+
+## D64 (2026-08-10): The client manager's connection model (E3.2)
+
+Four rulings the phase document leaves open, all chosen so that **a broker outage is not an
+event message-handling code ever sees** — the property E3.2's acceptance criterion states.
+
+- **Subscriptions are registered before `start()` and are fixed after it.** A registration
+  accepted mid-flight would reach a connection that happens to be down only after it next
+  reconnected, so some deployments would deliver to the new handler and others would not —
+  a bug that surfaces as missing messages days later. Registering late raises.
+- **Clean sessions; every connect resubscribes.** The platform does not ask the broker to
+  remember its session: several API replicas may hold the same deployment, and a shared
+  persistent session id would have them evict each other. Delivery guarantees come from QoS 1
+  and the retained desired topics (spec 6.4), which is where the spec puts them.
+- **A handler that raises is logged, and the loop keeps reading.** One device's malformed
+  payload must not cost a whole deployment its control plane. This is why `InboundMessage`
+  carries RAW bytes: a payload the platform cannot parse is still a payload E3.5 has to see
+  and decide about, so parsing does not belong in the transport.
+- **An unreadable broker secret skips that deployment, with a warning naming the secret and
+  never its value.** The alternative — raising out of the loader — lets one badly provisioned
+  deployment deafen every other one at startup.
+- **Also settled:** coordinates load once at `start()` (adding a broker row takes the manager
+  restart E3.7 owns); `publish()` lives here but stays a bare primitive, because WHICH topic
+  and WHICH retain flag are E3.4's and E3.10's decisions; publishing with no live connection
+  raises `BrokerUnavailable` rather than returning quietly, so E3.4 can never move a revision
+  to `pending` on a publish that did not happen.
+
 ## D63 (2026-08-10): Dev host ports move, container ports do not (owner-directed)
 
 - **Decision:** the compose stack publishes 18000/15173/15432/16379/18883 on the host; every

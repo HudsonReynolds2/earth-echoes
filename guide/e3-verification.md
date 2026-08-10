@@ -91,3 +91,94 @@ Finally, the platform's own record of the broker:
       entry; the value itself lives encrypted in the `secret` table (rule R2). Confirm with
       `select name from secret;` — names only, and `select * from deployment_service;`
       contains no credential material beyond the username.
+
+## 2. The client manager survives a broker restart (E3.2)
+
+The platform's side of the connection. Nothing runs it automatically yet — the reconciliation
+worker (E3.7) owns that — so this section drives it by hand, which is also the clearest way to
+see the property it exists for: **a broker outage is not something message-handling code
+notices.**
+
+Save this as `check-manager.py` in `backend/` (delete it afterwards; it is a scratch probe,
+not a shipped tool):
+
+```python
+import asyncio
+import logging
+from dataclasses import replace
+
+from app.contracts.mqtt import deployment_subscriptions
+from app.controlplane.broker import MqttClientManager, load_broker_coordinates
+from app.db import create_session_factory
+from app.secrets import SecretStore
+from app.settings import Settings
+
+# The manager reports connects, losses and retries at INFO. Nothing configures
+# logging outside the API process, so a bare script has to ask for it.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+settings = Settings()
+_, factory = create_session_factory(settings.database_url)
+coordinates = [
+    # The rows say mosquitto:8883 — the coordinates the API CONTAINER dials.
+    # From your own machine the same broker is localhost:18883 (see §1).
+    replace(c, host="localhost", port=18883)
+    for c in load_broker_coordinates(factory, SecretStore(factory, settings.kek))
+]
+print("brokers:", [str(c) for c in coordinates])
+
+
+async def show(message):
+    print(f"  <- {message.deployment_slug}  {message.topic}  {message.payload!r}")
+
+
+async def main():
+    manager = MqttClientManager(lambda: coordinates)
+    manager.subscribe(deployment_subscriptions, show)
+    async with manager:
+        await asyncio.sleep(180)
+
+
+asyncio.run(main())
+```
+
+Run it with the same environment as the seed step (`DATABASE_URL` pointing at
+`localhost:15432`, plus `EOE_SESSION_SECRET` and `EOE_KEK` from `deploy/.env`):
+
+```bash
+cd backend && uv run python check-manager.py
+```
+
+- [ ] It prints one `brokers:` line naming **both** deployments, as
+      `redwood-coast broker at localhost:18883` — **and no password anywhere**, which is the
+      point of printing coordinates at all (rule R2).
+- [ ] Within a second, two `connected to the ... broker` log lines appear. That is TLS
+      verified against the CA stored on the `deployment_service` row — no trust-store
+      shortcut, no `tls_insecure`.
+
+Now, in a second terminal, publish as a device (the `dev-demo-agg-rc-01` password comes from
+`deploy/dev-certs/accounts.json`, as in §1):
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_pub -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -t eoe/redwood-coast/agg/demo-agg-rc-01/reported -m before -q 1
+```
+
+- [ ] The first terminal prints `<- redwood-coast  eoe/redwood-coast/agg/demo-agg-rc-01/reported  b'before'`.
+- [ ] Publish to that aggregator's **`desired`** topic as `platform-redwood-coast` instead.
+      **Nothing is printed.** The platform subscribes to device-to-platform topics only; if it
+      swept `eoe/{dep}/#` it would read its own publishes back as if they were device reports.
+
+Now break it:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa restart mosquitto
+```
+
+- [ ] The first terminal logs `lost the redwood-coast broker at ...`, then
+      `reconnecting to the ... in 1.0s (attempt 1)`, then `connected to the ...` again. The
+      delays grow (1s, 2s, 4s …) if the broker takes a while, and are jittered — two
+      deployments do not retry in lockstep.
+- [ ] Repeat the device publish above with `-m after`. It prints, on **the same handler**,
+      which was registered once before any of this and was never told the connection dropped.
+      That is the whole acceptance criterion: reconnect *and* resubscribe, invisibly.
+- [ ] Stop the probe with Ctrl-C and delete `backend/check-manager.py`.

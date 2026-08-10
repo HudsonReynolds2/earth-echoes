@@ -14,12 +14,14 @@ import contextlib
 import dataclasses
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
 
+import pytest
 from hypothesis import settings as hypothesis_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +32,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # vary (CI shares cores with the compose builds).
 hypothesis_settings.register_profile("gate", derandomize=True, deadline=None)
 hypothesis_settings.load_profile("gate")
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Async tests (E3.2 onward) run on anyio's pytest plugin, which ships
+    inside anyio — already a dependency through Starlette — rather than on a
+    new pytest-asyncio dev dependency. Pinning the single backend keeps one
+    test per test: parametrizing over trio too would double the suite for a
+    runtime the app never uses.
+    """
+    return "asyncio"
 
 
 def make_kek() -> str:
@@ -137,12 +150,38 @@ def bootstrap_broker_material() -> None:
     )
 
 
+def free_port() -> int:
+    """A currently-free localhost port, for the cases that need a STABLE host
+    port. Docker's `-p 127.0.0.1:0:8883` picks a fresh port on every container
+    start, so a test that stops and restarts a broker (E3.2's reconnect
+    acceptance) has to name the port itself or the client would be dialling
+    the old one after the restart."""
+    with contextlib.closing(socket.socket()) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+        return port
+
+
+def _wait_until_accepting(name: str, env: dict[str, str], attempts: int = 60) -> None:
+    for _ in range(attempts):
+        probe = subprocess.run(
+            [docker_cli(), "exec", name, "nc", "-z", "127.0.0.1", "8883"],
+            capture_output=True,
+            env=env,
+        )
+        if probe.returncode == 0:
+            return
+        time.sleep(0.5)
+    logs = subprocess.run([docker_cli(), "logs", name], capture_output=True, text=True, env=env)
+    raise AssertionError(f"broker never accepted:\n{logs.stdout}\n{logs.stderr}")
+
+
 @dataclasses.dataclass(frozen=True)
 class Broker:
-    """A running dev Mosquitto (E3.1). `port` is the Docker-assigned host port
-    for clients running in this process; `exec_client` runs mosquitto_sub or
-    mosquitto_pub inside the container, which is how the ACL suite talks to the
-    broker without depending on host TLS tooling."""
+    """A running dev Mosquitto (E3.1). `port` is the host port for clients
+    running in this process; `exec_client` runs mosquitto_sub or mosquitto_pub
+    inside the container, which is how the ACL suite talks to the broker
+    without depending on host TLS tooling."""
 
     name: str
     port: int
@@ -164,9 +203,30 @@ class Broker:
             [docker_cli(), "kill", "-s", "HUP", self.name], capture_output=True, env=docker_env()
         )
 
+    def stop(self) -> None:
+        """Take the broker down the way an outage does — the container stops,
+        every connection drops, and nothing tells the clients (E3.2)."""
+        stopped = subprocess.run(
+            [docker_cli(), "stop", "-t", "1", self.name],
+            capture_output=True,
+            text=True,
+            env=docker_env(),
+        )
+        assert stopped.returncode == 0, f"could not stop the broker: {stopped.stderr}"
+
+    def start(self) -> None:
+        """Bring it back and wait until it accepts again. Only meaningful for
+        a broker created on an explicit host port (see free_port)."""
+        env = docker_env()
+        started = subprocess.run(
+            [docker_cli(), "start", self.name], capture_output=True, text=True, env=env
+        )
+        assert started.returncode == 0, f"could not restart the broker: {started.stderr}"
+        _wait_until_accepting(self.name, env)
+
 
 @contextlib.contextmanager
-def ephemeral_broker(dev_dir: Path):
+def ephemeral_broker(dev_dir: Path, host_port: int | None = None):
     """Disposable TLS Mosquitto carrying the material `app.devbroker` wrote
     into `dev_dir` (task E3.1).
 
@@ -175,6 +235,10 @@ def ephemeral_broker(dev_dir: Path):
     differently per host, and the gate has to behave the same on all three.
     The generated files are already world-readable so the container's uid 1883
     can read them after the copy (see devbroker.write_artifacts).
+
+    `host_port` defaults to a Docker-assigned one, which cannot collide with
+    anything; pass an explicit port (see free_port) only when the test needs
+    the mapping to survive a stop/start.
     """
     name = f"eoe-mqtt-{uuid.uuid4().hex[:10]}"
     env = docker_env()
@@ -186,7 +250,7 @@ def ephemeral_broker(dev_dir: Path):
             "--name",
             name,
             "-p",
-            "127.0.0.1:0:8883",
+            f"127.0.0.1:{host_port or 0}:8883",
             "eclipse-mosquitto:2",
         ],
         capture_output=True,
@@ -220,23 +284,9 @@ def ephemeral_broker(dev_dir: Path):
                 [docker_cli(), "logs", name], capture_output=True, text=True, env=env
             )
             raise AssertionError(f"broker exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}")
-        host_port = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
-
-        for _ in range(60):
-            probe = subprocess.run(
-                [docker_cli(), "exec", name, "nc", "-z", "127.0.0.1", "8883"],
-                capture_output=True,
-                env=env,
-            )
-            if probe.returncode == 0:
-                break
-            time.sleep(0.5)
-        else:
-            logs = subprocess.run(
-                [docker_cli(), "logs", name], capture_output=True, text=True, env=env
-            )
-            raise AssertionError(f"broker never accepted:\n{logs.stdout}\n{logs.stderr}")
-        yield Broker(name=name, port=host_port, dev_dir=dev_dir)
+        published = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
+        _wait_until_accepting(name, env)
+        yield Broker(name=name, port=published, dev_dir=dev_dir)
     finally:
         subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
 

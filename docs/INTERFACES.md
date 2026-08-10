@@ -786,10 +786,60 @@ reimplement their logic.** Signatures, verbatim:
 - **Compose:** the `mosquitto` service is **TLS only** (8883, no 1883 listener) with
   `persistence true` so retained desired messages survive a broker restart — spec 6.4's
   reconnect property and E3.7's restart acceptance both depend on it.
-- **Shared test fixture:** `conftest.ephemeral_broker(dev_dir)` yields a `Broker` with
-  `port`, `exec_client(...)` and `reload()`. It ships files in with `docker cp` rather than
-  a bind mount ON PURPOSE — bind mounts of WSL/Windows paths translate differently per host,
-  and the gate must behave identically on all three.
+- **Shared test fixture:** `conftest.ephemeral_broker(dev_dir, host_port=None)` yields a
+  `Broker` with `port`, `exec_client(...)`, `reload()`, and (added at E3.2) `stop()`/`start()`.
+  It ships files in with `docker cp` rather than a bind mount ON PURPOSE — bind mounts of
+  WSL/Windows paths translate differently per host, and the gate must behave identically on
+  all three. `host_port` defaults to a Docker-assigned port; pass `conftest.free_port()` only
+  when a test must survive a stop/start, because Docker re-assigns port 0 on every start.
 - **Gate-locked sets extended here:** `COMPOSE_SERVICES` and `FIXED_PORTS` in
   `backend/tests/test_repo_layout.py` (mosquitto, `8883:8883`), and `E0_TABLES` in
   `backend/tests/test_e0_readiness.py` (`deployment_service`).
+
+### The MQTT client manager (E3.2; spec 7.1, 7.4; D64-D66) — E3.4/E3.5/E3.7 build on this
+
+- **Path:** `backend/app/controlplane/broker.py`, in the package that owns everything talking
+  to a broker. The wire contract stays in `app/contracts/mqtt.py`, which is published outside
+  this codebase; nothing in `app/controlplane/` is.
+- **`BrokerCoordinates`** — `deployment_id`, `slug`, `host`, `port`, `username`, `password`,
+  `tls_enabled`, `ca_cert_pem`. The `slug` rides along because it is the `{dep}` topic segment
+  (D36) and the manager needs it to build filters. **`password` is `field(repr=False)` and the
+  class carries a `__str__` naming only the deployment and the socket** — every log line in
+  the module interpolates a coordinates object, so a later edit that adds `%r` still cannot
+  leak a credential (rule R2). Keep both.
+- **`load_broker_coordinates(session_factory, secret_store)`** reads every `deployment_service`
+  row with `service_key == "mqtt"`, ordered by slug, resolving `password_secret_name` through
+  SecretStore. A row whose secret is unreadable is **skipped with a warning naming the secret,
+  never its value** — one badly provisioned deployment must not deafen the others (D64).
+- **`tls_context(coordinates)`** → `ssl.SSLContext | None`. When `ca_cert_pem` is set, that CA
+  is the **only** trust anchor (D65) — deliberately not "system store plus this one".
+  `check_hostname` and `CERT_REQUIRED` hold on both branches, minimum TLS 1.2; aiomqtt's
+  `tls_insecure` is never used.
+- **`MqttClientManager(loader, *, backoff, client_id_prefix, keepalive)`** — one asyncio task
+  per deployment, each an infinite connect / subscribe / read loop. API:
+  `subscribe(filters, handler)` (BEFORE `start()` only — the set is fixed for the manager's
+  lifetime, D64), `start()` / `stop()` / `async with`, `publish(deployment_id, topic, payload,
+  qos=QOS, retain=False)`, `wait_connected(deployment_id, timeout)`, `is_connected(...)`,
+  `deployment_ids`. `filters` has the signature of
+  `contracts.mqtt.deployment_subscriptions` — `(slug) -> Sequence[str]` — which is how E3.5
+  registers the whole device-to-platform set.
+- **The contract with callers: a broker outage is not an event handlers see.** No
+  connection-lost callback, no resubscribe hook. Handlers receive `InboundMessage`
+  (`deployment_id`, `deployment_slug`, `topic`, RAW `payload` bytes, `qos`, `retain`) and
+  nothing else. **A handler that raises is logged and the loop continues** (D64) — one
+  device's malformed payload may not cost a deployment its control plane. Payloads stay bytes
+  here: decoding is `contracts.mqtt`'s job, and an undecodable payload must still reach the
+  handler that decides what to do about it.
+- **`BrokerUnavailable`** on publish with no live connection: E3.4 must be able to tell "the
+  broker is down" from "published", or a revision moves to `pending` on a lie.
+- **Sessions are clean and every connect resubscribes** (D64). The platform does not ask the
+  broker to remember its session; delivery guarantees come from QoS 1 plus the retained
+  desired topics (spec 6.4). Client identifier: `{prefix}-{slug}-{8 hex}`, one suffix per
+  manager instance, so a reconnect retires its own old session but two API replicas never
+  collide.
+- **Coordinates load once, at `start()`.** Adding a deployment's broker row takes a manager
+  restart; E3.7 owns that lifecycle. **Nothing constructs this manager yet** — E3.2 ships the
+  library, the worker (D59) wires it up.
+- **New runtime dependency: `aiomqtt`** (the phase-3 fixed client choice), which pulls
+  `paho-mqtt`. Async tests run on **anyio's pytest plugin** via the `anyio_backend` fixture in
+  `conftest.py` — no pytest-asyncio (D66).

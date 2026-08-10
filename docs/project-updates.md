@@ -1,5 +1,56 @@
 # Project Updates
 
+## 2026-08-10: E3.2 MQTT client manager — reconnect, resubscribe, TLS from the row (Gate 40 GREEN)
+
+- **Tasks closed:** E3.2 (branch `e3-batch-1`; DECISIONS D64-D66). No plan change: the task
+  shipped as the phase document specifies it.
+- **Gate:** 40, GREEN. `make gate`, run twice (the second run to read the counts cleanly).
+- **Tests:** backend 417 (+21, `test_mqtt_manager.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/` (new package — everything that talks to a broker;
+  the wire contract stays in `app/contracts/mqtt.py`, which is published outside this
+  codebase and this is not) with `broker.py`: `BrokerCoordinates`,
+  `load_broker_coordinates`, `tls_context`, `Backoff`, `InboundMessage` and
+  `MqttClientManager`. `conftest.ephemeral_broker` gained an optional fixed `host_port` plus
+  `Broker.stop()`/`start()` and a `free_port()` helper; `aiomqtt` added as the one new runtime
+  dependency (the phase-3 fixed client choice), async tests on anyio's pytest plugin (D66);
+  `guide/e3-verification.md` §2.
+- **The acceptance criterion is one test.**
+  `test_a_broker_restart_is_invisible_to_message_handling` kills a real broker under a
+  connected manager, restarts it, and asserts a message published afterwards reaches the
+  handler that was registered once, before any of it, and was never told the connection
+  dropped. It can only pass if the manager reconnected AND replayed its subscriptions, since
+  a clean session leaves Mosquitto remembering nothing.
+- **Docker re-assigns port 0 on every container start**, which the restart test found the
+  moment it was written: a broker created with `-p 127.0.0.1:0:8883` comes back on a
+  different host port, so the manager would have been dialling a dead socket and "failed to
+  reconnect" would have been the test's own fault. Hence `free_port()` and the explicit
+  `host_port` — the default stays Docker-assigned everywhere else, where nothing restarts.
+- **Two rulings worth their own record.** A stored broker CA now REPLACES the public trust
+  store rather than being added to it (D65): `create_default_context()` plus
+  `load_verify_locations` reads like hardening and is the opposite, since every public root
+  stays loaded and any public CA's certificate for the broker's hostname verifies too. And a
+  handler that raises is logged while the loop keeps reading (D64) — one device's malformed
+  payload must not cost a whole deployment its control plane, which is also why
+  `InboundMessage` carries raw bytes rather than parsed models.
+- **Nothing constructs the manager yet.** E3.2 ships the library; the worker (D59) wires it
+  into a lifespan at E3.7. Said plainly here so a later session does not go looking for the
+  call site.
+- **Manual verification:** the walkthrough's new §2 run end to end against a real `eoe-qa`
+  stack (five services up on 18000/15173/15432/16379/18883, seeded `--demo`, broker accounts
+  provisioned, mosquitto restarted). The probe printed both brokers as
+  `redwood-coast broker at localhost:18883` with no credential anywhere, connected to both
+  over TLS verified against the CA on the `deployment_service` row, and delivered a device
+  publish on `.../reported`. A retained platform publish to the same aggregator's `desired`
+  topic produced **nothing** — the platform does not read its own writes back. Then
+  `compose restart mosquitto`: `lost the ... broker`, `reconnecting ... in 0.9s (attempt 1)`
+  for high-desert and `1.2s` for redwood-coast — visibly jittered, not in lockstep — then
+  both reconnected and an `after` publish arrived on the same handler. One finding, fixed in
+  the same pass: the §2 snippet showed no log lines at all, because nothing configures
+  logging outside the API process; it now calls `logging.basicConfig` first. Stack torn down
+  with `down -v`; `git status` listed nothing from `deploy/dev-certs/`.
+
 ## 2026-08-10: E3.1 development broker — TLS, per-device ACLs, `deployment_service` (Gate 39 GREEN)
 
 - **Tasks closed:** E3.1 (branch `e3-batch-1`; DECISIONS D59-D63, project-changes #19,
