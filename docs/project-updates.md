@@ -1,5 +1,63 @@
 # Project Updates
 
+## 2026-08-10: E3.4 desired publish path — config reaches a device (Gate 43 GREEN)
+
+- **Tasks closed:** E3.4 (branch `e3-batch-1`; DECISIONS D71-D75). No plan change: batch 2 runs
+  E3.6 before E3.4 exactly as project-changes #20 said it would, and this task consumed the
+  state machine that ordering existed to provide.
+- **Gate:** 43, GREEN. `make gate`, then the backend stage again to read the counts cleanly.
+- **Tests:** backend 558 (+21, all in `test_publish_revision.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/publisher.py` (`publish_revision`, the only way a
+  revision reaches a device), `backend/tests/test_publish_revision.py`,
+  `guide/e3-verification.md` §5, the INTERFACES "desired publish path" section (and the E2
+  `config_revision` bullet that claimed `publish_revision` did not exist yet).
+- **The acceptance criteria, both of them.**
+  `test_a_device_connecting_afterwards_still_receives_its_desired_config` publishes through the
+  real client manager to a real broker and only THEN connects a subscriber — as the
+  Aggregator's own dev credential, so the spec 7.1 ACL is on trial with it. That is the spec
+  6.4 reconnect property, and an unretained publish passes every other test in the file and
+  fails this one. Proven by deliberately flipping `retain=True` to `False`: the subscriber
+  timed out against a live Mosquitto container. `test_republishing_the_same_revision_is_idempotent`
+  is the second.
+- **A silent-failure bug the tests could not have caught, found by the manual pass (D75).** The
+  first implementation resolved the desired topic by `Aggregator.aggregator_uuid ==
+  revision.target_id`. E2 actually writes the PLATFORM UUID (`aggregator.id`) there — spec 4.2
+  keeps the three identifiers distinct — and the suite's own fixtures had invented the same
+  wrong shape, so the tests agreed with the bug and passed. The first real revision from E2's
+  apply endpoint showed `target_id: "8ebd3c87-…"` and the mistake was immediate. The failure
+  mode is the dangerous kind: a well-formed topic no device subscribes to and no ACL grants,
+  the revision going `pending`, and the device timing out to `failed` five minutes later
+  looking like a hardware fault. Fixtures now derive the id from live inventory
+  (`platform_uuid_of`), and a new test pins the refusal.
+- **The publish happens inside the database transaction (D74).** State change staged, bytes
+  sent, commit only on success. Verified by hand: with Mosquitto stopped, the publish raised
+  `BrokerUnavailable` and the revision was still `draft` with no audit row. The alternative —
+  commit `pending`, then fail to publish — would report a spec 6.2 timeout, which under D70
+  means "the device never answered", so the platform would be blaming a device for its own
+  broker outage.
+- **The pair rule from D69 is now closed on both sides (D73).** `supersede_open_revisions`
+  supersedes unconditionally; this task supplies the guard that makes it safe. Verified live:
+  publishing an older revision raised `StaleRevision` naming the newer one and left both rows
+  untouched, and a later publish superseded two open revisions at once.
+- **Idempotent republish re-sends rather than no-ops (D72).** Two publishes of one revision
+  produced two identical retained messages, one `pending` state and exactly one
+  `revision.publish` audit row. The re-send is the operator's repair for a broker that lost its
+  retained store.
+- **Manual verification:** full QA stack (compose, seed, dev broker). Created draft revisions
+  through E2's real `POST /config/apply` (response `state: draft`, `publish_enabled: false` —
+  unchanged), published with the walkthrough's own script, and read the retained payload off
+  the broker with `mosquitto_sub` as `dev-demo-agg-rc-01` **after** the publish: `revision_id`
+  and `checksum` matched the apply response byte for byte, `target.id` was `demo-agg-rc-01`.
+  Set `network.wifi_password` and confirmed the wire carries
+  `{"$secret": "config:pod:…:network.wifi_password"}` and never the passphrase. Three
+  walkthrough assertions were wrong on first writing and were corrected against observed
+  behaviour rather than the other way round: the broker-outage step needs the
+  `wait_connected` line removed (otherwise E3.2's `TimeoutError` fires first and E3.4 is never
+  reached), unset secrets read `null` rather than showing a marker, and the guide's script had
+  inherited the same identifier bug as the implementation.
+
 ## 2026-08-10: E3.6 revision state machine — TEST-CRITICAL suite locked (Gate 42 GREEN)
 
 - **Tasks closed:** E3.6 (branch `e3-batch-1`; DECISIONS D69-D70). No plan change: batch 2 runs

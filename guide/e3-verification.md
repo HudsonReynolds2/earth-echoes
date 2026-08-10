@@ -317,3 +317,179 @@ as sources for `superseded`; the diagram directly below it says *any* non-termin
 - [ ] Open `backend/tests/test_revision_state.py`. `SPEC_6_2_TABLE` and
       `SPEC_6_2_DIAGRAM_EXTRA` are separate constants on purpose, so each spec statement stays
       attributable rather than being merged into one undifferentiated list.
+
+## 5. Config reaches a device (E3.4)
+
+This is where the previous four sections meet: a config revision built by E2 becomes a
+retained MQTT message on the topic its device reads. `publish_revision` is the only way that
+happens. Nothing calls it automatically yet — E2's apply still stops at `draft` until E3.13
+wires the call-through — so this section calls it by hand, which is the clearest way to see
+the property that matters: **the device does not have to be listening.**
+
+You need the QA stack from §0 running.
+
+### Make a draft revision
+
+- [ ] In the UI, go to **Configuration → Redwood Coast → Pod 01 · Alder Creek →** the
+      aggregator `demo-agg-rc-01`, change one setting (`capture.sample_rate_hz` is a safe
+      one), and apply.
+- [ ] The apply response says `state: "draft"` and `publish_enabled: false`. That is E2's
+      contract and it has not changed: applying config writes a revision, it does not talk to
+      a device.
+- [ ] Open the **Revisions** tab. The new revision is there, `draft`, with its checksum.
+
+### Publish it
+
+Save this as `check-publish.py` in `backend/` (a scratch probe, like §2 — delete it
+afterwards):
+
+```python
+import asyncio
+from dataclasses import replace
+
+from sqlalchemy import select
+
+from app.controlplane.broker import MqttClientManager, load_broker_coordinates
+from app.controlplane.publisher import publish_revision
+from app.db import create_session_factory
+from app.models import Aggregator, ConfigRevision
+from app.secrets import SecretStore
+from app.settings import Settings
+
+AGG = "demo-agg-rc-01"
+
+settings = Settings()
+_, factory = create_session_factory(settings.database_url)
+coordinates = [
+    # As in §2: the rows say mosquitto:8883, which is what the API container
+    # dials. From your machine the same broker is localhost:18883.
+    replace(c, host="localhost", port=18883)
+    for c in load_broker_coordinates(factory, SecretStore(factory, settings.kek))
+]
+
+with factory() as db:
+    # An aggregator revision's target_id is the PLATFORM UUID (aggregator.id),
+    # not the aggregator_uuid that appears in the topic. Spec 4.2 keeps the
+    # two apart and so does this lookup (D75).
+    platform_uuid = db.scalars(
+        select(Aggregator.id).where(Aggregator.aggregator_uuid == AGG)
+    ).one()
+    revision = db.scalars(
+        select(ConfigRevision)
+        .where(ConfigRevision.target_id == str(platform_uuid))
+        .order_by(ConfigRevision.created_at.desc(), ConfigRevision.id.desc())
+        .limit(1)
+    ).one()
+    revision_id, was = revision.id, revision.state
+print(f"newest revision for {AGG} ({platform_uuid}): {revision_id} ({was})")
+
+
+async def main():
+    manager = MqttClientManager(lambda: coordinates)
+    async with manager:
+        await manager.wait_connected(coordinates[0].deployment_id)
+        outcome = await publish_revision(
+            factory, manager, revision_id, publish_enabled=True
+        )
+    print(f"  topic:        {outcome.topic}")
+    print(f"  state:        {was} -> {outcome.state}")
+    print(f"  trigger:      {outcome.trigger}")
+    print(f"  transitioned: {outcome.transitioned}")
+    print(f"  superseded:   {[str(i) for i in outcome.superseded]}")
+
+
+asyncio.run(main())
+```
+
+Run it with the same environment as §2 (`DATABASE_URL` on `localhost:15432`, plus
+`EOE_SESSION_SECRET` and `EOE_KEK` from `deploy/.env`):
+
+```bash
+cd backend && uv run python check-publish.py
+```
+
+- [ ] It prints `topic: eoe/redwood-coast/agg/demo-agg-rc-01/desired` — the spec 7.2 desired
+      topic, built from the deployment **slug** and the aggregator UUID. Never the deployment
+      name, never its UUID.
+- [ ] `state: draft -> pending`, `trigger: publish`, `transitioned: True`.
+- [ ] It also prints the aggregator's **platform UUID** beside its `aggregator_uuid`. Those
+      are two different identifiers for one device (spec 4.2): the revision's `target_id` is
+      the platform UUID, the topic segment is the `aggregator_uuid`, and `publish_revision`
+      resolves one to the other (D75). Using the wrong one builds a topic no device subscribes
+      to and no ACL grants.
+- [ ] Refresh the Revisions tab. The revision now reads **pending**, and every older open
+      revision for that same aggregator reads **superseded** — whatever state it was in, which
+      is the spec 6.2 diagram's edge (D69). The `superseded:` line in the script's output lists
+      exactly which ones it closed.
+
+### Nothing was listening, and that is the point
+
+Only now, after the publish, connect a subscriber — as the **device's own** credential
+(password from `deploy/dev-certs/accounts.json`, as in §1), so the spec 7.1 ACL is being
+tested too:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_sub -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -t eoe/redwood-coast/agg/demo-agg-rc-01/desired -C 1
+```
+
+- [ ] **A JSON payload appears immediately**, even though the subscriber connected after the
+      publish. That is the spec 6.4 reconnect property: the message is retained, so an
+      Aggregator that was powered off, out of signal, or being reflashed gets its desired
+      config the moment it reconnects, with no polling and nothing to ask the platform for.
+- [ ] The payload carries `schema_version`, `revision_id`, `generated_at`, `target`, `config`
+      and `checksum`. Compare `revision_id` to what the script printed and `checksum` to the
+      Revisions tab — they match.
+- [ ] **`config` is the revision's snapshot exactly.** That is why a device's echoed checksum
+      can match by construction (D52): the platform publishes the bytes it hashed, and
+      anything that rewrote them on the way out would show up later as fleet-wide phantom
+      drift rather than as an error here.
+- [ ] Look at the secret-typed keys. On the demo fixture none are set, so they read `null`
+      (`upload.s3_access_key` and the other service-onboarding secrets stay that way — E5
+      owns them, and config overrides refuse to write them at all). Set `network.wifi_password`
+      in the editor — it is secret and operator-writable — apply, and publish again.
+- [ ] On the wire it comes back as a **marker object**, not your value:
+
+```json
+"network.wifi_password": {"$secret": "config:pod:cd00b28d-...:network.wifi_password"}
+```
+
+- [ ] Search the whole payload for the passphrase you typed. **It is not there.** Secrets do
+      not transit desired config (spec 5.4, 8); the marker names where the value lives and the
+      value itself reaches devices by the separate rewrap path.
+
+### The rules that keep it safe
+
+- [ ] **Republishing is idempotent.** Run `check-publish.py` again. It prints
+      `transitioned: False` and `trigger: None`, the revision stays `pending`, and the audit
+      log gains no second row — but the message goes out again. That re-send is deliberate: it
+      is the repair for a broker that lost its retained store, and it is safe because the bytes
+      are identical (D72).
+- [ ] **Only the newest revision publishes.** Make a second config change in the UI so a newer
+      `draft` exists, then edit the script to publish the OLD revision id. It raises
+      `StaleRevision` naming the newer one, and **nothing is published**. Without that refusal
+      the supersede sweep would quietly close the newer draft you were still working on — the
+      two rules are a pair (D73, and D69's note in §4).
+- [ ] **The flag is enforced in one place.** Change `publish_enabled=True` to `False` in the
+      script. It raises `PublishDisabled` and nothing reaches the broker. The check lives
+      inside `publish_revision`, not at its call sites, so no future caller can reach a device
+      by forgetting it (D71).
+- [ ] **A broker outage leaves nothing half-done.** Stop the broker
+      (`docker compose -f deploy/docker-compose.yml -p eoe-qa stop mosquitto`) and make a
+      fresh config change in the UI so there is a new `draft` to publish. **Delete the
+      `await manager.wait_connected(...)` line from the script first** — otherwise it blocks
+      for 30 seconds and raises `TimeoutError` from the manager before `publish_revision` is
+      ever reached, which tests E3.2 rather than E3.4.
+- [ ] Run it. It fails with **`BrokerUnavailable`** naming the deployment and the topic it
+      did not publish, and the revision is **still `draft`** in the Revisions tab, with no new
+      `revision.publish` audit row. The publish happens inside the database transaction, so a
+      failure rolls back the state change with it (D74) — the alternative would be a `pending`
+      revision no device was ever told about, which 300 seconds later would be reported as a
+      device timeout that never happened.
+- [ ] Start the broker again
+      (`docker compose -f deploy/docker-compose.yml -p eoe-qa start mosquitto`) and delete
+      `backend/check-publish.py`.
+
+- [ ] Finally, check the audit trail: **Audit** in the UI, filtered to Redwood Coast. Each
+      state-moving publish left one `revision.publish` row naming the actor, the topic, the
+      checksum, the state it moved from and to, and the revisions it superseded. The repeat
+      publishes left none — nothing changed, so there was nothing to record.

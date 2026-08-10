@@ -4,6 +4,116 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D75 (2026-08-10): An Aggregator revision's `target_id` is the PLATFORM UUID; the topic
+segment is the `aggregator_uuid` (E3.4)
+
+- **The fact:** E2's apply writes `str(aggregator.id)` — the row primary key — into
+  `config_revision.target_id`. The spec 7.2 `{agg}` topic segment and the spec 7.3
+  `target.id` field are the `aggregator_uuid`. Spec 4.2 keeps an Aggregator's three
+  identifiers distinct and E1 never conflates them (INTERFACES, entity schema); this is the
+  one place in the codebase that has to cross between two of them, so `resolve_desired_route`
+  does the lookup and `DesiredRoute.device_id` carries the result.
+- **Why it matters:** using `target_id` as the topic segment builds
+  `eoe/redwood-coast/agg/<a uuid>/desired` — a well-formed topic that no device subscribes to
+  and no broker ACL grants. It fails silently: the publish succeeds, the revision goes
+  `pending`, and the device times out to `failed` 300 seconds later looking like a hardware
+  fault. Nothing upstream catches it, because every identifier involved is a valid string.
+- **And the payload's `target.id` is the `aggregator_uuid` too.** An Aggregator receiving the
+  platform's private row key could not recognize itself in it. Listeners have one identifier,
+  the MAC, so the distinction does not arise there.
+- **How it was found, and the test lesson.** E3.4's first implementation looked up by
+  `aggregator_uuid` and its suite built fixtures the same way, so the tests agreed with the bug
+  and passed. The manual verification pass caught it on the first real revision, because E2's
+  own apply response shows the real `target_id`. The fixture now derives the id through
+  `platform_uuid_of()` from live inventory, and
+  `test_an_aggregator_target_id_that_is_not_a_platform_uuid_is_refused` pins the refusal —
+  a fixture that invents its own id shape can only prove the implementation agrees with the
+  fixture.
+
+## D74 (2026-08-10): The publish happens INSIDE the database transaction (E3.4)
+
+- **Decision:** `publish_revision` opens its own session, stages the transition, the supersede
+  sweep and the audit row, publishes the retained message, and commits only if the publish
+  returned. A `BrokerUnavailable` rolls the whole thing back, so the revision stays in `draft`
+  with nothing published — which is what `broker.py` already promised its callers.
+- **Why not commit first:** a committed `pending` revision that no device was ever told about
+  resolves 300 seconds later as a spec 6.2 `failed(timeout)`. Under D70 that message means
+  "the device never answered", so the platform would be blaming a device for its own broker
+  outage, and the operator would go looking at the link, the power and the firmware.
+- **The residual window is one-sided and smaller:** publish succeeds, commit fails. That leaves
+  a retained message with the revision still `draft` — recoverable by republishing, and it
+  never produces a false accusation against a device.
+- **The row lock is deliberately held across the publish.** `load_for_transition` takes
+  `FOR UPDATE`, so two operators publishing the same revision at once serialize: the second
+  re-reads the state the first committed and takes the idempotent path (D72) instead of
+  transitioning twice. The cost is a database transaction held open across one QoS 1 round
+  trip, which is bounded by the client's own timeout.
+- **`publish_revision` owns its transaction rather than joining the caller's**, because a
+  revision can only be published once it is committed. E3.13's apply therefore commits its
+  overrides, revisions and audit rows first, then calls this.
+
+## D73 (2026-08-10): Only the newest revision for a device may be published (E3.4)
+
+- **Decision:** `publish_revision` refuses a revision that is not the latest for its
+  `(target_type, target_id)`, ordered by `(created_at, id)`, and refuses a `superseded` one
+  outright as spec 6.2's only terminal state.
+- **Why:** this is the other half of the pair D69 records. `supersede_open_revisions` closes
+  every other open revision unconditionally, with no timestamp comparison; publishing an older
+  revision would therefore supersede a NEWER draft an operator was still editing. Removing
+  either rule alone is a data-loss bug. Both docstrings say so, and
+  `test_an_older_revision_is_refused_so_a_newer_draft_survives` pins it.
+- **`(created_at, id)`, not `created_at` alone.** The column defaults to `now()`, which
+  Postgres holds constant for a whole transaction, so revisions written together tie exactly.
+  The same total order `open_revisions_for_target` sorts by, so "newest" and "oldest first"
+  cannot disagree about which row is which.
+- **The check ignores state on purpose.** A newer revision that is itself already superseded
+  still blocks an older one: the rule is "publish the latest", which is simple enough for an
+  operator to hold in their head, rather than a state-dependent search for the best candidate.
+
+## D72 (2026-08-10): Re-publishing a `pending` or `applied` revision re-sends the bytes and
+moves no state (E3.4)
+
+- **Decision:** the E3.4 acceptance criterion "republish of the same revision is idempotent" is
+  implemented as: send the byte-identical retained payload again, perform NO transition, write
+  NO second audit row. `PublishOutcome.transitioned` reports which path ran.
+- **Why re-send rather than return early:** a broker that lost its retained store (restarted
+  without persistence, reprovisioned) leaves devices that reconnect with no desired config at
+  all. Re-publishing is the operator's repair for exactly that, and it is safe because the
+  payload is derived entirely from the immutable revision row — a device that already holds it
+  computes a matching checksum and does nothing.
+- **Why no transition:** `pending -> pending` is not a spec 6.2 edge and the state machine
+  refuses self-transitions by design ("callers that mean 'already there' check the state
+  first"), so this module checks first. Moving `applied` back to `pending` for a re-send would
+  be worse than illegal: it would make a healthy, reconciled device read as unreconciled when
+  nothing about it changed.
+- **Why no audit row:** the audit trail answers "who changed this revision's state". A re-send
+  changed nothing, and a row per retry would bury the transitions that matter under repair
+  noise. The publish is still logged at INFO.
+
+## D71 (2026-08-10): The desired topic is resolved from LIVE inventory, and the flag is
+enforced inside `publish_revision` (E3.4)
+
+- **Topic addressing:** the deployment slug and aggregator UUID come from the device's current
+  inventory rows, never from `config_revision.deployment_id`. That column is historical
+  evidence (the D33 un-FK'd precedent) recording where the device lived when the revision was
+  cut; a device that has since moved deployments must publish to its current home's broker and
+  subtree or not at all. Listener revisions resolve their deployment through their Aggregator's
+  pod for the same reason — the spec 7.2 Listener subtopic hangs off the Aggregator's subtree,
+  so it must name the deployment whose ACL grants that subtree.
+- **A revision whose device is gone raises `UnknownPublishTarget`,** which is expected rather
+  than exceptional: revision history outlives the devices it describes by design, and a
+  revision for a decommissioned Aggregator is evidence with no topic to go to.
+- **`EOE_PUBLISH_ENABLED` is enforced inside `publish_revision`,** as a REQUIRED keyword-only
+  `publish_enabled` argument, not as a check each call site remembers. The value still comes
+  from `Settings.publish_enabled` (D61) because settings do not belong in the control-plane
+  core, but the refusal lives in one place, so no future caller can reach a device by
+  forgetting the flag. Required rather than defaulted: a default would decide the safety
+  question for callers who never thought about it.
+- **The spec 6.2 trigger is chosen from the revision's current state,** not fixed at `publish`:
+  `draft` publishes, `drifted` republishes, `failed` retries. Three edges reach `pending` and
+  they are three different events on E3.11's timeline. A hardcoded trigger would be rejected by
+  the state machine rather than silently mislabelled, which is what validating triples buys.
+
 ## D70 (2026-08-10): `failed(timeout)` means silence and nothing else; a contradictory ack
 fails fast (E3.6, implemented at E3.5)
 

@@ -652,9 +652,10 @@ reimplement their logic.** Signatures, verbatim:
   `state` String from the spec 6.2 vocabulary — **E2 writes 'draft' ONLY**; every
   transition belongs to E3's machine · `created_by` SET-NULL FK · `created_at`.
   Indexed: (target_type, target_id, created_at), deployment_id, state (pre-pays E3's
-  pending scan). **`publish_revision(revision_id)` does not exist yet — E3 adds it**,
-  gated by `EOE_PUBLISH_ENABLED` (Settings.publish_enabled, default False; E2 only
-  reports it in the apply response).
+  pending scan). **`publish_revision` now exists** (E3.4 — see "The desired publish
+  path" under E3), still gated by `EOE_PUBLISH_ENABLED` (Settings.publish_enabled,
+  default False until E3.13 per D61; E2's apply only reports it in the response and
+  still stops at `draft` until E3.13 wires the call-through).
 - **Secret rotation note (D56):** replacing a secret's value keeps the same marker →
   no new revision. Rotation reaches devices via E3's §8.7 rewrap path, never
   desired-config.
@@ -916,3 +917,62 @@ reimplement their logic.** Signatures, verbatim:
   removing either alone silently discards drafts (D69).
 - **E3.11 hangs `reconciliation_event` off `transition()` itself**, not off each call site —
   one choke point is what will make the timeline complete by construction.
+
+### The desired publish path (E3.4; spec 6.2, 6.4, 7.2, 7.3; D71-D74) — E3.13 wires E2 to this
+
+- **Path:** `backend/app/controlplane/publisher.py`. **`publish_revision` is the ONLY way a
+  `config_revision` reaches a device** — steps 1 and 2 of the spec 6.4 loop; E3.5 is the rest.
+- **Signature:** `await publish_revision(session_factory, publisher, revision_id, *,
+  publish_enabled: bool, actor_user_id: uuid.UUID | None = None) -> PublishOutcome`.
+  `publish_enabled` is REQUIRED and keyword-only (D71) — the `EOE_PUBLISH_ENABLED` refusal
+  lives inside this function, so no caller can reach a device by forgetting it; the value comes
+  from `Settings.publish_enabled` (D61). `publisher` is anything satisfying the structural
+  **`DesiredPublisher`** protocol (`async publish(deployment_id, topic, payload, *, qos,
+  retain)`) — `MqttClientManager` does, and so does a test double.
+- **Owns its own transaction** (D74): a revision can only be published once committed, so
+  E3.13's apply commits first and calls this second. **The publish happens INSIDE that
+  transaction** — state change staged, bytes sent, commit only on success. A `BrokerUnavailable`
+  rolls back and the revision stays `draft` with nothing published. Do not reorder this: a
+  committed `pending` nobody was told about resolves as a spec 6.2 `failed(timeout)`, which
+  under D70 means "the device never answered" and blames a device for a broker outage.
+- **Retained, QoS 1, always** — spec 7.2/6.4's reconnect property, proven by an acceptance test
+  that publishes and only THEN connects a subscriber (as the Aggregator's own credential, so
+  the spec 7.1 ACL is on trial with it).
+- **Payload:** `DesiredConfig` with `config = revision.snapshot` and `checksum =
+  revision.checksum`, both VERBATIM (D52). Rewriting, reordering or enriching the snapshot on
+  the way out breaks the device-echo match for the whole fleet at once and surfaces as phantom
+  drift, not as an error. This module has no secret handling and must never grow any — E2 put
+  the markers in the snapshot (spec 5.4, 8).
+- **Topics come from LIVE inventory, never `config_revision.deployment_id`** (D71), which is
+  historical evidence (D33). Listener revisions resolve their deployment through the
+  Aggregator's pod, because the spec 7.2 Listener subtopic hangs off that Aggregator's subtree.
+  `resolve_desired_route -> DesiredRoute(deployment_id, slug, aggregator_uuid, device_id,
+  topic)` is exported for reuse. A revision whose device has left inventory raises
+  **`UnknownPublishTarget`** — expected, not a bug.
+- **An aggregator revision's `target_id` is the PLATFORM UUID (`aggregator.id`), NOT the
+  `aggregator_uuid`** (D75) — that is what E2 writes. The `{agg}` topic segment and the spec
+  7.3 `target.id` are the `aggregator_uuid`; `DesiredRoute.device_id` carries it. Spec 4.2
+  keeps the three identifiers distinct and this is the one place that crosses between them.
+  Getting it wrong fails SILENTLY — a valid topic no device subscribes to — so any future
+  consumer of `target_id` must resolve, never string-copy. Listener `target_id` is the MAC,
+  which is both.
+- **The trigger follows the source state** (D71): `draft` → `publish`, `drifted` → `republish`,
+  `failed` → `retry`, all reaching `pending` via `transition()`. New states must be added to
+  `_TRIGGER_FOR` deliberately; it does not default.
+- **Idempotent republish** (D72): a `pending` or `applied` revision re-sends byte-identical
+  retained bytes, moves NO state and writes NO second audit row (`PublishOutcome.transitioned`
+  is False). It re-sends rather than no-oping because that is the repair for a broker that lost
+  its retained store.
+- **Only the newest revision for a device may be published** (D73), by `(created_at, id)`;
+  otherwise **`StaleRevision`**, as for a `superseded` one. **This is the pair rule that makes
+  `supersede_open_revisions` safe** — see the state-machine section above; removing either half
+  alone silently discards an operator's newer draft.
+- **Exceptions** all derive from **`PublishError`** (a plain exception, not `AppError` — the
+  worker and E3.13's apply call this outside the HTTP layer; the `ContractError` precedent):
+  `PublishDisabled`, `UnknownRevision`, `UnknownPublishTarget`, `StaleRevision`. The API
+  boundary translates.
+- **Audit:** one `revision.publish` row per state-moving publish (`AUDIT_ACTION`), entity
+  `config_revision`, scoped to the resolved deployment, detail carrying target, topic, checksum,
+  from/to state, trigger and the superseded revision ids. `actor_user_id is None` means
+  system-driven, per the `record_audit` convention.
+- **Suite:** `backend/tests/test_publish_revision.py` (gate 43).
