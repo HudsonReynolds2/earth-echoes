@@ -1,5 +1,65 @@
 # Project Updates
 
+## 2026-08-10: E3.6 revision state machine — TEST-CRITICAL suite locked (Gate 42 GREEN)
+
+- **Tasks closed:** E3.6 (branch `e3-batch-1`; DECISIONS D69-D70). No plan change: batch 2 runs
+  E3.6 before E3.4 and E3.5 exactly as project-changes #20 said it would, because both the
+  publisher and the reported consumer transition revision state and the authoritative module
+  has to exist before either calls it.
+- **Gate:** 42, GREEN. `make gate`, run twice (the second to read the counts cleanly).
+- **Tests:** backend 537 (+52, all in `test_revision_state.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/revision_state.py` (the machine),
+  `backend/tests/test_revision_state.py` (**the third of the four test-critical suites**,
+  alongside RBAC and the merge engine), `guide/e3-verification.md` §4.
+- **The acceptance criterion, stated as one assertion.**
+  `test_the_transition_table_matches_spec_6_2_line_for_line` compares the module's table
+  against `SPEC_6_2_TABLE`, a verbatim transcription of the spec's table with its Trigger
+  column text included, so the two can be held side by side and diffed by eye. The legal set in
+  the test is rebuilt from that transcription and nothing else — adding a transition means
+  editing the transcription, which means reading spec 6.2 again.
+- **Illegal transitions are proven by enumeration, not by example.** All 288
+  `(source, target, trigger)` triples are generated and the 276 outside the legal set must
+  raise; a hand-picked list of illegal cases cannot prove absence. One test rather than 276
+  parametrized ones, reporting every offender at once, because a table widened wrongly is
+  usually widened by more than a single triple.
+- **A transition is a TRIPLE, not a pair.** `pending -> failed` is legal as an apply error and
+  as a timeout, and illegal as "operator retries" — which is `failed -> pending` read
+  backwards. Validating the pair alone would have accepted it.
+- **The spec contradicts itself once, and the owner ruled (D69).** Spec 6.2's table lists only
+  `pending` and `applied` as sources for `superseded`; its diagram four lines below reads
+  `(any non-terminal) --new revision--> superseded`. The diagram wins: under the table alone a
+  `failed` revision can never be closed out, so an operator who fixes their config and
+  publishes a new revision leaves the old row at `failed` forever beside an `applied` one, with
+  nothing saying which is live. The suite keeps both statements attributable —
+  `SPEC_6_2_TABLE` and `SPEC_6_2_DIAGRAM_EXTRA` are separate constants — and the three rows
+  should be fed back into the next spec revision.
+- **One design changed by the owner's push-back, and it is the better one (D70).** The first
+  proposal for "device acks revision R but reports config that is not R" was to leave the
+  revision pending and let the 300-second window resolve it. That reports a *timeout* for a
+  device that answered in two seconds. Instead the ambiguity is removed: a report whose own
+  `checksum` disagrees with its own `config` is internally inconsistent and is rejected at the
+  boundary as malformed with no state change, while a coherent report that disagrees with the
+  revision is a definite negative answer and fails immediately under `report_error`. That
+  leaves `Trigger.TIMEOUT` attached to exactly one transition and meaning exactly one thing —
+  no valid report arrived — which a suite test pins. E3.5 implements the consumer half.
+- **Two properties that only real rows can prove.** `load_for_transition` takes
+  `SELECT ... FOR UPDATE`, demonstrated by holding the lock in one transaction and watching a
+  second `FOR UPDATE NOWAIT` fail rather than read through it; and when an ack and a timeout
+  race for one pending revision the lock serializes them and the guard refuses the loser, so a
+  true `applied` is never overwritten by a `failed` that did not happen.
+- **The sweep and E3.4's guard are a pair, on purpose.** `supersede_open_revisions` closes every
+  other open revision for a device unconditionally, with no timestamp comparison, which is only
+  safe because E3.4 will refuse to publish a revision that is not the newest for its device.
+  Both docstrings say so; removing either alone is a data-loss bug that discards drafts.
+- **Manual verification:** the walkthrough's new §4 run line by line in a REPL — the six states,
+  `superseded` as the only dead end, the same pair legal under `timeout` and illegal under
+  `retry`, all four `check` messages distinguishing their three different mistakes, the single
+  `timeout` pair, `parse_state` refusing `"apllied"` while naming the six legal values, and
+  `failed -> superseded` legal under D69. The twelve `spec_trigger` strings printed and read
+  back against spec 6.2's Trigger column. No stack needed; this task is a library.
+
 ## 2026-08-10: E3.3 spec 7.3 payload models — the wire contract is now complete (Gate 41 GREEN)
 
 - **Tasks closed:** E3.3 (branch `e3-batch-1`; DECISIONS D67-D68). No plan change; the topic

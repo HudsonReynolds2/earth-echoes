@@ -4,6 +4,66 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D70 (2026-08-10): `failed(timeout)` means silence and nothing else; a contradictory ack
+fails fast (E3.6, implemented at E3.5)
+
+- **Decision:** a reported state that names a pending revision but carries config that is not
+  that revision's is a DEFINITE negative answer, and fails the revision on the first report —
+  `pending -> failed` under `report_error`, with a detail naming the differing KEY NAMES (not
+  values: snapshots hold secret markers, rule R2). It never waits for the window to elapse.
+  `Trigger.TIMEOUT` therefore attaches to exactly one transition and carries exactly one
+  meaning: no valid report arrived at all. A suite test pins that one-to-one.
+- **And the ambiguity is removed rather than adjudicated.** The report carries `config` AND
+  `checksum`, so two different failures were being collapsed into one. They are now separate:
+  1. **Internally inconsistent** — `checksum` != `config_checksum(config)`. The device
+     contradicts *itself*; the message is malformed, not a reconciliation outcome. Rejected at
+     the boundary alongside schema violations, with a message pointing at the firmware's
+     checksum implementation, and **no state transition** — an unparseable report is not
+     evidence about whether the config was applied, so the revision is left for the timeout,
+     whose message is then still true.
+  2. **Internally consistent, disagrees with the revision** — the device coherently reports
+     config that is not the revision's. Nothing to wait for. Fails immediately, per above.
+- **Why not the conservative "stay pending and let the timeout decide":** it waits 300 seconds
+  to report a *timeout* for a device that answered in two seconds, which is an inaccurate error
+  message for a condition the platform already knew for certain. It also makes
+  `failed(timeout)` cover two stories that call for opposite operator responses — "the device
+  never answered" (check the link, the broker, the power) and "the device answered wrong"
+  (check the config and the firmware).
+- **Consequence, and it is deliberate:** `applied_revision_id` is not authoritative on its own.
+  The platform recomputes the checksum from the reported config rather than trusting a naked
+  checksum field, which is the only thing that makes D52/D55's "device-echoed checksums match
+  by construction" a property rather than a hope. A firmware that cannot reproduce the D52
+  recipe is caught by case 1, precisely, instead of looking like a config disagreement.
+
+## D69 (2026-08-10): Spec 6.2's diagram beats its table on the superseded edge (E3.6)
+
+- **The contradiction:** spec 6.2's transition TABLE lists only `pending -> superseded` and
+  `applied -> superseded`. Its DIAGRAM, four lines below, draws
+  `(any non-terminal) --new revision--> superseded`, which also reaches `draft`, `drifted` and
+  `failed`. Both are section 6.2; they cannot both be complete.
+- **Decision (owner-approved at plan approval):** implement the union — the table's nine rows
+  plus the diagram's three. `superseded` is the only terminal state.
+- **Why the diagram:** under the table alone a revision that failed can never be closed out.
+  The operator fixes the config and publishes a new revision; the old row sits at `failed`
+  forever beside an `applied` one, and nothing in the state column says which is live. The same
+  goes for a superseded-in-fact `draft` and for a `drifted` revision abandoned in favour of a
+  new one. The table is best read as listing the interesting transitions, not as an exhaustive
+  enumeration — which is exactly what the diagram's parenthetical says.
+- **How the suite keeps both honest:** `test_revision_state.py` transcribes the table verbatim
+  as `SPEC_6_2_TABLE` (trigger text included) and the diagram's edge separately as
+  `SPEC_6_2_DIAGRAM_EXTRA`, so each spec statement is named and attributable rather than merged
+  into one undifferentiated list. Feed this back into the next spec revision by adding the three
+  rows to the table.
+- **A transition is a TRIPLE, not a pair.** Legality depends on the trigger: `pending -> failed`
+  is legal as an apply error or a timeout and illegal as "operator retries", which is
+  `failed -> pending` read backwards. Validating `(source, target)` alone would accept that.
+- **The paired rule that makes the sweep safe.** `supersede_open_revisions` closes every other
+  open revision for the device unconditionally, with no timestamp comparison. That is only safe
+  because E3.4 refuses to publish a revision that is not the newest for its device; without that
+  guard the sweep would quietly discard a newer draft an operator was still working on. The two
+  rules are a pair — removing either alone is a data-loss bug, and both say so in their
+  docstrings.
+
 ## D68 (2026-08-10): `PayloadError` is safe to log; Pydantic's rendering is not (E3.3)
 
 - **Decision:** `contracts.mqtt.decode` builds its message from

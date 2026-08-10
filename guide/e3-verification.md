@@ -249,3 +249,71 @@ Now the rules that are easy to get wrong and expensive to get wrong:
       `mqtt.Command(at=dt.datetime.now(dt.UTC), command="restart").command_id` differs on
       every construction, so a device can deduplicate its own retries (spec 7.4) without
       swallowing an operator's deliberate second attempt.
+
+## 4. The revision state machine (E3.6)
+
+Every config revision in the platform moves through spec 6.2's six states, and
+`backend/app/controlplane/revision_state.py` is the only code that decides whether a given
+move is allowed. It is **test-critical** (spec 14.5): its suite is the documentation of the
+lifecycle, and no later session may weaken it. Like §3, this needs no stack — it is a library.
+
+```bash
+cd backend && uv run python
+```
+
+```python
+>>> from app.controlplane.revision_state import *
+>>> sorted(RevisionState)
+[<RevisionState.APPLIED: 'applied'>, ..., <RevisionState.SUPERSEDED: 'superseded'>]
+>>> legal_targets(RevisionState.PENDING)
+frozenset({<RevisionState.APPLIED: 'applied'>, <RevisionState.FAILED: 'failed'>, <RevisionState.SUPERSEDED: 'superseded'>})
+```
+
+- [ ] Open the module and read the docstring, then open spec 6.2 beside it. The `TRANSITIONS`
+      table and the spec's table are the same rows, and each carries the spec's own Trigger
+      text in `spec_trigger`. `sorted(row.spec_trigger for row in TRANSITIONS)` reads like the
+      document's Trigger column.
+- [ ] **`superseded` is the only dead end.** `legal_targets(RevisionState.SUPERSEDED)` is
+      empty, and every other state has somewhere to go. That is what makes the spec 6.2
+      diagram's phrase "any non-terminal" well defined.
+
+Now the rules that are easy to get wrong:
+
+- [ ] **A transition is a triple, not a pair.**
+      `is_legal(RevisionState.PENDING, RevisionState.FAILED, Trigger.TIMEOUT)` is `True` and
+      `is_legal(RevisionState.PENDING, RevisionState.FAILED, Trigger.RETRY)` is `False` — same
+      pair, and the second is "operator retries" read backwards. Checking the pair alone would
+      accept it.
+- [ ] **The guard's message tells you which of the three mistakes you made.** Run each of
+      these and read what comes back:
+
+```python
+>>> check(RevisionState.PENDING, RevisionState.PENDING, Trigger.PUBLISH)   # "to itself"
+>>> check(RevisionState.PENDING, RevisionState.FAILED, Trigger.RETRY)      # names report_error, timeout
+>>> check(RevisionState.DRAFT, RevisionState.APPLIED, Trigger.REPORT_MATCH)  # lists where draft CAN go
+>>> check(RevisionState.SUPERSEDED, RevisionState.PENDING, Trigger.RETRY)  # "terminal"
+```
+
+- [ ] Each raises `IllegalTransition` with a different, specific message. A no-op means the
+      caller is missing an idempotency check; a wrong trigger means the right intent under the
+      wrong cause; an impossible pair is a genuine lifecycle error. One generic "invalid
+      transition" would have hidden the difference.
+- [ ] **A `timeout` means silence and nothing else** (D70).
+      `{(r.source, r.target) for r in TRANSITIONS if r.trigger is Trigger.TIMEOUT}` holds
+      exactly one pair. A device that acknowledges a revision and reports the *wrong* config
+      fails immediately as `report_error` (E3.5) rather than waiting out the 300-second window
+      and then being reported as a timeout it never was.
+- [ ] **An unrecognized stored state refuses to move.** `parse_state("apllied")` raises
+      `UnknownRevisionState` naming the six legal values. Being lenient here — treating an
+      unknown state as `draft` — would republish live config to a device.
+
+Finally, the deviation this task recorded. Spec 6.2's table lists only `pending` and `applied`
+as sources for `superseded`; the diagram directly below it says *any* non-terminal state.
+
+- [ ] `is_legal(RevisionState.FAILED, RevisionState.SUPERSEDED, Trigger.NEWER_REVISION)` is
+      `True` (D69, the diagram). Picture the alternative: an operator's config fails, they fix
+      it and publish a new revision, and the old row sits at `failed` forever next to an
+      `applied` one with nothing saying which is live.
+- [ ] Open `backend/tests/test_revision_state.py`. `SPEC_6_2_TABLE` and
+      `SPEC_6_2_DIAGRAM_EXTRA` are separate constants on purpose, so each spec statement stays
+      attributable rather than being merged into one undifferentiated list.

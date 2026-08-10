@@ -865,3 +865,54 @@ reimplement their logic.** Signatures, verbatim:
 - **New runtime dependency: `aiomqtt`** (the phase-3 fixed client choice), which pulls
   `paho-mqtt`. Async tests run on **anyio's pytest plugin** via the `anyio_backend` fixture in
   `conftest.py` — no pytest-asyncio (D66).
+
+### The revision state machine (E3.6; spec 6.2, 14.5; D69-D70) — TEST-CRITICAL
+
+- **Path:** `backend/app/controlplane/revision_state.py`. **`transition()` is the ONLY writer
+  of `config_revision.state`** anywhere in the codebase — E3.4, E3.5, E3.7 and E3.10 come
+  through it rather than assigning the column, which is what makes the spec 6.2 lifecycle true
+  of every row instead of true of the most recently written call site. E2 writes `draft` at
+  creation and nothing else (D55).
+- **Suite:** `backend/tests/test_revision_state.py`. **One of the four suites no later session
+  may weaken (spec 14.5, rule R0.)** It transcribes spec 6.2's transition table verbatim
+  (`SPEC_6_2_TABLE`, trigger text included) and the diagram's extra edge separately
+  (`SPEC_6_2_DIAGRAM_EXTRA`); the legal set is rebuilt from those transcriptions alone. All 288
+  `(source, target, trigger)` triples are enumerated and the 276 outside the legal set must
+  raise. **To add a transition you must edit the transcription**, which means reading the spec.
+- **`RevisionState`** (StrEnum, compares equal to the stored string): `draft`, `pending`,
+  `applied`, `drifted`, `failed`, `superseded`. **`TERMINAL` = {`superseded`} and nothing
+  else**; `OPEN` is the other five. Every open state has an exit and every state is reachable
+  from `draft` — both suite-asserted, so dead vocabulary cannot creep in.
+- **`Trigger`** (StrEnum): `publish`, `report_match`, `report_error`, `timeout`,
+  `report_diverged`, `republish`, `retry`, `newer_revision` — spec 6.2's Trigger column, as
+  causes. **A transition is a TRIPLE `(source, target, trigger)`, not a pair** (D69): the same
+  pair can be legal under one cause and illegal under another, and the trigger is what makes
+  `failed` legible on the timeline (rejected the config vs. never answered).
+- **`TIMEOUT` attaches to exactly one transition and means silence only** (D70). A device that
+  acks a revision with the wrong config fails as `REPORT_ERROR` on its first report; it never
+  waits out the window. Suite-pinned — do not widen it.
+- **API:** `TRANSITIONS` (frozenset of frozen `Transition` rows carrying `spec_trigger`, the
+  spec's own text) · `is_legal` / `legal_targets` / `legal_triggers` · `check(source, target,
+  trigger)` raising **`IllegalTransition`** (a plain exception, NOT the API's `AppError` — the
+  worker and consumer run outside the HTTP layer; the `ContractError` precedent) ·
+  `parse_state` raising **`UnknownRevisionState`** on anything outside the vocabulary (loud
+  rather than lenient: treating an unrecognized state as `draft` would republish live config) ·
+  `transition(db, revision, target, trigger, *, actor_user_id, detail) -> TransitionRecord` ·
+  `load_for_transition` · `open_revisions_for_target` · `supersede_open_revisions`.
+- **`check`'s messages distinguish three failures** because they call for different fixes: a
+  no-op (a missing idempotency check in the caller), a legal pair under the wrong trigger (the
+  right intent reported under the wrong cause, and the message names the permitted triggers),
+  and an impossible pair (the message lists where the source can actually go).
+- **Stages, never commits** — the `record_audit` convention, so a transition and the publish or
+  report that caused it seal or roll back together. `TransitionRecord` (revision id, target,
+  deployment, source, target state, trigger, `at`, actor, detail) is what the caller audits
+  from; `actor_user_id is None` means system-driven, matching `record_audit`.
+- **Concurrency:** `load_for_transition` reads `SELECT ... FOR UPDATE`. An ack and a timeout can
+  land on the same pending revision together; the lock serializes them and the guard then
+  refuses the loser, so a true `applied` is never overwritten by a `failed` that did not happen.
+- **`supersede_open_revisions(db, winner)` closes every OTHER open revision for the winner's
+  device, unconditionally — no timestamp comparison.** That is safe ONLY because **E3.4 refuses
+  to publish a revision that is not the newest for its device**; the two rules are a pair, and
+  removing either alone silently discards drafts (D69).
+- **E3.11 hangs `reconciliation_event` off `transition()` itself**, not off each call site —
+  one choke point is what will make the timeline complete by construction.
