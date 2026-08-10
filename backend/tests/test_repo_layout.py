@@ -18,12 +18,21 @@ __all__ = ["compose_env", "docker_cli", "docker_env"]  # re-exported for peer su
 
 DEPLOY = REPO_ROOT / "deploy"
 CORE_ENV_VARS = ("DATABASE_URL", "EOE_SESSION_SECRET", "EOE_KEK", "REDIS_URL")
+# HOST:CONTAINER. The host side moved into the 1xxxx range (PHASE0-2-02,
+# project-changes #21) so the stack coexists with other local services; the
+# container side is still each service's standard port, which is why no image
+# or in-network URL changed. E3.1 added mosquitto: TLS only (spec 7.1), 8883
+# being the registered MQTT-over-TLS port, with no 1883 listener anywhere.
 FIXED_PORTS = {
-    "api": "8000:8000",
-    "frontend": "5173:5173",
-    "postgres": "5432:5432",
-    "redis": "6379:6379",
+    "api": "18000:8000",
+    "frontend": "15173:5173",
+    "postgres": "15432:5432",
+    "redis": "16379:6379",
+    "mosquitto": "18883:8883",
 }
+# Extended by each epic that adds a service, deliberately and with its
+# INTERFACES.md entry — the same discipline as E0_ROUTES/E0_TABLES.
+COMPOSE_SERVICES = {"api", "frontend", "postgres", "redis", "mosquitto"}
 
 SECRET_PATTERNS = (
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -109,9 +118,9 @@ def test_no_committed_secret_patterns():
 # --- Gate 1 checks 4 and 5: compose topology and fixed ports ---
 
 
-def test_compose_defines_exactly_the_four_services():
+def test_compose_defines_exactly_the_expected_services():
     compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))
-    assert set(compose["services"]) == {"api", "frontend", "postgres", "redis"}
+    assert set(compose["services"]) == COMPOSE_SERVICES
 
 
 def test_compose_publishes_the_fixed_ports():

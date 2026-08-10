@@ -22,7 +22,11 @@ phase-doc tasks) are given so a fresh session can verify any entry at its source
                 migration conventions
 ```
 
-Dev ports: API 8000, frontend dev server 5173, Postgres 5432, Redis 6379.
+Dev ports, HOST side (amended by E3.1 — PHASE0-2-02, project-changes #21): API 18000,
+frontend dev server 15173, Postgres 15432, Redis 16379, MQTT over TLS 18883. Containers
+still listen on 8000/5173/5432/6379/8883 internally and in-network URLs are unchanged;
+only the published host side moved, so the stack coexists with other local services.
+`FIXED_PORTS` in `backend/tests/test_repo_layout.py` is the enforced list.
 
 ### Environment variables (E0.1, E0.3; phase-0 section 2)
 
@@ -709,3 +713,83 @@ reimplement their logic.** Signatures, verbatim:
   editor type + the acceptance key `test.demo_knob` (no src/ reference); an
   in-memory override store + miniature D53 merge back the MSW handlers, so
   provenance and no-op detection are real in tests.
+
+---
+
+## Owned by E3
+
+### The MQTT contract module (E3.1, E3.3; spec 7.2, 7.3) — PUBLISHED, SIM CONSUMES IT
+
+- **Path:** `backend/app/contracts/mqtt.py`, under a package whose whole purpose is wire
+  contracts shared outside this codebase. **The simulation harness (SIM epic) imports this
+  module directly and device firmware is written against it**, so it is published from the
+  moment it merged: additive change only, never a silent rename, and a shape change is a
+  field-breaking change.
+- **Topic builders** — one per spec 7.2 row, all hanging off `deployment_root(dep)` =
+  `eoe/{dep}`: `desired_topic`, `reported_topic`, `status_topic`, `event_topic`,
+  `command_topic`, `listener_desired_topic`, `listener_reported_topic`, plus
+  `aggregator_root`/`listener_root`. `{dep}` is the deployment **slug** (D36), `{agg}` the
+  `aggregator_uuid`, `{mac}` a NORMALIZED uppercase colon MAC.
+- **Identifiers are validated, never repaired.** `TopicError` (a plain `ValueError`, NOT the
+  API's `AppError` — this module runs outside the HTTP layer) rejects anything that fails
+  the same formats the database CHECK-constrains: an unchecked slug or MAC reaching a topic
+  string could inject a `+`/`#` wildcard and hand one device another's subtree. Normalize at
+  the API boundary with `app.inventory.naming.normalize_mac` first.
+- **`deployment_subscriptions(dep)`** is the platform's subscribe set: the four
+  device-to-platform filters only. Deliberately NOT `eoe/{dep}/#` — that would feed the
+  platform's own retained desired publishes back into its consumer.
+- **`QOS = 1`** on every platform topic (phase-3 fixed choice); retained flags follow the
+  spec 7.2 table exactly (desired and status retained; reported, event and cmd not).
+
+### `deployment_service` — broker coordinates (E3.1; spec 7.1) — **E5 EXTENDS THIS**
+
+- **Table** (migration `a41f9c7b2e05`, singular per D30): `id`, `deployment_id` FK,
+  `service_key` CHECK-constrained to `('mqtt')` for now, `host`, `port` (CHECK 1..65535),
+  `tls_enabled`, `ca_cert_pem`, `username`, `password_secret_name`, timestamps.
+  UNIQUE `(deployment_id, service_key)`.
+- **E5 owns extending it** with the Influx/Grafana/Prometheus/S3 rows, connection tests, and
+  the spec 16.5 verification status lifecycle — by widening the `service_key` CHECK and
+  adding columns here, **not** by starting a second table. E3 reads this row and writes only
+  the `mqtt` one.
+- **`deployment_id` IS a real foreign key**, unlike the immutable-evidence tables (D33/D55):
+  a service row describes a live connection and is meaningless once its deployment is gone.
+- **Credentials never live in the row.** `password_secret_name` names a SecretStore entry
+  (`deployment:{deployment_id}:mqtt_password`); `ca_cert_pem` is deliberately NOT a secret —
+  it is the public trust anchor the platform verifies the broker against, and storing the
+  PEM rather than a path keeps it portable across API replicas and containers.
+
+### The development broker (E3.1; spec 7.1)
+
+- **Generator:** `backend/app/devbroker.py` (`uv run python -m app.devbroker`), documented
+  for operators in the README's "Development MQTT broker" section. **Two passes by design:**
+  `--certs-only` writes TLS material and empty account files so Mosquitto can start at all;
+  the full run needs seeded deployments and writes accounts, ACLs and the service rows.
+  `--host` is the hostname the PLATFORM dials (`mosquitto` in compose, `localhost` on the
+  host); `--keep-tls` reuses existing certificates.
+- **Everything it writes is gitignored** (`deploy/dev-certs/`): private CA, server cert,
+  generated passwords, Mosquitto `passwd` (PBKDF2-SHA512, `$7$` format — 2.0 dropped
+  plain-text password files) and `acl`, plus `accounts.json`, which is how tests and the
+  mock device learn device credentials without a second source of truth. Re-running rotates
+  every credential; the password file and SecretStore are rewritten in the same pass so they
+  cannot drift apart.
+- **The ACL is the isolation guarantee, and it is generated from the topic builders**, not
+  from repeated literals: a platform account gets `readwrite eoe/{dep}/#`; an aggregator
+  gets exactly seven grants that are spec 7.2's Direction column read literally (read
+  `desired`/`cmd`/`lst/+/desired`, write `reported`/`status`/`event`/`lst/+/reported`).
+  A device therefore cannot publish its own desired config — which would let it manufacture
+  agreement and defeat drift detection.
+- **Denial looks like silence.** Mosquitto accepts a subscription to a topic its ACL denies
+  (SUBACK 0) and then never delivers, and it filters wildcards per message. Every denial
+  assertion in `backend/tests/test_dev_broker.py` is therefore paired with a positive
+  control publishing the same retained message to the same topic for an authorized
+  identity; a later session must keep that pairing or the suite proves nothing.
+- **Compose:** the `mosquitto` service is **TLS only** (8883, no 1883 listener) with
+  `persistence true` so retained desired messages survive a broker restart — spec 6.4's
+  reconnect property and E3.7's restart acceptance both depend on it.
+- **Shared test fixture:** `conftest.ephemeral_broker(dev_dir)` yields a `Broker` with
+  `port`, `exec_client(...)` and `reload()`. It ships files in with `docker cp` rather than
+  a bind mount ON PURPOSE — bind mounts of WSL/Windows paths translate differently per host,
+  and the gate must behave identically on all three.
+- **Gate-locked sets extended here:** `COMPOSE_SERVICES` and `FIXED_PORTS` in
+  `backend/tests/test_repo_layout.py` (mosquitto, `8883:8883`), and `E0_TABLES` in
+  `backend/tests/test_e0_readiness.py` (`deployment_service`).

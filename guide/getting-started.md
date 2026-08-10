@@ -29,13 +29,28 @@ their encryption. Store it in a password manager or secret manager, not just in 
 
 ## 2. Launch
 
+The control-plane broker needs its TLS material before anything starts — it is generated,
+never committed, so a fresh clone has none:
+
+```
+cd backend && uv run python -m app.devbroker --certs-only && cd ..
+```
+
 ```
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-Four services start: the API (port 8000), the web frontend (5173), PostgreSQL (5432), and
-Redis (6379). All four carry health checks; `docker compose ps` shows them healthy within
-about a minute on first build.
+Five services start: the API (host port 18000), the web frontend (15173), PostgreSQL
+(15432), Redis (16379), and the Mosquitto control-plane broker (18883, TLS only). The
+published host ports sit in the 1xxxx range so the stack coexists with other services you
+may already run; inside the compose network each container still uses its standard port.
+All five carry health checks; `docker compose ps` shows them healthy within about a
+minute on first build.
+
+Once deployments exist (step 3 onward), run `uv run python -m app.devbroker --host mosquitto
+--keep-tls` from `backend/` and restart the broker to mint its per-deployment and per-device
+accounts. The repository README's "Development MQTT broker" section explains why this takes
+two passes.
 
 ## 3. Create the owner account
 
@@ -50,7 +65,7 @@ can never be shown again.
 
 ## 4. Sign in
 
-Open `http://localhost:5173`, choose **Sign in**, and use the seeded credentials. As the
+Open `http://localhost:15173`, choose **Sign in**, and use the seeded credentials. As the
 owner you can create further accounts under **Users**, assign roles, and (optionally)
 enable two-factor authentication for your account.
 
@@ -70,5 +85,5 @@ then removes it. See [Verify your deployment](verify-deployment.md).
 - **`EOE_KEK must decode to 32 bytes`** — the KEK must be base64 of exactly 32 random
   bytes; regenerate with `openssl rand -base64 32`.
 - **The frontend loads but shows "API unreachable"** — the browser reaches the API at
-  `http://localhost:8000` by default; if your API is elsewhere, set `EOE_FRONTEND_API_URL`
+  `http://localhost:18000` by default; if your API is elsewhere, set `EOE_FRONTEND_API_URL`
   in `deploy/.env` and restart the frontend service.

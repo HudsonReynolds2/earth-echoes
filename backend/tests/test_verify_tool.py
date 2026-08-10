@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 import pytest
-from conftest import REPO_ROOT
+from conftest import REPO_ROOT, bootstrap_broker_material
 from sqlalchemy import create_engine, text
 from test_repo_layout import compose_env, docker_cli
 
@@ -34,8 +34,10 @@ def _compose(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess:
 
 def test_verifier_walks_the_whole_platform_and_cleans_up():
     env = compose_env()
-    # The verifier reaches the stack's Postgres via the published port.
-    host_db_url = env["DATABASE_URL"].replace("@postgres:", "@localhost:")
+    # The verifier reaches the stack's Postgres via the published host port,
+    # which is not the in-network one (PHASE0-2-02).
+    host_db_url = env["DATABASE_URL"].replace("@postgres:5432", "@localhost:15432")
+    bootstrap_broker_material()
     try:
         up = _compose("up", "-d", "--build", "--wait", env=env)
         assert up.returncode == 0, f"compose up failed:\n{up.stdout}\n{up.stderr}"
@@ -51,7 +53,7 @@ def test_verifier_walks_the_whole_platform_and_cleans_up():
         assert migrate.returncode == 0, migrate.stderr
 
         result = subprocess.run(
-            [sys.executable, "-m", "app.verify", "--api", "http://localhost:8000"],
+            [sys.executable, "-m", "app.verify", "--api", "http://localhost:18000"],
             cwd=BACKEND,
             capture_output=True,
             text=True,

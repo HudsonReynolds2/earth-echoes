@@ -9,7 +9,7 @@ per-check PASS/FAIL report, and then deletes every account it created.
 
 ```
 cd backend
-uv run python -m app.verify                       # against http://localhost:8000
+uv run python -m app.verify                       # against http://localhost:18000
 uv run python -m app.verify --api https://host    # against any reachable deployment
 ```
 

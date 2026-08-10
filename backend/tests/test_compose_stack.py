@@ -12,8 +12,8 @@ import urllib.error
 import urllib.request
 
 import pytest
-from conftest import REPO_ROOT
-from test_repo_layout import compose_env, docker_cli, docker_env
+from conftest import REPO_ROOT, bootstrap_broker_material
+from test_repo_layout import COMPOSE_SERVICES, compose_env, docker_cli, docker_env
 
 DEPLOY = REPO_ROOT / "deploy"
 PROJECT = "eoe-gate-test"
@@ -43,8 +43,9 @@ def _http_json(url: str) -> dict:
 
 def test_stack_lifecycle_up_probe_teardown():
     env = compose_env()
+    bootstrap_broker_material()
     try:
-        # Check 9: clean up, build, all four services healthy within the wait.
+        # Check 9: clean up, build, every service healthy within the wait.
         up = _compose("up", "-d", "--build", "--wait", env=env)
         assert up.returncode == 0, f"compose up failed:\n{up.stdout}\n{up.stderr}"
 
@@ -52,21 +53,18 @@ def test_stack_lifecycle_up_probe_teardown():
         assert ps.returncode == 0, ps.stderr
         services = [json.loads(line) for line in ps.stdout.splitlines() if line.strip()]
         states = {item["Service"]: item["State"] for item in services}
-        assert states == {
-            "api": "running",
-            "frontend": "running",
-            "postgres": "running",
-            "redis": "running",
-        }, f"unexpected service states: {states}"
+        assert states == dict.fromkeys(COMPOSE_SERVICES, "running"), (
+            f"unexpected service states: {states}"
+        )
 
-        health = _http_json("http://localhost:8000/api/v1/health")
+        health = _http_json("http://localhost:18000/api/v1/health")
         assert health["status"] == "ok"
         assert health["database"] == "ok", f"api cannot reach postgres: {health}"
-        assert _http_status("http://localhost:5173/") == 200
+        assert _http_status("http://localhost:15173/") == 200
 
         # The envelope is the only error shape, proven through the real stack.
         try:
-            urllib.request.urlopen("http://localhost:8000/", timeout=10)
+            urllib.request.urlopen("http://localhost:18000/", timeout=10)
             raise AssertionError("root path should 404 under the /api/v1 prefix discipline")
         except urllib.error.HTTPError as error:
             assert error.code == 404

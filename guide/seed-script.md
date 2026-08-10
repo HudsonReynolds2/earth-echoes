@@ -13,7 +13,7 @@ uv run python -m app.seed
 
 Requirements: `DATABASE_URL` (and the other required variables from `deploy/.env.example`)
 present in the environment. When your stack is running via Docker Compose, point
-`DATABASE_URL` at `localhost:5432` with the same credentials you configured.
+`DATABASE_URL` at `localhost:15432` with the same credentials you configured.
 
 Optional: `EOE_SEED_OWNER_EMAIL` overrides the account email
 (default `owner@example.com`).

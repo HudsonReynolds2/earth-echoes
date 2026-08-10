@@ -13,6 +13,7 @@ from sqlalchemy import (
     Index,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -460,3 +461,49 @@ class EntityOverride(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# --- E3 control plane (spec 6, 7) ------------------------------------------
+
+
+class DeploymentService(Base):
+    """A deployment-local service the platform connects outbound to (task
+    E3.1; spec 7.1, 16.2).
+
+    **E5 OWNS EXTENDING THIS TABLE.** E3 defines the row shape and populates
+    exactly one service_key, 'mqtt', because the control plane cannot exist
+    without broker coordinates. The Influx / Grafana / Prometheus / S3 rows,
+    the connection tests, and the verification status lifecycle (spec 16.5)
+    are E5's; adding them means adding columns here, not a second table.
+
+    Credentials never live in this row: `password_secret_name` names a
+    SecretStore entry (`deployment:{deployment_id}:{service_key}_password`)
+    and the plaintext moves only through app.secrets.SecretStore (rule R2).
+    ca_cert_pem is deliberately NOT a secret - it is the public certificate
+    the platform must trust to verify the broker's TLS identity, and storing
+    the PEM rather than a path keeps a deployment's trust anchor portable
+    across API replicas and container filesystems.
+    """
+
+    __tablename__ = "deployment_service"
+    __table_args__ = (
+        UniqueConstraint("deployment_id", "service_key"),
+        CheckConstraint("service_key IN ('mqtt')", name="service_key_vocab"),
+        CheckConstraint("port > 0 AND port < 65536", name="port_range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    service_key: Mapped[str] = mapped_column(String(40))
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column()
+    tls_enabled: Mapped[bool] = mapped_column(default=True)
+    ca_cert_pem: Mapped[str | None] = mapped_column(Text, default=None)
+    username: Mapped[str] = mapped_column(String(200))
+    password_secret_name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    deployment: Mapped[Deployment] = relationship()

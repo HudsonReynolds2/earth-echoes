@@ -1,5 +1,56 @@
 # Project Updates
 
+## 2026-08-10: E3.1 development broker — TLS, per-device ACLs, `deployment_service` (Gate 39 GREEN)
+
+- **Tasks closed:** E3.1 (branch `e3-batch-1`; DECISIONS D59-D63, project-changes #19,
+  #20, #21). **First task of epic E3.** Preflight: this checkout was 20 gates stale — E1
+  and E2 had merged (gates 20-38) while it sat at gate-18 — so the batch began with a
+  fast-forward pull and `npm ci`.
+- **Gate:** 39, GREEN. Three genuine RED runs on the way, all worth recording:
+  (1) the ACL acceptance test asserted the broker would *reject* a denied subscription;
+  it does not — Mosquitto returns SUBACK 0 and then silently never delivers, filtering
+  wildcards per message. Every denial assertion was rewritten around message delivery
+  with a paired positive control, which is a stronger test than the one I set out to
+  write. (2) `docker cp` of a pytest tmp dir handed the container a 0700 directory that
+  uid 1883 could not traverse; fixed at the source in `write_artifacts`. (3) The
+  generator failed with a bare `PermissionError` because Docker had created
+  `deploy/dev-certs` as root when an earlier `compose up` preceded the first generation
+  — it now exits with an explanation and the exact removal command.
+- **Tests:** backend 396 (+22: `test_dev_broker.py` 16, `test_mqtt_contracts.py` 23,
+  minus reorganisation), vitest 96, Playwright 4; 0 failed / 0 skipped / 0 xfailed /
+  0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `deploy/mosquitto/mosquitto.conf` (TLS-only listener, no 1883 anywhere,
+  persistence on so retained desired survives a restart) and the `mosquitto` compose
+  service; `backend/app/devbroker.py` — private CA, server cert, per-deployment platform
+  accounts, per-Aggregator device accounts, the Mosquitto PBKDF2-SHA512 `passwd` file and
+  the ACL file, all into gitignored `deploy/dev-certs/`, plus the `deployment_service`
+  rows with passwords through `SecretStore`; migration `a41f9c7b2e05`;
+  `backend/app/contracts/mqtt.py` (topic builders, landed here rather than E3.3 so the
+  ACL generator builds grants from the namespace instead of repeating it — D62);
+  `conftest.ephemeral_broker` (ships files with `docker cp`, not a bind mount, so WSL,
+  Windows and Linux behave identically); `guide/e3-verification.md` §0-1.
+- **The ACL is the point.** Each aggregator gets exactly seven grants and they are spec
+  7.2's Direction column read literally, so a device can neither read a neighbour's
+  subtree nor write its own `desired` topic — the latter would let it manufacture
+  agreement and defeat drift detection before E3.7 ever runs.
+- **Ports moved (project-changes #21, PHASE0-2-02, owner instruction):** the published
+  HOST ports are now 18000/15173/15432/16379/18883. The standard numbers collided with
+  services already running on the dev machine, and under rule R0 that is not an
+  inconvenience but an unpassable gate — `test_compose_stack` and `test_verify_tool`
+  bind them for real. Container-side ports are unchanged, so no image, process argument,
+  broker listener or in-network URL moved.
+- **Manual verification:** the walkthrough's §0-1 run end to end against a real
+  `eoe-qa` stack — five services healthy on the new ports; `--certs-only` then seed
+  `--demo` then the full generator (2 platform + 6 device accounts, 2 service rows);
+  broker restarted. Then, in the container: the platform account published retained to
+  `demo-agg-rc-02/desired` and swept it back off `eoe/redwood-coast/#`; `dev-demo-agg-rc-01`
+  subscribing to that same topic received **nothing**; a client without `--cafile` got
+  `Protocol error` (TLS-only proven); a wrong password got `Connection Refused: not
+  authorised`. The `deployment_service` rows carried `mosquitto:8883` with `tls_enabled`
+  true and named — never held — their `deployment:{id}:mqtt_password` secrets. `git
+  status` listed nothing from `deploy/dev-certs/`. Stack torn down with `down -v`.
+
 ## 2026-08-04: E2.8 bulk edit UI + the E2 walkthrough — EPIC E2 COMPLETE (Gate 38 GREEN)
 
 - **Tasks closed:** E2.8 (branch `e2-batch-3`; DECISIONS D58). **This closes epic E2**

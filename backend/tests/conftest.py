@@ -11,6 +11,7 @@ forbidden as a way to clear a gate.
 
 import base64
 import contextlib
+import dataclasses
 import os
 import shutil
 import subprocess
@@ -112,6 +113,130 @@ def ephemeral_postgres(migrate: bool = True):
             )
             assert upgraded.returncode == 0, f"migration failed: {upgraded.stderr}"
         yield url
+    finally:
+        subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
+
+
+def bootstrap_broker_material() -> None:
+    """E3.1's first pass, for any suite that brings the compose stack up.
+
+    Mosquitto refuses to start without its certificate, password and ACL files,
+    and those are generated rather than committed — so every stack test
+    provisions them exactly the way the README tells an operator to, before the
+    first `compose up`.
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "app.devbroker", "--certs-only"],
+        cwd=REPO_ROOT / "backend",
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"devbroker --certs-only failed:\n{result.stdout}\n{result.stderr}"
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class Broker:
+    """A running dev Mosquitto (E3.1). `port` is the Docker-assigned host port
+    for clients running in this process; `exec_client` runs mosquitto_sub or
+    mosquitto_pub inside the container, which is how the ACL suite talks to the
+    broker without depending on host TLS tooling."""
+
+    name: str
+    port: int
+    dev_dir: Path
+
+    def exec_client(self, *args: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [docker_cli(), "exec", self.name, *args],
+            capture_output=True,
+            text=True,
+            env=docker_env(),
+            timeout=timeout,
+        )
+
+    def reload(self) -> None:
+        """SIGHUP: Mosquitto re-reads passwd and acl without dropping retained
+        state, which is how a devbroker re-run reaches a live broker."""
+        subprocess.run(
+            [docker_cli(), "kill", "-s", "HUP", self.name], capture_output=True, env=docker_env()
+        )
+
+
+@contextlib.contextmanager
+def ephemeral_broker(dev_dir: Path):
+    """Disposable TLS Mosquitto carrying the material `app.devbroker` wrote
+    into `dev_dir` (task E3.1).
+
+    Files go in with `docker cp` rather than a bind mount ON PURPOSE: bind
+    mounts of a WSL or Windows path through Docker Desktop translate
+    differently per host, and the gate has to behave the same on all three.
+    The generated files are already world-readable so the container's uid 1883
+    can read them after the copy (see devbroker.write_artifacts).
+    """
+    name = f"eoe-mqtt-{uuid.uuid4().hex[:10]}"
+    env = docker_env()
+    conf = REPO_ROOT / "deploy" / "mosquitto" / "mosquitto.conf"
+    created = subprocess.run(
+        [
+            docker_cli(),
+            "create",
+            "--name",
+            name,
+            "-p",
+            "127.0.0.1:0:8883",
+            "eclipse-mosquitto:2",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert created.returncode == 0, f"could not create broker container: {created.stderr}"
+    try:
+        copies = (
+            (dev_dir, f"{name}:/mosquitto/dev"),
+            (conf, f"{name}:/mosquitto/config/mosquitto.conf"),
+        )
+        for source, target in copies:
+            copied = subprocess.run(
+                [docker_cli(), "cp", str(source), target],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            assert copied.returncode == 0, f"docker cp {source} failed: {copied.stderr}"
+        started = subprocess.run(
+            [docker_cli(), "start", name], capture_output=True, text=True, env=env
+        )
+        assert started.returncode == 0, f"broker would not start: {started.stderr}"
+
+        ports = subprocess.run(
+            [docker_cli(), "port", name, "8883/tcp"], capture_output=True, text=True, env=env
+        )
+        if ports.returncode != 0:
+            logs = subprocess.run(
+                [docker_cli(), "logs", name], capture_output=True, text=True, env=env
+            )
+            raise AssertionError(f"broker exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}")
+        host_port = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
+
+        for _ in range(60):
+            probe = subprocess.run(
+                [docker_cli(), "exec", name, "nc", "-z", "127.0.0.1", "8883"],
+                capture_output=True,
+                env=env,
+            )
+            if probe.returncode == 0:
+                break
+            time.sleep(0.5)
+        else:
+            logs = subprocess.run(
+                [docker_cli(), "logs", name], capture_output=True, text=True, env=env
+            )
+            raise AssertionError(f"broker never accepted:\n{logs.stdout}\n{logs.stderr}")
+        yield Broker(name=name, port=host_port, dev_dir=dev_dir)
     finally:
         subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
 

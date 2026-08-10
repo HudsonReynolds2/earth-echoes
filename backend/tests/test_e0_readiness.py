@@ -154,6 +154,10 @@ E0_TABLES = {
     # E2.6 (gate 36): immutable per-device desired-config snapshots (D55);
     # E2 writes draft ONLY, E3 owns every other state.
     "config_revision",
+    # E3.1 (gate 39): broker connection storage, 'mqtt' rows only. E5 EXTENDS
+    # this table with the remaining deployment services and their status
+    # lifecycle (spec 16); it does not add a second table.
+    "deployment_service",
 }
 
 

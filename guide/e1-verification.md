@@ -13,7 +13,7 @@ section 8 has you create two more accounts.
 - [ ] From the repo root: `.\qa-stack.ps1` (PowerShell). First run builds images (about a
       minute) and prints the owner email and password — **record them now; they are shown
       exactly once.**
-- [ ] The script ends with `QA STACK READY` and the site URL `http://localhost:5173`.
+- [ ] The script ends with `QA STACK READY` and the site URL `http://localhost:15173`.
 
 Details it automates: `deploy/.env` generation, `docker compose up`, and
 `app.seed --demo` ([what the seed does](seed-script.md)). The demo contents are fixed —
@@ -29,7 +29,7 @@ Troubleshooting: `.\qa-stack.ps1 status`, or
 
 ## 1. Sign in and the Organization overview
 
-- [ ] `http://localhost:5173` → **Sign in** → the seeded credentials land you on a page
+- [ ] `http://localhost:15173` → **Sign in** → the seeded credentials land you on a page
       titled **Organization overview**.
 - [ ] The hero reads **Listeners registered 28** — real data, styled as the one serif
       number on the page. (The label is deliberately *registered*, not *online*: nothing
@@ -192,7 +192,7 @@ placeholders pretending to be data:
 
 - [ ] **/system** shows live health with the build identifier (served by the real API).
 - [ ] Optional but recommended: `cd backend` then `uv run python -m app.verify` with
-      `DATABASE_URL` pointing at `localhost:5432` (the values live in `deploy/.env`) —
+      `DATABASE_URL` pointing at `localhost:15432` (the values live in `deploy/.env`) —
       expect every `[PASS]`, including the 11 hierarchy steps
       ([what it checks](verify-deployment.md)).
 - [ ] Done: `.\qa-stack.ps1 down` (keeps your QA data) or `reset` (wipes it).

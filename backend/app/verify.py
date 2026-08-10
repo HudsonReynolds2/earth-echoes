@@ -1,6 +1,6 @@
 """Deployment verifier (E0.12+; guide/verify-deployment.md is the USER doc).
 
-    uv run python -m app.verify [--api http://localhost:8000]
+    uv run python -m app.verify [--api http://localhost:18000]
 
 Drives every Phase-0 subsystem through a TEMPORARY owner account over real
 HTTP against a running deployment: health, login and session mechanics, CSRF,
@@ -417,8 +417,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--api",
-        default=os.environ.get("EOE_VERIFY_API_URL", "http://localhost:8000"),
-        help="base URL of the deployment's API (default http://localhost:8000)",
+        default=os.environ.get("EOE_VERIFY_API_URL", "http://localhost:18000"),
+        help="base URL of the deployment's API (default http://localhost:18000)",
     )
     args = parser.parse_args()
     database_url = os.environ.get("DATABASE_URL")

@@ -4,6 +4,77 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D63 (2026-08-10): Dev host ports move, container ports do not (owner-directed)
+
+- **Decision:** the compose stack publishes 18000/15173/15432/16379/18883 on the host; every
+  container keeps listening on 8000/5173/5432/6379/8883 internally.
+- **Why split it that way:** the collision is with the HOST's port space only. Moving the
+  container side too would touch both Dockerfiles, the uvicorn and vite arguments, the
+  Mosquitto listener and every in-network URL, for no benefit — nothing inside a compose
+  network collides with anything. Keeping the standard ports internally also keeps the
+  images honest as artifacts: the API image still serves 8000 wherever it is run.
+- **Consequence for `vite.config.ts`:** the host-run dev server moves to 15173 as well, so
+  the guides can name one address for both paths. The container is unaffected because the
+  Dockerfile's CMD passes `--port 5173` explicitly.
+- **Why it mattered enough to change a phase-0 fixed choice:** rule R0 forbids skipping, so
+  a port a developer's other services already hold is not an inconvenience — it is a gate
+  that cannot go green. Recorded as project-changes #21, addendum PHASE0-2-02.
+
+## D62 (2026-08-10): The topic builders land with E3.1, not E3.3
+
+- **Decision:** `app/contracts/mqtt.py` is created by E3.1 carrying the spec 7.2 topic
+  builders; E3.3 adds the spec 7.3 payload models to the same module and completes its
+  suite. The phase document assigns the whole module to E3.3.
+- **Why:** E3.1's broker ACL grants ARE topic strings. Building them from literals for two
+  tasks and refactoring at E3.3 would mean the namespace existed in two places, which is
+  precisely the drift the "single contracts module" fixed choice exists to prevent. Moving
+  a deliverable earlier inside one epic and one batch is a sequencing call the handbook
+  (section 2) allows; nothing outside E3 is touched.
+- **Consequence:** `backend/tests/test_mqtt_contracts.py` exists from gate 39 and E3.3
+  extends it rather than creating it. Recorded in project-changes #20.
+
+## D61 (2026-08-10): `EOE_PUBLISH_ENABLED` default flips on at E3.13 (owner-approved)
+
+- **Decision:** E3.13 flips `Settings.publish_enabled` to default `True`, as task E3.13
+  specifies, rather than deferring the flip to a separate readiness flight.
+- **Why:** E2 is merged, so the condition the phase document attaches to the flip is met.
+  The CI end-to-end test is the safety net, the flag remains settable per environment, and
+  publication only reaches a broker a deployment actually has a `deployment_service` row
+  for. Epic E3's definition of done requires the flip.
+- **Owner decision, 2026-08-10.** The alternative offered was an E3-R flight on the E0-R
+  precedent; the owner chose the flip at E3.13.
+
+## D60 (2026-08-10): D40 is lifted by E3, on real reported state only (owner-approved)
+
+- **Decision:** E3.12 replaces D40's zero-`[data-status]` guard with real device status on
+  the inventory tables, the aggregator card and the Overview roll-up, all driven by
+  `device_state` rows fed from LWT and reported messages, plus a Timeline tab. The guard
+  stays where it still applies (config routes; import outcomes are not device states).
+- **Why:** D40 exists to stop invented status, not status. E3 is the epic that supplies the
+  real thing, and it named itself as the lifter. The Map (E6) and alerts (E7) stay
+  untouched.
+- **Consequence:** the gate check that asserts zero `[data-status]` on inventory routes is
+  rewritten in the same batch, not deleted — it becomes an assertion that status renders
+  where real state exists and nowhere else.
+
+## D59 (2026-08-10): Control-plane topology — one worker module, two entrypoints, and a
+Postgres LISTEN/NOTIFY bus (owner-approved)
+
+- **Decision (worker):** `app/controlplane/runner.py` runs either as an asyncio task in the
+  FastAPI lifespan or as a standalone `worker` container, from one module. Spec 3.1 draws
+  Workers as a separate box, and production runs it that way; forcing a second container
+  into every integration test buys nothing but minutes.
+- **Decision (websocket fan-out):** reconciliation transitions happen in the worker while
+  websockets are held by the API, so the two need a bus. It is Postgres `LISTEN`/`NOTIFY`:
+  the worker NOTIFYs after commit, each API process LISTENs and fans out to its sockets.
+- **Why not Redis**, which spec 3.2 names for websocket fan-out: spec 3.2 also calls Redis
+  optional and spec 15.1's simplest self-hosted deploy omits it, and E0 wrote that promise
+  into a readiness test. A bus that must work without Redis cannot be Redis. Redis stays a
+  recorded future accelerator for E7/E8 behind the same seam.
+- **Consequence:** no new required dependency — the bus rides the psycopg connection the
+  app already holds. `test_redis_stays_optional_until_e3` is updated in E3.12 to say Redis
+  stayed optional THROUGH E3, which is now a stronger statement than when E0 wrote it.
+
 ## D58 (2026-08-04): Bulk edit UI rulings (E2.8) — gating, honest slots, folded affordances
 
 - **Commit gating is the acceptance**: Commit stays disabled until the CURRENT form
