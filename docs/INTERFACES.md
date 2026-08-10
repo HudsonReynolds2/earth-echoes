@@ -740,6 +740,28 @@ reimplement their logic.** Signatures, verbatim:
   platform's own retained desired publishes back into its consumer.
 - **`QOS = 1`** on every platform topic (phase-3 fixed choice); retained flags follow the
   spec 7.2 table exactly (desired and status retained; reported, event and cmd not).
+- **Payload models** (E3.3; spec 7.3; D67-D68), all on the published base `MqttPayload`:
+  `DesiredConfig` (+ `DesiredTarget`), `ReportedAggregatorState` (+ `HealthBlock`),
+  `ReportedListenerState` (+ `ListenerLiveness`), `StatusMessage`, `DeviceEvent`, `Command`.
+  Helpers: `encode(payload) -> bytes`, `decode(model, raw) -> model`,
+  `describe(payload) -> dict` (JSON-ready, for timeline detail and audit rows). Constants:
+  `SCHEMA_VERSION`, `DETAIL_MAX`, `EVENT_LISTENER_STREAM_GAP`,
+  `EVENT_LISTENER_MISSED_WAKE_WINDOW`. Field types: `UtcTimestamp`, `Checksum`,
+  `MacAddress`, `EventCode`, `LivenessState`, `CommandName`.
+- **Direction decides strictness (D67).** Outbound (`DesiredConfig`, `Command`) forbids
+  unknown fields; inbound (the reported states, `StatusMessage`, `DeviceEvent`) ignores them.
+  `schema_version` is top-level only and absent means 1; any other value is rejected.
+  Timestamps are aware-only, normalized to UTC, serialized `...Z`. `encode` omits absent
+  optionals — but never reaches inside `config`, where a null is data.
+  `expected_wake_at` is present exactly while `liveness.state == "sleeping"`, enforced both
+  ways. `applied_revision_id` is optional; `command_id` defaults to a fresh UUID.
+- **`DesiredConfig.config` IS the `config_revision.snapshot`, verbatim**, and `checksum` is
+  that snapshot's D52 checksum. Copying the snapshot through unchanged is load-bearing: it is
+  what makes a device-echoed checksum match by construction. The recipe itself stays in
+  `app.config.canonical` and is deliberately not imported here (D67).
+- **`ContractError(ValueError)`** is the shared base; `TopicError` and `PayloadError` both
+  derive from it, so a caller can catch either level. **`PayloadError` is safe to log
+  verbatim** — it names the model and the failing fields and never the values (D68).
 
 ### `deployment_service` — broker coordinates (E3.1; spec 7.1) — **E5 EXTENDS THIS**
 

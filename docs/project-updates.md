@@ -1,5 +1,56 @@
 # Project Updates
 
+## 2026-08-10: E3.3 spec 7.3 payload models — the wire contract is now complete (Gate 41 GREEN)
+
+- **Tasks closed:** E3.3 (branch `e3-batch-1`; DECISIONS D67-D68). No plan change; the topic
+  half had already landed at E3.1 under D62, so this task added the payloads to the same
+  module as project-changes #20 said it would.
+- **Gate:** 41, GREEN.
+- **Tests:** backend 485 (+68, all in `test_mqtt_contracts.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/contracts/mqtt.py` gained the spec 7.3 half — `MqttPayload` and
+  its six bodies (`DesiredConfig`, `ReportedAggregatorState`, `ReportedListenerState`,
+  `StatusMessage`, `DeviceEvent`, `Command`) with the nested `DesiredTarget`, `HealthBlock`
+  and `ListenerLiveness`; the `UtcTimestamp` / `Checksum` / `MacAddress` / `EventCode` field
+  types; `encode` / `decode` / `describe`; and `ContractError` as the shared base
+  `TopicError` and the new `PayloadError` hang off. `guide/e3-verification.md` §3.
+- **The acceptance criteria, in order.** Round-trip tests per model: fourteen parametrized
+  payloads encode, decode and compare equal. Topic builders reject bad slugs and MACs: that
+  half shipped at E3.1 and is unchanged. The module docstring names SIM as a consumer: it did
+  already, and now says which half of the module each consumer reads.
+- **The spec's own examples are a test.** `test_the_spec_7_3_examples_parse_as_written` feeds
+  every JSON body printed in spec 7.3 through its model, so a later rename is caught as a
+  contradiction with a named document rather than as a mystery.
+- **Direction decides strictness (D67).** Payloads the platform publishes forbid unknown
+  fields; payloads it receives ignore them. Firmware adding a field must never be able to
+  stop the platform reading its reports, and an unexpected key on an outbound payload is a
+  bug about to reach every device in a deployment. The same split explains the smaller
+  rulings: `health.coarse` stays free text (inventing a vocabulary firmware has not agreed to
+  would reject real reports for a field the platform does not even chart), while
+  `expected_wake_at` is enforced present exactly while sleeping, both ways, because spec 6.5
+  has the platform storing a declared wake time and never recomputing one.
+- **One finding, found by writing the test rather than the code (D68).** `PayloadError` was
+  documented as never carrying payload content, and `str(ValidationError)` does exactly that:
+  for a missing-field error the "input" Pydantic echoes is the WHOLE body, config markers
+  included. `decode` now builds its message from
+  `errors(include_url=False, include_input=False, include_context=False)` — field names, no
+  values — and a test feeds it a body whose `config` holds a `secret:` marker to prove it.
+  E3.5 will log these, so the property had to be real rather than asserted.
+- **The checksum bridge is tested, not assumed.** A snapshot with a bool, an int, a float, a
+  null, a list and a nested object round-trips through `encode`/`decode` and produces
+  byte-identical `canonical_config_bytes` — the property that makes a device-echoed checksum
+  match by construction (D52, D55). `encode`'s null-omission deliberately stops at the model
+  boundary: a null inside `config` is data, and stripping it would change those bytes.
+- **Manual verification:** the walkthrough's new §3 run line by line in a REPL — the topic
+  builder, `TopicError` on `redwood+coast`, a `DesiredConfig` encoding with
+  `"schema_version":1` and a `...Z` timestamp, an equal round trip, both halves of the
+  sleeping-Listener rule raising with the spec section in the message, a naive timestamp
+  refused, an inbound extra field ignored while the same trick on `DesiredConfig` raised, a
+  decode failure naming `checksum` while containing no trace of the `secret:` marker in the
+  body, and three commands with three distinct `command_id`s. No stack needed; this task is a
+  library.
+
 ## 2026-08-10: E3.2 MQTT client manager — reconnect, resubscribe, TLS from the row (Gate 40 GREEN)
 
 - **Tasks closed:** E3.2 (branch `e3-batch-1`; DECISIONS D64-D66). No plan change: the task

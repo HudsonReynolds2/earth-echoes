@@ -4,6 +4,62 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D68 (2026-08-10): `PayloadError` is safe to log; Pydantic's rendering is not (E3.3)
+
+- **Decision:** `contracts.mqtt.decode` builds its message from
+  `ValidationError.errors(include_url=False, include_input=False, include_context=False)` —
+  the model name and which fields failed, never the values.
+- **Why:** `str(ValidationError)` echoes the offending input back, and for a `missing` error
+  the "input" is the WHOLE body. A reported-state payload's `config` carries secret markers
+  and an event's `detail` is device-supplied text of unknown provenance, and E3.5 will log
+  every decode failure it hits. Verified, not assumed: the test feeds a body whose `config`
+  holds a `secret:` marker and omits `checksum`, and asserts the marker does not appear.
+- **Consequence:** a later edit that swaps the message back for Pydantic's nicer one puts
+  secret markers in the log. The comment on `decode` says so; keep it.
+
+## D67 (2026-08-10): The spec 7.3 payload models — strictness by direction, and the
+vocabularies the spec left open (E3.3)
+
+- **Direction decides strictness.** Models the platform PUBLISHES (`DesiredConfig`,
+  `Command`) set `extra="forbid"`: an unexpected key there is a bug on this side about to
+  reach every device in a deployment. Models it RECEIVES (`ReportedAggregatorState`,
+  `ReportedListenerState`, `StatusMessage`, `DeviceEvent`) set `extra="ignore"`: firmware
+  that adds a field must not be able to make the platform stop reading its reports.
+- **`schema_version` is top-level only, and absent means 1.** There has never been another
+  version, so a device that omits it can only have meant this one; a payload claiming any
+  other version is rejected rather than guessed at. Nested blocks (`target`, `health`,
+  `liveness`) carry none, matching every spec 7.3 example.
+- **Timestamps are timezone-aware only**, normalized to UTC on the way in and serialized as
+  `...Z` on the way out. A naive instant cannot be ordered against another device's report,
+  and spec 7.4 drops stale reports by comparing timestamps — guessing UTC would make that
+  silently wrong instead of loudly broken. `Z` rather than `+00:00` because that is what
+  every spec example prints and firmware may well compare the strings.
+- **`encode()` omits absent optionals rather than sending null**, which is what spec 7.3
+  means by `expected_wake_at` being "present only while sleeping". It does NOT reach inside
+  `config`: a null there is data, and stripping it would change the D52 checksum.
+- **`expected_wake_at` is present exactly while sleeping**, enforced in both directions. The
+  platform never recomputes a wake schedule (spec 6.5), so a `sleeping` report without one
+  leaves nothing to tell healthy sleep from silence, and one left on a `streaming` report is
+  a stale promise E3.9 might act on.
+- **Vocabularies the spec leaves open**, chosen here and open to revision before firmware
+  ships: event `level` is `debug|info|warn|error` (the spec shows `warn`); event `code` is an
+  OPEN vocabulary — firmware will invent codes — but constrained to identifier shape
+  (`^[a-z][a-z0-9_]{0,63}$`) because codes end up in queries, alert rules and UI copy;
+  `health.coarse` is deliberately FREE TEXT, since inventing a vocabulary firmware has not
+  agreed to would reject real reports for a field the platform does not even chart (spec
+  10.1); `detail` is capped at 2000 characters so firmware authors read the budget off the
+  contract rather than discovering it from a truncated row.
+- **`applied_revision_id` is optional** on both reported states: a device that has applied
+  nothing yet still reports its state.
+- **`command_id` defaults to a fresh UUID**, so two submissions of one logical command carry
+  distinct ids structurally rather than by a caller's discipline — that is exactly what lets
+  a device deduplicate its own retries without swallowing an operator's second attempt.
+- **The D52 checksum recipe is NOT imported here.** This module is published to firmware
+  authors who implement the recipe rather than call it, so the contract states the field's
+  SHAPE (`^sha256:[0-9a-f]{64}$`) and `app.config.canonical` keeps the recipe. The suite
+  bridges them: a snapshot round-tripped through `encode`/`decode` must produce identical
+  canonical bytes, which is the property that makes device-echoed checksums match.
+
 ## D66 (2026-08-10): Async tests ride anyio's pytest plugin, not pytest-asyncio (E3.2)
 
 - **Decision:** the `anyio_backend` fixture in `backend/tests/conftest.py` pins the single

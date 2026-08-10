@@ -182,3 +182,70 @@ docker compose -f deploy/docker-compose.yml -p eoe-qa restart mosquitto
       which was registered once before any of this and was never told the connection dropped.
       That is the whole acceptance criterion: reconnect *and* resubscribe, invisibly.
 - [ ] Stop the probe with Ctrl-C and delete `backend/check-manager.py`.
+
+## 3. The wire contract (E3.3)
+
+`backend/app/contracts/mqtt.py` is the whole surface between the platform and a device: the
+spec 7.2 topics and the spec 7.3 payloads. It is also the module the simulation harness (SIM)
+imports and firmware is written against, so it is worth reading once and poking at directly.
+Nothing here needs the stack running — this is a library.
+
+- [ ] Open the file and read the module docstring. It says, in its first line, that the
+      module is a **published interface** and that change is additive only. That sentence is
+      the reason the rest of E3 never builds a topic string by hand.
+
+```bash
+cd backend && uv run python
+```
+
+```python
+>>> import datetime as dt, uuid
+>>> from app.contracts import mqtt
+>>> mqtt.desired_topic("redwood-coast", "demo-agg-rc-01")
+'eoe/redwood-coast/agg/demo-agg-rc-01/desired'
+```
+
+- [ ] **Identifiers are checked, not trusted.** `mqtt.deployment_root("redwood+coast")` raises
+      `TopicError`. A `+` or `#` reaching a topic string unchecked is how one device would end
+      up subscribed to another's subtree.
+
+```python
+>>> cfg = mqtt.DesiredConfig(
+...     revision_id=uuid.uuid4(),
+...     generated_at=dt.datetime.now(dt.UTC),
+...     target=mqtt.DesiredTarget(type="aggregator", id="demo-agg-rc-01"),
+...     config={"logging.verbosity": "info", "analysis.confidence_threshold": 0.6},
+...     checksum="sha256:" + "ab12" * 16,
+... )
+>>> mqtt.encode(cfg)
+```
+
+- [ ] The bytes carry a top-level `"schema_version":1` and timestamps ending in **`Z`**, not
+      `+00:00` — the form every spec 7.3 example prints.
+- [ ] `mqtt.decode(mqtt.DesiredConfig, mqtt.encode(cfg)) == cfg`. Round-tripping is the whole
+      point: the platform builds these and a device reads them, and SIM does both.
+
+Now the rules that are easy to get wrong and expensive to get wrong:
+
+- [ ] **A sleeping Listener must say when it will be back.**
+      `mqtt.ListenerLiveness(state="sleeping")` raises, naming `expected_wake_at`. Spec 6.5
+      has the platform storing the Listener's own declared wake time and never recomputing a
+      schedule, so a sleeping report without one leaves nothing to tell healthy sleep from
+      silence. `mqtt.ListenerLiveness(state="streaming", expected_wake_at=...)` raises too —
+      a leftover wake time is a stale promise.
+- [ ] **A naive timestamp is refused.**
+      `mqtt.StatusMessage(state="online", at=dt.datetime.now())` (no `tzinfo`) raises. Spec
+      7.4 drops stale reports by comparing timestamps; an instant with no zone cannot be
+      compared, and guessing UTC would make that silently wrong.
+- [ ] **A device may run ahead of the platform.** Decoding a `StatusMessage` whose JSON
+      carries an extra `"fw": "2.1"` succeeds and ignores the field. Try the same trick on
+      `DesiredConfig` — it raises, because in that direction an unexpected key is a bug on
+      the platform's side about to reach every device.
+- [ ] **A decode failure does not repeat the payload back.** Decode a
+      `ReportedAggregatorState` whose `config` holds a `secret:...` marker and whose
+      `checksum` is missing. The error names `checksum` and does **not** contain the marker —
+      Pydantic's own message would have, which is why `decode` rebuilds it.
+- [ ] **Two commands are never the same command.**
+      `mqtt.Command(at=dt.datetime.now(dt.UTC), command="restart").command_id` differs on
+      every construction, so a device can deduplicate its own retries (spec 7.4) without
+      swallowing an operator's deliberate second attempt.
