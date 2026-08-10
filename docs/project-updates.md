@@ -1,5 +1,68 @@
 # Project Updates
 
+## 2026-08-10: E3.5 reported consumer — the loop closes on real device reports (Gate 44 GREEN)
+
+- **Tasks closed:** E3.5 (branch `e3-batch-1`; DECISIONS D76-D79). No plan change: batch 2 runs
+  E3.6, E3.4, E3.5 exactly as project-changes #20 said it would, and this task consumed both
+  the state machine and the publish path that ordering existed to provide.
+- **Gate:** 44, GREEN. `make gate`, run again after the walkthrough corrections below.
+- **Tests:** backend 611 (+53: 33 in `test_reported_consumer.py`, 20 added to
+  `test_mqtt_contracts.py` for the topic parser), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/consumer.py` (`ReportedConsumer`, the second half of
+  the spec 6.4 loop), `contracts/mqtt.parse_topic` + `TopicKind`/`ParsedTopic`, migration
+  `a2cf00fc037f` (`device_state`, `device_event`), `quarantine_report` made public in
+  `inventory/identity.py`, `delete_device_state_for` wired into the E1 aggregator and listener
+  DELETE endpoints, `backend/tests/test_reported_consumer.py`, `guide/e3-verification.md` §6,
+  the INTERFACES "reported consumer" and "device_state / device_event" sections.
+- **The three acceptance criteria, all three named in the suite.** The conflicting-MAC test
+  captures the Listener row before the report and compares it to itself afterwards, field for
+  field — spec 4.3 item 2 is a claim about a row that does NOT change, and asserting no write
+  was attempted would not be the same claim. The replay test sends byte-identical messages
+  twice; the reordering test lands a report from `t` after one from `t+10`.
+- **Verified by mutation, not by assertion alone.** Flipping the staleness test from `<` to
+  `<=` turns the replay test red, which is the point: idempotency has to come from
+  `applied_revision_id` plus checksum as spec 7.4 words it, not from a timestamp shortcut that
+  would hide a broken comparison behind an early return. Removing the checksum-recompute makes
+  the self-contradiction test report `rejected` instead of `malformed` — i.e. the platform
+  would fail the revision, blaming the config, for what is a firmware defect (D70).
+- **A report the platform does not believe is not stored either (D79).** Spec 4.3 item 2 stops
+  the platform overwriting inventory; a quarantined or misrouted report also writes no
+  `device_state` row and moves no revision, because storing it would launder a rejected claim
+  into the record E3.7's drift sweep reads. Identity comes from the TOPIC in every path — the
+  spec 7.1 ACL authenticated those segments, and no inbound spec 7.3 payload carries an
+  identity field.
+- **Manual verification:** full QA stack (compose, seed, dev broker), driving the walkthrough's
+  own `check-consumer.py` against a real Mosquitto with real revisions from E2's `POST
+  /config/apply`. Observed, in order: `pending -> applied` on a matching report published as
+  `dev-demo-agg-rc-01`; `unchanged` on a byte-identical replay with no second audit row;
+  `stale` on the same message dated a minute earlier, with the stored report untouched;
+  `malformed` on a device whose checksum was not its own config's, revision unmoved; and
+  `rejected` -> `failed` immediately on a coherently wrong report, whose audit detail listed
+  `differing_keys: [analysis.confidence_threshold, logging.verbosity]` and no values. Then the
+  identity walk: two `mac_conflict` quarantine rows against ONE open `duplicate_identity`
+  alert (append vs. dedupe, D37), the contested Listener row unchanged including `updated_at`,
+  a third quarantine row `reason=unknown_mac` with no alert at all (D76), a
+  `provisioning_required` alert for a ghost `aggregator_uuid`, and exactly one `device_state`
+  row in the database — the Aggregator's, none for either quarantined MAC. Events: one row,
+  then `duplicate_event` on redelivery, then two rows for the same code a minute apart, then
+  the `NULLS NOT DISTINCT` case (an Aggregator-level event with no `listener_mac`, published
+  twice, one row). Finally a status message returned `not_mine`, which is E3.8's seam.
+- **Two walkthrough defects found by running it, and corrected against observed behaviour.**
+  §5's publish script waited on `coordinates[0].deployment_id`; coordinates are ordered by
+  slug, so that is high-desert, and the redwood-coast publish raced its own connection and
+  raised `BrokerUnavailable`. It now waits on the deployment by name. §6's first draft pinned
+  one revision id at startup, so the step that tells you to publish a fresh revision would
+  report the OLD one as `superseded` rather than the new one as `failed`; the probe now
+  re-reads the newest revision on every message. Both were caught the same way gate 43's three
+  corrections were — by doing what the guide says and reading what actually happened.
+- **Scope notes.** `device_state` ships now with owner approval (D78) because spec 7.4's
+  ordering rule needs a per-device memory that revision timestamps alone cannot supply, and it
+  is explicitly E3.8's and E3.9's to extend with LWT online state and spec 6.5 liveness — E3.5
+  stores neither. `E0_TABLES` in `test_e0_readiness.py` gained both table names through that
+  guard's documented extension mechanism.
+
 ## 2026-08-10: E3.4 desired publish path — config reaches a device (Gate 43 GREEN)
 
 - **Tasks closed:** E3.4 (branch `e3-batch-1`; DECISIONS D71-D75). No plan change: batch 2 runs

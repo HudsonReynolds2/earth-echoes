@@ -4,6 +4,116 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D79 (2026-08-10): A device's identity comes from the TOPIC, and reports that fail an
+identity check are not stored either (E3.5)
+
+- **Decision:** the reported consumer takes `{agg}` and `{mac}` from the topic a message
+  arrived on and never from a payload field. `contracts.mqtt.parse_topic` is the one place
+  that takes a topic apart, validating identifiers on the way IN with the same functions
+  that validate them on the way out.
+- **Why the topic is trustworthy and a payload field is not:** spec 7.1 cuts each device's
+  broker ACL to its own subtree, so the segments of a topic a message arrived on were
+  authenticated by the broker before the platform saw them. A payload field is a
+  self-declaration; trusting it would let any device with a valid credential report on
+  behalf of any other, and the E1.5 MAC-conflict machinery would never fire, because the
+  conflicting device would simply claim to be the right one. None of the spec 7.3 inbound
+  models carries an identity field today and none should grow one.
+- **A quarantined or misrouted report writes NO `device_state` row and moves NO revision.**
+  Spec 4.3 item 2 stops the platform overwriting *inventory*; this goes one step further,
+  because a report the platform does not believe must not become the device's reported
+  configuration either. Storing it would launder a rejected claim into the record E3.7's
+  drift sweep reads. The acceptance test asserts all three: the Listener row is unchanged
+  field for field, there is no `device_state` row, and the revision is still `pending`.
+- **Two further refusals, both warnings rather than quarantines.** A known device reporting
+  on a deployment it does not live in (checked against the CONNECTION's deployment, which
+  the platform dialled and therefore knows) means a credential valid for a namespace the
+  device does not belong to — a broker problem, not an inventory one. A report naming a
+  revision that belongs to another device is the same class. Neither is evidence about a
+  device's identity, so neither belongs in `quarantined_report`.
+
+## D78 (2026-08-10): Reported-state persistence — `device_state` now, extended by E3.8 and
+E3.9 (E3.5, owner-approved)
+
+- **Decision:** E3.5 creates `device_state`, one row per device holding spec 6.1's "last
+  state the device sent", and `device_event` for the spec 7.3 event stream. The phase
+  document's E3.5 text names only "persist device events"; the owner approved the state
+  table at plan approval for the reason below.
+- **Why it is not optional:** spec 7.4's ordering rule needs a per-device memory. Deciding
+  staleness from revision timestamps alone — which is literally what spec 7.4 says — misses
+  the case that actually breaks things: a delayed report for the SAME revision carrying
+  diverging config would drive a healthy `applied` device to `drifted` on ten-second-old
+  news. `reported_at` compared against the stored row is what refuses it. E3.7's periodic
+  drift re-compare needs the same row, and spec 6.1 asks for it by name.
+- **Strictly older is stale; equal is not.** A byte-identical replay shares its
+  `reported_at`, and letting it run the full comparison is what makes idempotency a property
+  of `applied_revision_id` plus checksum, as spec 7.4 words it, rather than of a timestamp
+  shortcut that would hide a broken comparison behind an early return. Test-pinned in both
+  directions: flipping `<` to `<=` turns the replay test red.
+- **`ReportOutcome.STALE` therefore means late delivery and nothing else** — the
+  one-meaning-per-value discipline D70 applied to `Trigger.TIMEOUT`. A report naming a
+  `superseded` revision is not stale delivery: it is current news that the device has not
+  caught up, so it is STORED and moves nothing.
+- **E3.8 and E3.9 extend this table** (the `deployment_service` pattern, D62's neighbour):
+  E3.8 adds the LWT-driven online state spec 9.3 makes authoritative, E3.9 the spec 6.5
+  liveness block. E3.5 stores neither, deliberately — a column here that is a
+  half-implementation of a task that has not run is worse than no column.
+- **Identifiers follow `config_revision` exactly** (`entity_type` + `entity_id`, aggregators
+  by platform UUID and listeners by MAC), so a device's revisions and its reported state
+  join without crossing between spec 4.2's three identifiers a second time (D75).
+- **It is current state, not evidence, so it is deleted with its device.**
+  `delete_device_state_for` is wired into the E1 aggregator and listener DELETE endpoints,
+  the `delete_overrides_for` precedent (D51). A Listener re-added under a MAC that once
+  belonged to another physical device would otherwise inherit its predecessor's reported
+  config and read as reconciled before it had said a word. `device_event` rows are evidence
+  and deliberately survive (D33).
+- **`E0_TABLES` in `test_e0_readiness.py` gains both names**, which is that guard's
+  documented extension mechanism rather than a weakening of it: the schema-drift check
+  exists so a neighbouring phase's table cannot appear early unnoticed, and this is the
+  phase that owns these two.
+
+## D77 (2026-08-10): Device events dedupe on (emitter, instant, code) (E3.5, owner-approved)
+
+- **Decision:** `device_event` carries a unique index on `(deployment_id, aggregator_uuid,
+  listener_mac, at, code)` and the consumer checks before inserting, so a QoS 1 redelivery
+  is a no-op rather than a second row.
+- **Why not append-only**, which is the `quarantined_report` precedent: a quarantine row
+  answers "how many conflicting reports arrived", where every delivery genuinely is evidence.
+  A device event answers "what happened on the device", and a duplicated row is a lie about
+  how often it happened — one an operator reads straight off the E3.11 timeline. Events
+  carry no device-supplied id to dedupe on, so identity has to be structural; two distinct
+  events with one code from one device in the same instant are indistinguishable on the wire
+  anyway.
+- **`NULLS NOT DISTINCT` is load-bearing.** Without it Postgres treats every Aggregator-level
+  event (`listener_mac` NULL) as unique, and the index would dedupe only Listener events —
+  so exactly the lifecycle events an Aggregator emits about itself would double. Requires
+  Postgres 15+; the stack is on 16. A test covers the NULL case specifically.
+- **Dedupe must not swallow a recurring fault:** the same code at a different instant is a
+  different event, also test-pinned. A stream gap every minute is a minute-by-minute story.
+- **The unique index backstops the check against races**, exactly as `inventory_alert`'s
+  partial index backstops E1.5's alert dedupe.
+
+## D76 (2026-08-10): An unregistered Listener's report is quarantined, with no alert (E3.5,
+owner-approved)
+
+- **The gap:** E1.5 returns `UNKNOWN_MAC` (known reporter, MAC in no inventory row) with
+  zero side effects and says "E3 decides what an unregistered device means per channel"
+  (D37). The reported channel is the first channel to have to decide.
+- **Decision:** quarantine the report with reason `unknown_mac`, open no alert, write no
+  inventory row and no `device_state` row.
+- **Why quarantine:** a Listener wired up before anyone entered it in inventory is a real
+  and ordinary situation, and dropping the report with a log line leaves an operator no
+  trace to find it by. The quarantine table is already the place a report the platform will
+  not act on goes, and the row carries the MAC, the reporting Aggregator and the payload —
+  enough to adopt the device.
+- **Why no alert:** spec 4.3 item 2's `duplicate_identity` is for conflicts, and nothing
+  here disagrees with anything; spec 4.3 item 3's `provisioning_required` is explicitly about
+  `aggregator_uuid` membership on the metrics, analysis and object ingest paths. Reusing
+  either would widen an E1-owned vocabulary to mean something it does not.
+- **Consequence for E1.5:** `_quarantine` became the public `quarantine_report(db, report,
+  reason)` so the row shape stays in one place rather than being reassembled by each channel
+  that needs it. Behaviour, signature and outcomes are unchanged; `quarantined_report.reason`
+  gains a third value, noted on the column.
+
 ## D75 (2026-08-10): An Aggregator revision's `target_id` is the PLATFORM UUID; the topic
 segment is the `aggregator_uuid` (E3.4)
 

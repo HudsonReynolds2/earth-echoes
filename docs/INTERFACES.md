@@ -490,7 +490,13 @@ reimplement their logic.** Signatures, verbatim:
 - `check_aggregator_membership(db, aggregator_uuid) -> Aggregator | None` — membership
   lookup, never sentinel equality. `require_known_aggregator(db, aggregator_uuid)` is
   the raising variant (`ProvisioningRequiredError`) that also opens the
-  `provisioning_required` alert; use it on metrics/analysis/object ingest paths.
+  `provisioning_required` alert; use it on metrics/analysis/object ingest paths, and
+  E3.5 uses it on the reported and event channels too.
+- `quarantine_report(db, report, reason) -> QuarantinedReport` — **public since E3.5**
+  (was `_quarantine`; behaviour, signature and outcomes unchanged). Stages one quarantine
+  row plus its audit row, so a channel deciding what a NON-conflict outcome means reuses
+  the row shape rather than assembling its own. `reason` vocabulary: `mac_conflict` and
+  `name_conflict` (E1.5), `unknown_mac` (E3.5's reported channel, D76).
 - **Tables:** `quarantined_report` (append-only evidence; no FK to listener — survives
   deletion, holds reports about devices inventory never had) and `inventory_alert`
   (open alerts unique per (alert_type, entity_type, entity_key) via partial unique index
@@ -739,6 +745,11 @@ reimplement their logic.** Signatures, verbatim:
 - **`deployment_subscriptions(dep)`** is the platform's subscribe set: the four
   device-to-platform filters only. Deliberately NOT `eoe/{dep}/#` — that would feed the
   platform's own retained desired publishes back into its consumer.
+- **`parse_topic(topic) -> ParsedTopic(kind, dep, agg, mac)`** (added E3.5) is the inverse,
+  and the ONLY place a topic is taken apart — `TopicKind` has one member per spec 7.2 row, so
+  a caller's `match` covers the table exhaustively. Identifiers are validated on the way in by
+  the same functions that validate them on the way out, so a `+`/`#` that reached a topic
+  string is refused rather than repaired. Round-trip test-pinned across every builder.
 - **`QOS = 1`** on every platform topic (phase-3 fixed choice); retained flags follow the
   spec 7.2 table exactly (desired and status retained; reported, event and cmd not).
 - **Payload models** (E3.3; spec 7.3; D67-D68), all on the published base `MqttPayload`:
@@ -976,3 +987,82 @@ reimplement their logic.** Signatures, verbatim:
   from/to state, trigger and the superseded revision ids. `actor_user_id is None` means
   system-driven, per the `record_audit` convention.
 - **Suite:** `backend/tests/test_publish_revision.py` (gate 43).
+
+### The reported consumer (E3.5; spec 4.3, 6.1, 6.2, 7.3, 7.4; D76-D79) — E3.7 runs it
+
+- **Path:** `backend/app/controlplane/consumer.py`. The second half of the spec 6.4 loop:
+  E3.4 publishes and stops, this consumes reported Aggregator state, reported Listener
+  state and events. A LIBRARY like the client manager — **nothing constructs it yet**;
+  E3.7's worker wires the two with `manager.subscribe(consumer.filters, consumer.handle)`.
+- **API:** `ReportedConsumer(session_factory)` · `filters(slug)` (returns
+  `deployment_subscriptions(slug)` verbatim — one namespace, not a second list) ·
+  `async handle(message: InboundMessage) -> ReportOutcome` (satisfies
+  `broker.MessageHandler`; runs the sync ORM work in a worker thread) · `consume(message)`,
+  its synchronous body, which is what the suite drives. Helpers: `latest_state(db,
+  entity_type, entity_id)`, `delete_device_state_for(db, entity_type, entity_id)`,
+  `differing_keys(reported, desired)`. Constants: `AUDIT_ACTION = "revision.report"`,
+  `QUARANTINE_UNKNOWN_MAC`, `MAX_DIFFERING_KEYS = 20`.
+- **`ReportOutcome`** (StrEnum, returned per message so E3.7 can count without re-deriving):
+  `applied` · `rejected` · `drifted` · `unchanged` · `stale` · `quarantined` ·
+  `unprovisioned` · `malformed` · `event` · `duplicate_event` · `misrouted` · `not_mine`.
+- **Identity comes from the TOPIC, never a payload** (D79). The spec 7.1 ACL authenticated
+  the `{agg}`/`{mac}` segments; a payload field would be a self-declaration. No inbound
+  spec 7.3 model carries an identity field and none should grow one.
+- **Identity routes through the E1.5 services, which never touch inventory.** MAC/name
+  conflicts quarantine and alert; an unknown `aggregator_uuid` opens `provisioning_required`
+  on the reported AND event channels; an unregistered MAC quarantines with reason
+  `unknown_mac` and NO alert (D76). **A report that fails an identity check writes no
+  `device_state` row and moves no revision** — not just no inventory row.
+- **The spec 6.2 edges a report can drive:** `pending`+match → `applied` (`report_match`);
+  `pending`+coherent mismatch → `failed` (`report_error`) **immediately**, never waiting out
+  the window (D70); `applied`+mismatch → `drifted` (`report_diverged`). From `draft`,
+  `drifted`, `failed` and `superseded` a report moves NOTHING — checked BEFORE the machine is
+  asked, since offering it an illegal triple would raise where nothing is wrong. All through
+  `transition()`, still the only writer of `config_revision.state`.
+- **Two boundary refusals with NO transition** (D70), because a malformed message is not
+  evidence about whether config was applied: an undecodable payload, and a device whose
+  `checksum` is not `config_checksum(config)` — the platform recomputes rather than trusting
+  a naked field, which is what makes the D52 echo-match a property and not a hope.
+- **Mismatch detail names differing KEYS, never values** (rule R2) — bounded at
+  `MAX_DIFFERING_KEYS`, since it lands in an audit row and on the E3.11 timeline.
+- **Staleness** (D78): a report strictly older than the stored one is dropped WHOLE.
+  Equal-timestamp replays run the full comparison and land on "already there", so
+  idempotency is a property of `applied_revision_id` plus checksum as spec 7.4 words it.
+  `stale` therefore means late delivery and nothing else.
+- **Audit:** one `revision.report` row per state-moving report, entity `config_revision`,
+  `actor_user_id is None` (a device said so, not a user), detail carrying target, from/to
+  state, trigger, `reported_at`, the reported checksum and any `differing_keys`. No row for a
+  report that changed nothing — reports arrive continuously and the audit trail records what
+  CHANGED (the D72 reasoning).
+- **Suite:** `backend/tests/test_reported_consumer.py` (gate 44), including the three phase
+  acceptance criteria and one live-Mosquitto test that publishes as the device's own
+  credential through the real manager — the only test that proves `filters` and `handle` are
+  wired, since every other one hands the consumer a message the suite built.
+
+### `device_state` and `device_event` (E3.5; spec 6.1, 7.3; D77-D78) — **E3.8/E3.9 EXTEND
+`device_state`**
+
+- **`device_state`** (migration `a2cf00fc037f`): `id` · `entity_type` CHECK
+  `('aggregator','listener')` · `entity_id` — **the `config_revision` convention exactly**,
+  aggregator PLATFORM UUID / listener MAC (D75), un-FK'd for the `entity_override` reason ·
+  `deployment_id` **FK** (current state, not evidence — the `deployment_service` precedent,
+  not D33) · `reported_at` (the device's clock; the spec 7.4 ordering key) ·
+  `applied_revision_id` nullable, un-FK'd · `checksum` · `config` JSONB (markers, never
+  plaintext) · `health` JSONB nullable (stored as sent, **never charted** — Prometheus is
+  authoritative, spec 10.1) · `received_at`. UNIQUE `(entity_type, entity_id)`: one row per
+  device, replaced in place.
+- **E3.8 adds the LWT online state** spec 9.3 makes authoritative for an Aggregator's live
+  verdict; **E3.9 adds the spec 6.5 Listener liveness block**. E3.5 stores neither on
+  purpose. Add columns here, not a second table.
+- **Deleted with its device:** `delete_device_state_for` is wired into the E1 aggregator and
+  listener DELETE endpoints (the `delete_overrides_for` precedent, D51), so a MAC reused by
+  a different physical device cannot inherit its predecessor's reported config.
+- **`device_event`**: `id` · `deployment_id` un-FK'd indexed · `aggregator_uuid` (the EMITTER
+  the broker authenticated) · `listener_mac` nullable indexed · `at` · `level` CHECK
+  `('debug','info','warn','error')` · `code` · `detail` · `received_at`. Immutable evidence
+  (D33): it outlives the device it describes and has no cleanup hook.
+- **`uq_device_event_delivery` UNIQUE `(deployment_id, aggregator_uuid, listener_mac, at,
+  code)` `NULLS NOT DISTINCT`** (D77): a QoS 1 redelivery is a no-op, not a second timeline
+  entry. The NULLS clause is load-bearing — without it only Listener events would dedupe.
+  Requires Postgres 15+. The same code at a different instant is a different event.
+  `ix_device_event_timeline (aggregator_uuid, at)` pre-pays E3.11's query.

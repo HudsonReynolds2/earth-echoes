@@ -158,6 +158,13 @@ E0_TABLES = {
     # this table with the remaining deployment services and their status
     # lifecycle (spec 16); it does not add a second table.
     "deployment_service",
+    # E3.5 (gate 44): what a device reports back. `device_state` is spec 6.1's
+    # "last state the device sent", one row per device replaced in place, and
+    # E3.8/E3.9 EXTEND it with LWT online state and spec 6.5 Listener
+    # liveness. `device_event` is the spec 7.3 event stream as immutable
+    # evidence, deduped per (emitter, instant, code) against QoS 1 redelivery.
+    "device_state",
+    "device_event",
 }
 
 

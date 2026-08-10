@@ -296,7 +296,10 @@ class QuarantinedReport(Base):
     mac: Mapped[str] = mapped_column(String(17), index=True)
     reported_name: Mapped[str | None] = mapped_column(String(200), default=None)
     aggregator_uuid: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
-    reason: Mapped[str] = mapped_column(String(40))  # name_conflict | mac_conflict
+    # name_conflict | mac_conflict (E1.5) | unknown_mac (E3.5, D76: a Listener
+    # reporting before anyone entered it in inventory - not a conflict, so no
+    # alert, but evidence an operator should be able to find and adopt).
+    reason: Mapped[str] = mapped_column(String(40))
     report: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -507,3 +510,122 @@ class DeploymentService(Base):
     )
 
     deployment: Mapped[Deployment] = relationship()
+
+
+class DeviceState(Base):
+    """The last state a device REPORTED (task E3.5; spec 6.1, 7.3, 7.4).
+
+    Spec 6.1's other half: every device carries a desired configuration (the
+    `config_revision` rows) and a reported configuration, "the last state the
+    device sent". One row per device, replaced in place — this is current
+    state, not evidence, so it is deleted with its device rather than
+    outliving it (`delete_device_state_for`, the E2.4 override-cleanup
+    precedent). The append-only record of what a device said over time is
+    `device_event` and, for config outcomes, the revision transitions.
+
+    **`reported_at` is what makes spec 7.4's ordering rule enforceable.** A
+    report older than the stored one is a late redelivery describing a world
+    that has already moved on, and applying it would drive a healthy device to
+    `drifted` on the strength of stale news. Equal timestamps are NOT stale:
+    a byte-identical replay runs the full comparison and reaches "already
+    there", so idempotency comes from `applied_revision_id` plus checksum as
+    spec 7.4 words it, rather than from a timestamp shortcut.
+
+    **E3.8 AND E3.9 EXTEND THIS TABLE** (the `deployment_service` pattern):
+    E3.8 adds the LWT-driven online state that spec 9.3 makes authoritative
+    for an Aggregator's live verdict, E3.9 the spec 6.5 Listener liveness
+    block. E3.5 deliberately stores neither, so that no column here is a
+    half-implementation of a task that has not run.
+
+    `entity_type`/`entity_id` follow the `config_revision` convention exactly
+    — aggregators by PLATFORM UUID (`aggregator.id`), listeners by MAC (D75)
+    — so a device's revisions and its reported state join without translating
+    between spec 4.2's three identifiers. `entity_id` is deliberately un-FK'd
+    for the `entity_override` reason: two target kinds live in two tables.
+    """
+
+    __tablename__ = "device_state"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id"),
+        CheckConstraint("entity_type IN ('aggregator','listener')", name="entity_type_vocab"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    entity_type: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[str] = mapped_column(String(100))
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    #: The device's own clock, from the payload — the spec 7.4 ordering key.
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: NULL while a device has applied nothing yet; un-FK'd like every other
+    #: reference to a revision, so history can be pruned without erasing state.
+    applied_revision_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    checksum: Mapped[str] = mapped_column(String(80))
+    #: The reported config verbatim, secret MARKERS included (never plaintext:
+    #: they were markers on the desired topic too, spec 5.4). E3.7 re-compares
+    #: this against the desired snapshot to detect drift without a new report.
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: Spec 7.3's coarse hint, stored as sent and NOT charted — Prometheus is
+    #: the authoritative metrics source (spec 10.1) and two sources of truth
+    #: for one number is exactly what that split exists to prevent.
+    health: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    #: When the PLATFORM took delivery. Differs from `reported_at` by the
+    #: broker's queueing, which is the gap that makes a late report late.
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DeviceEvent(Base):
+    """One spec 7.3 event from an Aggregator's event topic (task E3.5).
+
+    Immutable evidence, so `deployment_id`, `aggregator_uuid` and
+    `listener_mac` are deliberately un-FK'd on the D33 precedent: an event is
+    the record that something happened, and it must survive the device it
+    describes being decommissioned. E7 owns alerts; E3 persists these and
+    E3.11 renders them on the device timeline, which is why `code` stays
+    machine-readable and `detail` stays human-readable.
+
+    **Redelivery is a no-op, not a second row.** QoS 1 is at-least-once and an
+    event carries no device-supplied id, so identity is (emitter, instant,
+    code) — two distinct events with one code from one device in the same
+    instant are indistinguishable on the wire anyway, and a duplicated
+    timeline entry is a lie about how often something happened. The unique
+    index backstops the consumer's check against races, the way
+    `inventory_alert`'s partial index backstops E1.5's. `NULLS NOT DISTINCT`
+    is load-bearing: without it every Aggregator-level event (`listener_mac`
+    NULL) would be unique to Postgres and dedupe only Listener events.
+    """
+
+    __tablename__ = "device_event"
+    __table_args__ = (
+        Index(
+            "uq_device_event_delivery",
+            "deployment_id",
+            "aggregator_uuid",
+            "listener_mac",
+            "at",
+            "code",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("ix_device_event_timeline", "aggregator_uuid", "at"),
+        CheckConstraint("level IN ('debug','info','warn','error')", name="level_vocab"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    #: The EMITTER, which is the identity the broker ACL authenticated — the
+    #: `{agg}` segment of the topic it arrived on, never a payload field.
+    aggregator_uuid: Mapped[str] = mapped_column(String(64))
+    #: Set when the event is about one Listener; both of the spec 7.3 named
+    #: codes are. Not validated against inventory: the emitter is what was
+    #: authenticated, and refusing to record an event about an unknown MAC
+    #: would discard the report that an unknown Listener exists.
+    listener_mac: Mapped[str | None] = mapped_column(String(17), default=None, index=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    level: Mapped[str] = mapped_column(String(10))
+    code: Mapped[str] = mapped_column(String(64))
+    detail: Mapped[str | None] = mapped_column(Text, default=None)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

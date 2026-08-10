@@ -29,6 +29,7 @@ from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
 from app.auth.rbac import Permission, has_permission
 from app.config.overrides import delete_overrides_for
+from app.controlplane.consumer import delete_device_state_for
 from app.errors import AppError
 from app.models import Aggregator, Listener, Pod, UserSession
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
@@ -206,6 +207,7 @@ def delete_aggregator(
         },
     )
     orphaned_secrets = delete_overrides_for(db, "aggregator", str(row.id))  # E2.4 cleanup (D51)
+    delete_device_state_for(db, "aggregator", str(row.id))  # E3.5 cleanup (D76)
     db.delete(row)
     record_audit(
         db,

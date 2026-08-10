@@ -387,7 +387,13 @@ print(f"newest revision for {AGG} ({platform_uuid}): {revision_id} ({was})")
 async def main():
     manager = MqttClientManager(lambda: coordinates)
     async with manager:
-        await manager.wait_connected(coordinates[0].deployment_id)
+        # Wait for THIS deployment, by name. `coordinates` is ordered by slug,
+        # so coordinates[0] is high-desert and waiting on it would let the
+        # publish race ahead of the redwood-coast connection and raise
+        # BrokerUnavailable.
+        await manager.wait_connected(
+            next(c.deployment_id for c in coordinates if c.slug == "redwood-coast")
+        )
         outcome = await publish_revision(
             factory, manager, revision_id, publish_enabled=True
         )
@@ -493,3 +499,224 @@ docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_s
       state-moving publish left one `revision.publish` row naming the actor, the topic, the
       checksum, the state it moved from and to, and the revisions it superseded. The repeat
       publishes left none — nothing changed, so there was nothing to record.
+
+## 6. The device answers back (E3.5)
+
+§5 pushed config out and stopped there. This section is the return path: what the platform
+does with what a device says. Nothing runs the consumer automatically yet either — the
+worker (E3.7) owns that — so this section wires it by hand, and the wiring is one line, which
+is itself worth seeing.
+
+You need the QA stack from §0, and a **pending** revision for `demo-agg-rc-01` — publish one
+through §5 if you have not already. Save this as `check-consumer.py` in `backend/` (a scratch
+probe, like §2 and §5 — delete it afterwards):
+
+```python
+import asyncio
+import logging
+from dataclasses import replace
+
+from sqlalchemy import select
+
+from app.controlplane.broker import MqttClientManager, load_broker_coordinates
+from app.controlplane.consumer import ReportedConsumer, latest_state
+from app.db import create_session_factory
+from app.models import Aggregator, ConfigRevision, DeviceEvent
+from app.secrets import SecretStore
+from app.settings import Settings
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+AGG = "demo-agg-rc-01"
+
+settings = Settings()
+_, factory = create_session_factory(settings.database_url)
+coordinates = [
+    replace(c, host="localhost", port=18883)
+    for c in load_broker_coordinates(factory, SecretStore(factory, settings.kek))
+]
+
+with factory() as db:
+    platform_uuid = str(
+        db.scalars(select(Aggregator.id).where(Aggregator.aggregator_uuid == AGG)).one()
+    )
+
+
+def newest(db):
+    """Re-read every time rather than pinning one revision at startup: you
+    publish a second revision partway through this section, and a pinned id
+    would keep reporting the OLD one (which by then is `superseded`)."""
+    return db.scalars(
+        select(ConfigRevision)
+        .where(ConfigRevision.target_id == platform_uuid)
+        .order_by(ConfigRevision.created_at.desc(), ConfigRevision.id.desc())
+        .limit(1)
+    ).one()
+
+
+with factory() as db:
+    revision = newest(db)
+    print(f"newest revision: {revision.id} ({revision.state})")
+    print(f"  checksum:  {revision.checksum}")
+    print(f"  snapshot:  {revision.snapshot}")
+
+consumer = ReportedConsumer(factory)
+
+
+async def show(message):
+    outcome = await consumer.handle(message)
+    print(f"  <- {message.topic}\n     outcome: {outcome}")
+    with factory() as db:
+        current = newest(db)
+        stored = latest_state(db, "aggregator", platform_uuid)
+        events = db.scalars(select(DeviceEvent).order_by(DeviceEvent.at)).all()
+        print(f"     revision:  {current.id} is {current.state}")
+        print(f"     reported:  {stored.checksum if stored else '(nothing stored)'}")
+        print(f"     events:    {[(e.code, e.at.isoformat()) for e in events]}")
+
+
+async def main():
+    manager = MqttClientManager(lambda: coordinates)
+    # The whole wiring. The consumer names its own topic filters, so a topic
+    # added to spec 7.2 cannot reach the publisher and silently miss here.
+    manager.subscribe(consumer.filters, show)
+    async with manager:
+        await asyncio.sleep(600)
+
+
+asyncio.run(main())
+```
+
+Run it with the same environment as §2 and §5:
+
+```bash
+cd backend && uv run python check-consumer.py
+```
+
+- [ ] It prints the newest revision, its state (`pending` if you published in §5), its
+      checksum and its snapshot. **Copy the checksum and the snapshot** — you are about to
+      play the device, and the device's job is to echo them.
+
+### The happy path: pending becomes applied
+
+In a second terminal, publish a reported state as the device's **own** credential (password
+from `deploy/dev-certs/accounts.json`, as in §1). Paste your snapshot into `config` and your
+checksum into `checksum`, and set `applied_revision_id` to the revision id printed above:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_pub -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -q 1 -t eoe/redwood-coast/agg/demo-agg-rc-01/reported -m '{"schema_version":1,"reported_at":"2026-08-10T12:00:00Z","applied_revision_id":"YOUR-REVISION-ID","config":YOUR-SNAPSHOT,"checksum":"YOUR-CHECKSUM","health":{"uptime_s":86400,"coarse":"ok"}}'
+```
+
+- [ ] The first terminal prints `outcome: applied` and `revision: ... is applied`. That is
+      spec 6.2's `pending → applied`, "device reports matching state" — the loop §5 opened,
+      closed.
+- [ ] `reported:` now shows the same checksum. That is spec 6.1's other half: the device
+      carries a desired configuration and a reported one, and the platform's job is to
+      converge them.
+- [ ] In the UI, **Audit** filtered to Redwood Coast has one new `revision.report` row with
+      **no actor**. A device said so, not a user — the same "system-originated" convention the
+      timeout sweep and the publish path use.
+- [ ] Note what the platform did NOT need: the payload never says which device sent it. The
+      identity came from the topic, which the broker's ACL cut to this device's own subtree
+      (§1). A payload field would be a self-declaration any device could write anything into.
+
+### Replay it, and reorder it (spec 7.4)
+
+- [ ] **Publish the exact same message again.** `outcome: unchanged`, the revision stays
+      `applied`, and the audit log gains **no second row**. QoS 1 is at-least-once, so a
+      redelivery is normal traffic, not a fault. Note it was not short-circuited on the
+      timestamp: it ran the whole comparison, found the same revision with the same checksum,
+      and had nothing left to say.
+- [ ] **Now send a LATE one.** Keep the message exactly as it is — same `config`, same
+      `checksum` — and change only `reported_at` to `"2026-08-10T11:59:00Z"`, a minute
+      EARLIER than the one that just landed.
+- [ ] `outcome: stale`. Nothing was stored and nothing moved. This is what spec 7.4 means by
+      tolerating out-of-order delivery: the late message describes a world that has already
+      moved on, and acting on it would drive a reconciled device to `drifted` on the strength
+      of news that was true a minute ago.
+
+### The two ways a report can be wrong, and why they are different
+
+- [ ] **The device contradicts itself.** Send a report with the original `checksum` but one
+      value changed inside `config`. `outcome: malformed`, and the revision **does not move**.
+      The platform recomputes the checksum from the config rather than trusting the field —
+      that is the only thing making "device-echoed checksums match by construction" a property
+      rather than a hope, and a firmware that cannot reproduce the recipe is caught here,
+      precisely, instead of looking like a config disagreement.
+- [ ] **The device coherently applied the wrong thing.** Publish a fresh revision first (make
+      another config change and re-run `check-publish.py`) so there is something `pending`
+      again — the probe's `revision:` line re-reads the newest one, so it will follow you.
+      Then change a value inside `config` AND give it a checksum that genuinely matches that
+      config: `uv run python -c "import json,sys; from app.config.canonical import
+      config_checksum; print(config_checksum(json.load(sys.stdin)))" < your-config.json`.
+- [ ] `outcome: rejected` and the revision goes straight to **`failed`** — it does not wait
+      out the 300-second window. The device answered, and answered wrong: that is a definite
+      negative, and reporting it as a *timeout* five minutes later would be an inaccurate
+      error message for something the platform already knew for certain (D70).
+- [ ] Look at the audit row's detail: `differing_keys` names the settings that disagree and
+      **never their values**. Snapshots carry secret markers and device-supplied values are of
+      unknown provenance, so the operator gets the key names and reads the values from the
+      revision and the reported state.
+
+### Identity conflicts quarantine, and inventory does not move (spec 4.3)
+
+This is the acceptance criterion worth doing by hand, because the claim is about a row that
+*doesn't* change.
+
+- [ ] In the UI, note `alder-creek-01`'s parent pod and name (its MAC is `02:EE:0E:01:01:01`).
+- [ ] Publish a reported Listener state for that MAC on a **different** Aggregator's subtree —
+      `demo-agg-rc-02` — using **that** aggregator's own credential:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_pub -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt -u dev-demo-agg-rc-02 -P OTHER_DEVICE_PASSWORD -q 1 -t 'eoe/redwood-coast/agg/demo-agg-rc-02/lst/02:EE:0E:01:01:01/reported' -m '{"schema_version":1,"reported_at":"2026-08-10T12:05:00Z","config":{},"checksum":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","liveness":{"state":"streaming"}}'
+```
+
+- [ ] `outcome: quarantined`.
+- [ ] **Go back to the Listener in the UI. It is exactly as it was** — same parent, same name,
+      same everything. Spec 4.3 item 2 says the platform quarantines the conflicting report
+      "rather than overwriting inventory", and two devices claiming one MAC is precisely the
+      case where believing the newest report would silently corrupt the fleet.
+- [ ] Check the database: `quarantined_report` has a row with `reason = 'mac_conflict'`
+      carrying the payload verbatim, and `inventory_alert` has an open `duplicate_identity`
+      row. Send the same message again: **another quarantine row, still one alert.** Every
+      report is evidence; alerts dedupe (D37).
+- [ ] There is also **no `device_state` row** for that MAC. A report the platform does not
+      believe must not become the device's reported configuration either.
+- [ ] **Now report a MAC that is in no inventory row at all** — change the topic's MAC to
+      `02:EE:0E:FF:FF:FF`, publishing as `dev-demo-agg-rc-01`. `outcome: quarantined` again,
+      but the row's reason is `unknown_mac` and **no alert opens**: nothing disagrees with
+      anything, this is simply a Listener nobody has entered yet, and the quarantine row is
+      how an operator finds it (D76).
+- [ ] **And report as an Aggregator that does not exist.** Publish to
+      `eoe/redwood-coast/agg/ghost-device/reported` as the `platform-redwood-coast` account
+      (a device credential could not reach that subtree — which is the point). `outcome:
+      unprovisioned`, and `inventory_alert` gains a `provisioning_required` row. Spec 4.3
+      item 3: unprovisioned detection is a membership check against inventory, never equality
+      to a sentinel, so two unconfigured dev boxes cannot collide with each other.
+
+### Events land, and land once
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_pub -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -q 1 -t eoe/redwood-coast/agg/demo-agg-rc-01/event -m '{"schema_version":1,"at":"2026-08-10T12:10:00Z","level":"warn","code":"listener_stream_gap","detail":"listener 02:EE:0E:01:01:01 gap 240ms","listener_mac":"02:EE:0E:01:01:01"}'
+```
+
+- [ ] `outcome: event`, and the `events:` line lists it.
+- [ ] **Publish the identical message again.** `outcome: duplicate_event`, and the `events:`
+      line is unchanged — one row, not two. An event carries no device-supplied id, so its
+      identity is (emitter, instant, code); a duplicated row would be a lie about how often
+      something happened, read straight off the timeline E3.11 builds (D77).
+- [ ] Change only the `at` to a minute later and publish. **Two rows now.** Dedupe must not
+      swallow a recurring fault — a stream gap every minute is a minute-by-minute story.
+- [ ] Publish an event with no `listener_mac` at all (drop the field; `"code":"config_applied"`
+      will do) twice. Still **one row**. That is the `NULLS NOT DISTINCT` index doing its job:
+      without it, exactly the lifecycle events an Aggregator emits about itself would be the
+      ones that doubled.
+
+### What is deliberately not here yet
+
+- [ ] Publish to the **status** topic
+      (`-t eoe/redwood-coast/agg/demo-agg-rc-01/status -m '{"schema_version":1,"state":"online","at":"2026-08-10T12:15:00Z"}'`).
+      `outcome: not_mine`. The consumer subscribes to it — spec 9.3 makes LWT the
+      authoritative Aggregator liveness verdict — but **E3.8** owns what happens next, and a
+      recognized-and-dropped message is an honest seam rather than a silent one.
+- [ ] Stop the probe with Ctrl-C and delete `backend/check-consumer.py`.

@@ -29,11 +29,13 @@ from app.contracts.mqtt import (
     HealthBlock,
     ListenerLiveness,
     MqttPayload,
+    ParsedTopic,
     PayloadError,
     ReportedAggregatorState,
     ReportedListenerState,
     StatusMessage,
     TopicError,
+    TopicKind,
     aggregator_root,
     command_topic,
     decode,
@@ -46,6 +48,7 @@ from app.contracts.mqtt import (
     listener_desired_topic,
     listener_reported_topic,
     listener_root,
+    parse_topic,
     reported_topic,
     status_topic,
 )
@@ -160,6 +163,92 @@ def test_platform_topics_are_qos_1():
     """Phase-3 fixed choice: QoS 1 on every platform topic, so an at-least-once
     delivery is what the idempotency rules in spec 7.4 are written against."""
     assert QOS == 1
+
+
+# --- Parsing, the other direction (E3.5) ------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("built", "kind", "mac"),
+    [
+        (desired_topic(DEP, AGG), TopicKind.AGGREGATOR_DESIRED, None),
+        (reported_topic(DEP, AGG), TopicKind.AGGREGATOR_REPORTED, None),
+        (status_topic(DEP, AGG), TopicKind.AGGREGATOR_STATUS, None),
+        (event_topic(DEP, AGG), TopicKind.AGGREGATOR_EVENT, None),
+        (command_topic(DEP, AGG), TopicKind.AGGREGATOR_COMMAND, None),
+        (listener_desired_topic(DEP, AGG, MAC), TopicKind.LISTENER_DESIRED, MAC),
+        (listener_reported_topic(DEP, AGG, MAC), TopicKind.LISTENER_REPORTED, MAC),
+    ],
+)
+def test_every_built_topic_parses_back_to_what_built_it(built, kind, mac):
+    """Round trip over the whole spec 7.2 table. E3.5 takes a device's identity
+    from the topic a message arrived on, because the broker ACL authenticated
+    it and no inbound payload carries one — so a parser that disagreed with the
+    builder by one segment would attribute reports to the wrong device."""
+    assert parse_topic(built) == ParsedTopic(kind=kind, dep=DEP, agg=AGG, mac=mac)
+
+
+def test_every_topic_kind_is_reachable_from_a_builder():
+    """No dead vocabulary: every `TopicKind` is something this module can
+    actually build, so a member added without a builder fails here."""
+    built = (
+        desired_topic(DEP, AGG),
+        reported_topic(DEP, AGG),
+        status_topic(DEP, AGG),
+        event_topic(DEP, AGG),
+        command_topic(DEP, AGG),
+        listener_desired_topic(DEP, AGG, MAC),
+        listener_reported_topic(DEP, AGG, MAC),
+    )
+    assert {parse_topic(topic).kind for topic in built} == set(TopicKind)
+
+
+@pytest.mark.parametrize(
+    "topic",
+    [
+        "eoe/redwood-coast/agg/+/reported",  # a subscription filter, not a topic
+        "eoe/redwood-coast/agg/demo-agg-rc-01/#",
+        "eoe/redwood coast/agg/demo-agg-rc-01/reported",  # illegal slug
+        "eoe/redwood-coast/agg/demo-agg-rc-01/lst/02:ee:0e:01:01:01/reported",  # unnormalized
+        "eoe/redwood-coast/agg/demo-agg-rc-01/telemetry",  # not a spec 7.2 leaf
+        "eoe/redwood-coast/agg/demo-agg-rc-01/lst/02:EE:0E:01:01:01/status",  # no such subtopic
+        "eoe/redwood-coast/agg/demo-agg-rc-01/pod/x/reported",  # 'lst' is the only sub-branch
+        "eoe/redwood-coast/demo-agg-rc-01/reported",  # missing the agg segment
+        "other/redwood-coast/agg/demo-agg-rc-01/reported",  # another root entirely
+        "eoe/redwood-coast/agg/demo-agg-rc-01/reported/extra",
+        "",
+    ],
+)
+def test_a_topic_that_is_not_a_spec_7_2_topic_is_refused(topic):
+    """Identifiers are validated on the way IN by the same functions that
+    validate them on the way out. A `+` or `#` that survived parsing would let
+    one device's subtree answer for another's, and a subscriber only ever
+    receives concrete topics — so a wildcard here means something is building
+    topics by hand."""
+    with pytest.raises(TopicError):
+        parse_topic(topic)
+
+
+def test_the_subscription_filters_select_exactly_the_kinds_the_consumer_wants():
+    """The filters and the parser have to agree: every kind those wildcards can
+    deliver is one E3.5 has a branch for, and none of them is a topic the
+    platform itself publishes."""
+    delivered = {
+        parse_topic(topic).kind
+        for topic in (
+            reported_topic(DEP, AGG),
+            status_topic(DEP, AGG),
+            event_topic(DEP, AGG),
+            listener_reported_topic(DEP, AGG, MAC),
+        )
+    }
+    assert delivered == {
+        TopicKind.AGGREGATOR_REPORTED,
+        TopicKind.AGGREGATOR_STATUS,
+        TopicKind.AGGREGATOR_EVENT,
+        TopicKind.LISTENER_REPORTED,
+    }
+    assert len(deployment_subscriptions(DEP)) == len(delivered)
 
 
 # ===========================================================================

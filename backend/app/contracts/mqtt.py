@@ -8,7 +8,9 @@ whose bytes change breaks the E2 checksum contract (D52).
 Two halves: the spec 7.2 topic builders, and the spec 7.3 payloads as Pydantic
 models. Together they are the whole wire surface between the platform and a
 device: nothing else in the codebase should build a topic string or a
-control-plane JSON body by hand.
+control-plane JSON body by hand — or take one apart, which is what
+`parse_topic` is for (E3.5). Building and parsing live together so that the
+identifier rules below are applied in both directions by the same code.
 
 Which direction a payload travels decides how strict it is (D67). Models the
 platform PUBLISHES (`DesiredConfig`, `Command`) forbid unknown fields, because
@@ -46,6 +48,8 @@ this module rejects rather than repairs.
 import datetime as dt
 import re
 import uuid
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Annotated, Any, Final, Literal
 
 from pydantic import (
@@ -157,6 +161,87 @@ def listener_desired_topic(dep: str, agg: str, mac: str) -> str:
 
 def listener_reported_topic(dep: str, agg: str, mac: str) -> str:
     return f"{listener_root(dep, agg, mac)}/reported"
+
+
+class TopicKind(StrEnum):
+    """Which spec 7.2 topic a string is. One member per row of the table in
+    the module docstring, so `parse_topic` can answer "what is this" with a
+    value a `match` statement covers exhaustively rather than with a tuple of
+    optional fields the caller has to interpret."""
+
+    AGGREGATOR_DESIRED = "aggregator_desired"
+    AGGREGATOR_REPORTED = "aggregator_reported"
+    AGGREGATOR_STATUS = "aggregator_status"
+    AGGREGATOR_EVENT = "aggregator_event"
+    AGGREGATOR_COMMAND = "aggregator_command"
+    LISTENER_DESIRED = "listener_desired"
+    LISTENER_REPORTED = "listener_reported"
+
+
+@dataclass(frozen=True)
+class ParsedTopic:
+    """The identifiers a delivered topic carries.
+
+    **This is where a report's identity comes from, and it is the only
+    trustworthy source of it** (E3.5). None of the spec 7.3 inbound payloads
+    carries an identity field, deliberately: the topic a message arrived on is
+    authenticated by the broker's per-device ACL (spec 7.1), which restricts
+    each Aggregator to its own subtree, while a payload field would be a
+    self-declaration any device could write anything into.
+    """
+
+    kind: TopicKind
+    dep: str
+    agg: str
+    #: Set for the two Listener kinds and None for the five Aggregator ones.
+    mac: str | None = None
+
+
+_AGGREGATOR_LEAVES: Final[dict[str, TopicKind]] = {
+    "desired": TopicKind.AGGREGATOR_DESIRED,
+    "reported": TopicKind.AGGREGATOR_REPORTED,
+    "status": TopicKind.AGGREGATOR_STATUS,
+    "event": TopicKind.AGGREGATOR_EVENT,
+    "cmd": TopicKind.AGGREGATOR_COMMAND,
+}
+
+_LISTENER_LEAVES: Final[dict[str, TopicKind]] = {
+    "desired": TopicKind.LISTENER_DESIRED,
+    "reported": TopicKind.LISTENER_REPORTED,
+}
+
+
+def parse_topic(topic: str) -> ParsedTopic:
+    """The inverse of the topic builders above, or `TopicError`.
+
+    The identifiers are validated on the way IN by the same functions that
+    validate them on the way out, which is the point: a topic is an untrusted
+    string when it arrives from a broker, and a `+` or a `#` that survived
+    parsing would let one device's subtree answer for another's. A subscriber
+    receives only concrete topics, so a wildcard here means something is
+    building topics by hand — refuse rather than repair.
+    """
+    parts = topic.split("/")
+    if len(parts) not in (5, 7) or parts[0] != ROOT or parts[2] != "agg":
+        raise TopicError(f"not a spec 7.2 topic: {topic!r}")
+    dep, agg = _slug(parts[1]), _aggregator(parts[3])
+    if len(parts) == 5:
+        kind = _AGGREGATOR_LEAVES.get(parts[4])
+        if kind is None:
+            raise TopicError(
+                f"{parts[4]!r} is not a spec 7.2 Aggregator topic leaf in {topic!r}; "
+                f"expected one of {', '.join(sorted(_AGGREGATOR_LEAVES))}"
+            )
+        return ParsedTopic(kind=kind, dep=dep, agg=agg)
+    if parts[4] != "lst":
+        raise TopicError(f"expected an 'lst' segment in {topic!r}, found {parts[4]!r}")
+    listener_kind = _LISTENER_LEAVES.get(parts[6])
+    if listener_kind is None:
+        raise TopicError(
+            f"{parts[6]!r} is not a spec 7.2 Listener topic leaf in {topic!r}; "
+            f"expected one of {', '.join(sorted(_LISTENER_LEAVES))}"
+        )
+    return ParsedTopic(kind=listener_kind, dep=dep, agg=agg, mac=_mac(parts[5]))
 
 
 def deployment_subscriptions(dep: str) -> tuple[str, ...]:
