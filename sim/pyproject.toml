@@ -1,0 +1,84 @@
+[project]
+name = "eoe-sim"
+version = "0.0.0"
+description = "Echoes of Earth simulation harness: a mock fleet speaking the spec 7 wire protocol"
+requires-python = ">=3.12,<3.13"
+# A DEVICE's dependency set, and deliberately no larger. The harness stands in
+# for firmware, and firmware holds an MQTT client and a payload parser; the
+# platform is reached by PATH (see pythonpath below), never installed. A
+# runtime dependency here that a real Aggregator would not carry is the first
+# step towards a mock that can only be satisfied by a mock.
+dependencies = [
+    "aiomqtt>=2.3",
+    "pydantic>=2.10",
+]
+
+[dependency-groups]
+# The test group is a different animal: SIM.1's acceptance runs a REAL
+# platform in this process — its API, its publisher, its reconciliation worker
+# and its consumer — because "the published revision reaches applied" is a
+# claim about the platform and cannot be made against a stub. So this group
+# carries the backend's whole RUNTIME set, verbatim and with the same
+# specifiers, plus hypothesis (the backend's conftest registers its
+# derandomized profile at import, and sim's tests bridge to that conftest).
+# `tests/test_harness_boundaries.py` fails if the two lists ever drift apart.
+dev = [
+    "pytest>=8.3",
+    "anyio>=4.7",
+    "ruff>=0.8",
+    "mypy>=1.14",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "hypothesis>=6.100",
+    # --- the platform's runtime set, kept in step with backend/pyproject.toml
+    "uvicorn>=0.34",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "fastapi>=0.115",
+    "pydantic-settings>=2.7",
+    "argon2-cffi>=23.1",
+    "email-validator>=2.2",
+    "cryptography>=44.0",
+    "pyotp>=2.9",
+    "httpx>=0.28",
+]
+
+[tool.uv]
+package = false
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# `app.contracts.mqtt` is imported by path, not installed, so mypy needs the
+# same pointer the interpreter gets. Type-checking the harness against the
+# REAL contract is the point: a payload field renamed on the platform side has
+# to fail here, at the first outside caller, and not in the field.
+mypy_path = "../backend"
+# The harness modules only. The suite is excluded for the reason the backend
+# excludes its own: the shared fixtures it calls are deliberately untyped, and
+# strict mode would report every call to them as an error about the fixture.
+files = ["checksum.py", "device.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# How /sim reaches the platform (phase doc SIM.1 fixed choice): `.` puts the
+# harness modules on the path, `../backend` puts `app` on it. Neither is
+# installed — E0 owns the packaging decision and nothing here needs it changed.
+pythonpath = [".", "../backend"]
+# D98's deadman switch and D99's module-grouped parallelism, both inherited
+# deliberately: every live test here starts a Postgres and a Mosquitto
+# container, so a wedged Docker socket must name itself rather than hang the
+# gate, and a module must not be split across workers that would each pay for
+# their own containers. The group assignment is in tests/conftest.py.
+addopts = "-ra --durations=10 --timeout=300 --timeout-method=thread -n 4 --dist loadgroup"
+markers = [
+    "integration: exercises a real broker and a real platform; a hard gate prerequisite (rule R0)",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

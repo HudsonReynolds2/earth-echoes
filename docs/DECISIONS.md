@@ -4,6 +4,102 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D103 (2026-08-11): A mock Aggregator announces `offline` when it leaves politely, and the
+LWT acceptance kills a real process (SIM.1)
+
+- **Decision:** `MockAggregator.disconnect()` publishes a retained `offline` `StatusMessage`
+  before closing, and `__aexit__` calls it. MQTT discards the will on a clean DISCONNECT, so a
+  harness that merely closed its socket would leave `online` retained on the status topic
+  forever and the platform would go on painting a machine that is not there — for the rest of
+  the deployment's life, since the value is retained. SIM.4's "shutdown is clean, publishing an
+  explicit offline" is therefore already true of the device rather than bolted onto the runner.
+- **Which makes the crash test possible, and that is the point.** A harness whose only exit
+  looks like a crash cannot be used to test a crash. So the LWT acceptance runs a whole
+  `MockAggregator` in a subprocess and SIGKILLs it: no DISCONNECT packet ever reaches the
+  broker, the BROKER composes and publishes the will, and the platform's own consumer picks it
+  up off the subscription it already had. Nothing in the test simulates the will, which is the
+  same discipline `backend/tests/test_lwt_status.py` applies to `mosquitto_sub`.
+- **The subprocess is driven entirely through the environment** (`SIM_HOST`, `SIM_USERNAME`,
+  `SIM_PASSWORD`, ...) and prints one line when it is up, so the test waits on the device
+  having connected rather than on a sleep. The kill happens in a `finally`: it is the test's
+  action and its cleanup at once, and a device left running would outlive the fixture that
+  provisioned it and go on publishing into a torn-down broker.
+- **Reference:** spec 7.2, 9.3; phase-SIM SIM.1; sim/device.py; sim/tests/test_mock_aggregator.py.
+
+## D102 (2026-08-11): `/sim`'s conftest loads the backend's by path, under a name of its own
+(SIM.1)
+
+- **Decision:** `sim/tests/conftest.py` loads `backend/tests/conftest.py` through
+  `importlib.util.spec_from_file_location` under the alias `eoe_backend_conftest` and
+  re-exports `ephemeral_broker`, `ephemeral_postgres`, `free_port`, `make_kek` and
+  `docker_retry`. There is one Mosquitto fixture in this repository and it stays that way
+  (phase-SIM section 2); a second one would drift from the first the day one of them learned
+  something about Docker Desktop the other did not.
+- **Why not `import conftest`.** pytest names a conftest module after its basename, so by the
+  time sim's conftest runs, `sys.modules["conftest"]` is *sim's own* — a plain import would
+  hand back this half-built module and fail on the first name taken out of it. The explicit
+  alias sidesteps the collision instead of depending on `sys.path` order between two
+  directories that both contain a file called `conftest.py`.
+- **Loading it also loads the derandomized hypothesis profile** the backend registers in that
+  module's body, which is what keeps the checksum cross-check green or red for a reason rather
+  than by luck. The D99 parallel conventions are copied rather than inherited — the module is
+  loaded as a plain module, so its hooks do not run — including the `tryfirst`
+  `pytest_collection_modifyitems` that assigns an `xdist_group` per module, for the same reason
+  it exists in the backend: every live test here starts its own Postgres and Mosquitto, and a
+  module split across workers would start them once per worker.
+- **Reference:** D99; phase-SIM section 2; sim/tests/conftest.py.
+
+## D101 (2026-08-11): SIM's checksum is reimplemented from D52's prose, and the harness/suite
+import boundary is enforced by tests rather than promised (SIM.1)
+
+- **Decision:** `sim/checksum.py` implements the D52 recipe from its written description and
+  never imports `app.config.canonical`. It goes further than the platform's one-line spelling
+  on purpose: "keys sorted at every depth" is implemented as a recursive rebuild of every
+  mapping in sorted key order rather than as `json.dumps(sort_keys=True)`, so the cross-check
+  is comparing two readings of the sentence and not one implementation with itself.
+  `tests/test_checksum_agreement.py` asserts byte-for-byte agreement over generated snapshots
+  and over a table chosen for where encoders diverge — nested key order, non-ASCII, floats
+  versus ints, empty containers, nulls inside `config`, secret markers.
+- **Why it matters that this is a reimplementation:** real firmware is given the recipe, not
+  the function. A simulator that called the platform's own code would prove only that the code
+  is self-consistent, and would stay green on the day the written recipe and the code stopped
+  agreeing — which is the day every device in the field starts reporting a checksum that can
+  never match and the whole fleet reads as drifted for a reason no operator can see.
+- **The boundary is a test, not a convention.** `tests/test_harness_boundaries.py` fails if any
+  file under `/sim` spells the topic namespace out by hand (the forbidden prefix is taken from
+  the contract's own `ROOT`, so the test cannot pass by agreeing with itself), and if any
+  harness module imports anything from the platform other than `app.contracts.mqtt`. The SUITE
+  is deliberately exempt from the second rule and only the second: an acceptance test that says
+  "against a real platform" has to drive one.
+- **Reference:** D52; spec 6.2, 7.3; phase-SIM section 2 and SIM.1; sim/checksum.py.
+
+## D100 (2026-08-11): `/sim` is its own uv project that reaches the platform by path, and its
+test group carries the platform's runtime dependencies (SIM.1)
+
+- **Decision:** `sim/pyproject.toml` is a separate uv project. Its RUNTIME dependencies are a
+  device's and nothing more — `aiomqtt` and `pydantic` — because the harness stands in for
+  firmware, and a runtime dependency here that a real Aggregator would not carry is the first
+  step towards a mock that can only be satisfied by a mock. The platform is reached by PATH
+  (`pythonpath = [".", "../backend"]` for pytest, a `sys.path` insert in `device.py` for a
+  plain `python fleet.py`, `mypy_path = "../backend"` for the type checker), never installed:
+  E0 owns the packaging decision and nothing here needs it changed.
+- **The dev group carries the backend's whole runtime set, verbatim.** SIM.1's acceptance runs
+  a REAL platform in the test process — its API, its publisher, its reconciliation worker, its
+  consumer — because "a published revision reaches `applied`" is a claim about the platform and
+  cannot be made against a stub. That needs SQLAlchemy, psycopg, alembic, FastAPI and the rest
+  importable from sim's venv. `tests/test_harness_boundaries.py` fails if the two lists drift,
+  because the alternative is discovering a missing package weeks later as an ImportError naming
+  something nobody remembers deciding to need.
+- **mypy covers the harness modules, not the suite** (`files = ["checksum.py", "device.py"]`,
+  so a bare `uv run mypy` is the whole check). The backend excludes its own tests for the same
+  reason: the shared fixtures they call are deliberately untyped, and strict mode would report
+  every call to them as an error about the fixture rather than about the test. Type-checking
+  the harness against the real `app.contracts.mqtt` is the part that earns its keep — a payload
+  field renamed on the platform side now fails at the contract's first outside caller.
+- **Ruff and mypy settings are the backend's, asserted equal rather than copied by hand**, so a
+  `/sim` on different rules cannot fail CI for formatting nobody chose (rule R2).
+- **Reference:** phase-SIM section 2 "Fixed choices", SIM.1; sim/pyproject.toml.
+
 ## D99 (2026-08-11): The backend suite runs in parallel, grouped by module (SIM.0)
 
 - **Decision:** `-n 6 --dist loadgroup` with a `tryfirst` `pytest_collection_modifyitems` hook
