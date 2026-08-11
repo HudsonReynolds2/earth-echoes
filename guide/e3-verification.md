@@ -1258,3 +1258,59 @@ Keep the pod page open in one window and drive a change from a terminal.
       screens describe configuration, not devices, and a dot there would be decoration.
 - [ ] The Map is still E6's and alerts are still E7's. The `alerting` status exists in the
       vocabulary and nothing can produce it yet.
+
+## 13. The whole loop, from the UI (E3.13)
+
+Everything until now was a piece. This is the sentence the epic exists to make true:
+
+> You change a setting in the browser, and the device is running it a moment later — with a
+> record of who asked, what changed, and what the device said back.
+
+`EOE_PUBLISH_ENABLED` now **defaults to on**, so you no longer set it by hand. Remove it from
+`deploy/.env` (§7's cleanup) and restart the API to confirm the default is doing the work.
+
+### The sentence, end to end
+
+Start from a clean §0 stack, with a mock device subscribed as in §5.
+
+- [ ] In the UI: **Configuration → Redwood Coast → Pod 01 → `demo-agg-rc-01`**, change
+      `logging.verbosity`, and **Preview**. The preview names the key and its before/after.
+- [ ] **Apply.** The response now says `"state": "pending"` and `"published": N` — not
+      `draft`. That is the change E3.13 makes: apply used to stop at a draft and wait for
+      someone to publish it.
+- [ ] Note that N is larger than one. An aggregator-level change moves its Listeners'
+      effective config too, so E2 cuts a revision per affected device and **all of them go
+      out**.
+- [ ] Your subscribed mock device receives the retained desired message within a second,
+      carrying the new value and the revision id.
+- [ ] Ack it as the device (§6). The revision reads **applied**.
+- [ ] The device page's **Timeline** shows exactly two entries for that revision: your
+      publish, with your email, and the device's ack, with no actor. That is the whole story
+      of a config change, and it was assembled without anyone writing a log line.
+- [ ] With the page open the whole time, none of that required a reload (§12).
+
+### When the broker is down
+
+The failure worth trusting the platform about.
+
+- [ ] `docker compose ... stop mosquitto`, then change a setting and **Apply**.
+- [ ] The apply **succeeds** — HTTP 200 — with `"published": 0` and `"state": "draft"`.
+- [ ] Check the effective config: **your edit is saved.** Publication happens after the write
+      commits, so an unreachable broker costs you a publish and never your work.
+- [ ] The timeline shows **nothing** for those revisions. The platform did not pretend a
+      device had been told.
+- [ ] Start the broker and use **`POST /revisions/{id}/publish`** (§7) on one of them. It goes
+      out, and the timeline picks up from there. Same route drift repair uses — one publish
+      path, one set of refusals.
+
+### Epic E3 is complete
+
+- [ ] Re-read §§1–12 as a set. A config change published to a mock Aggregator lands as a
+      retained message; the ack drives pending to applied; injected divergence drives applied
+      to drifted; silence past the window drives pending to failed; a newer revision
+      supersedes. LWT flips Aggregator status in real time and Listener liveness follows spec
+      6.5. Identity conflicts quarantine. All of it is visible on the timeline and pushed over
+      the websocket.
+- [ ] What is still deliberately absent: the Map (E6), alerts and the `alerting` status (E7),
+      provisioning bundles (E4), service onboarding and connection tests (E5), and the
+      fleet-scale simulator (SIM).

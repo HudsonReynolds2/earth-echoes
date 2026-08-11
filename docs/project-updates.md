@@ -1,5 +1,55 @@
 # Project Updates
 
+## 2026-08-11: E3.8-E3.13 — epic E3 complete (Gates 46-51 GREEN)
+
+- **Tasks closed:** E3.8, E3.9, E3.10, E3.11, E3.12, E3.13 — **and with them every E3 task**
+  (E3.1-E3.13), on branch `e3-batch-1`. DECISIONS D88-D96.
+- **One entry for six tasks, on the owner's instruction (D89).** Each task still ended in its
+  own FULL green gate, commit, push and `gate-{N}` tag; only the per-task entry was batched
+  here. Recorded as a deviation from R1 rather than quietly done.
+- **Gates:** 46 (E3.8), 47 (E3.9), 48 (E3.10), 49 (E3.11), 50 (E3.12), 51 (E3.13) — all GREEN,
+  each `make gate`, 0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Tests at close:** backend 766, vitest 114, Playwright 4 (from 661 / 96 / 4 at gate 45).
+- **What shipped.** E3.8 LWT status in `aggregator_status`; E3.9 spec 6.5 Listener liveness on
+  `device_state` plus the one shared `listener_verdict`; E3.10 `POST /aggregators/{id}/commands`;
+  E3.11 `reconciliation_event` and the per-device timeline with a UI panel; E3.12 `WS /ws`,
+  the Postgres LISTEN/NOTIFY bus, and real device status (lifting D40); E3.13 apply wired to
+  publication, `EOE_PUBLISH_ENABLED` defaulted on, and the end-to-end loop in CI.
+- **THE definition of done, as one test.** `test_a_config_edit_reaches_a_device_and_comes_back_applied`
+  runs preview → apply → retained desired message read by a mock device on its OWN broker
+  credential → ack → `applied` → timeline → websocket, against a real Mosquitto and a real
+  worker. Deliberately the only test spanning every task: a red there with green elsewhere
+  means the pieces do not fit rather than that a piece is broken.
+- **Two design calls worth re-reading before E4.** (1) LWT status went to its own table rather
+  than the `device_state` columns E3.5 anticipated, because a will is published by the BROKER
+  and `device_state` means "what the device said" (D88); the rule now is that reported facts
+  live on the report row and broker-authored ones do not. (2) Status is ordered by RECEIPT,
+  not by the payload clock — a device composes its will at connect time, so ordering it the
+  way spec 7.4 orders reports would reject every LWT as stale and leave dead devices reading
+  online forever.
+- **D40 lifted and rewritten, not deleted (D60).** Status renders only where the API reported
+  one; `unknown` is a first-class value that renders as a muted dash, never a chip; config
+  routes still show none. The guard test now asserts all three.
+- **Four defects found and fixed during the batch, three of them invisible to CI.**
+  D87: with publishing on, the API lifespan died (`exit 3`) when it beat the migrations to
+  the `deployment_service` table — it would have broken every `compose up` once E3.13 flipped
+  the flag. D90: the guide's POSIX path omitted `-p eoe-qa`, so a walkthrough stack held the
+  gate's ports under a name no documented teardown named. D92: the worker's disabled
+  healthcheck was accepted by the local Compose and rejected by CI's. D94: the connection loop
+  re-raised `CancelledError` inside `async with aiomqtt.Client(...)`, stranding `_misc_loop`
+  with a live socket on **every reconnect** — surfaced as a gate flake, fixed as the leak it
+  was rather than re-run until green.
+- **The pattern behind three of those:** the local gate and CI do not run in identical
+  environments, and each difference that bit us now has a guard rather than a memory
+  (`compose_env` pins every interpolated variable; `disable: true` is banned).
+- **Manual verification:** the owner drove `guide/e3-verification.md` §7 against the live QA
+  stack (worker startup, gated publish, timeout, drift, restart), corroborated by the worker
+  log. §§8-13 ship as written walkthroughs and are covered by named tests; they have not been
+  driven by hand yet, which is stated plainly here rather than implied. The walkthrough is the
+  next thing to run against the stack.
+- **Still deliberately absent:** the Map (E6), alerts and the `alerting` status (E7),
+  provisioning bundles (E4), service onboarding (E5), the fleet-scale simulator (SIM).
+
 ## 2026-08-10: E3.7 reconciliation worker — the loop runs itself (Gate 45 GREEN)
 
 - **Tasks closed:** E3.7 (branch `e3-batch-1`; DECISIONS D80-D87). Plan change project-changes

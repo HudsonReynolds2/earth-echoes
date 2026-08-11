@@ -54,9 +54,12 @@ class Settings(BaseSettings):
     build_sha: str = Field(default="dev", validation_alias="EOE_BUILD_SHA")
     session_ttl_seconds: int = Field(default=43200, validation_alias="EOE_SESSION_TTL_SECONDS")
     # E2.6 (D56): gates E3's publish call-through. E2's apply stops at draft
-    # revisions UNCONDITIONALLY - the flag exists so E3 can flip it, nothing
-    # in E2 reads it beyond reporting it in the apply response.
-    publish_enabled: bool = Field(default=False, validation_alias="EOE_PUBLISH_ENABLED")
+    # revisions unconditionally; E3.13 wired its apply to publication and
+    # flipped this default ON (D61, task E3.13). Publication still only
+    # reaches a deployment that HAS a `deployment_service` broker row, and
+    # the flag stays settable per environment for a deployment that wants
+    # to stage config without touching devices.
+    publish_enabled: bool = Field(default=True, validation_alias="EOE_PUBLISH_ENABLED")
     # E3.7 (D59): the reconciliation worker runs as its own process in the dev
     # and production stacks. This flag runs it inside the API process instead,
     # from the same module - one deployment mode for the simplest self-hosted

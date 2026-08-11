@@ -4,6 +4,34 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D96 (2026-08-11): Apply publishes AFTER it commits, and one broker's outage does not
+fail the rest (E3.13)
+
+- **Decision:** `POST /config/apply` writes the overrides and the draft revisions in one
+  transaction, COMMITS, and only then publishes. An operator's config edit is durable the
+  moment they apply it; a broker that is down costs them a publish, not their work.
+- **Decision:** a revision that could not go out stays `draft` and is REPORTED as such, per
+  revision. `POST /revisions/{id}/publish` retries it — the same route drift repair uses
+  (D82), so there is one publish path and one set of refusals rather than a second one grown
+  here.
+- **Decision:** one failure does not abort the rest. A fleet-wide apply spans deployments
+  whose brokers are independent, and failing the whole call over one unreachable broker
+  would leave the operator unable to tell which devices were told.
+- **`ApplyOut.state` gains `partial`.** With several deployments in one apply, "some devices
+  were told and some were not" is a real outcome and neither `draft` nor `pending` describes
+  it honestly. `revisions[].state` carries the per-device truth; the top-level value is a
+  summary.
+- **`EOE_PUBLISH_ENABLED` now defaults ON** (D61, as task E3.13 specifies). Publication still
+  only reaches a deployment that HAS a `deployment_service` broker row, and the flag remains
+  settable per environment for anyone who wants to stage config without touching devices.
+  Two E2 assertions that pinned the flag as off were rewritten rather than deleted, and now
+  assert the honest consequence: the flag being on is not enough — a process holding no
+  outbound connection (D86) still reports `draft`.
+- **The end-to-end test is the epic's definition of done**, and deliberately the only test
+  that spans every task: preview, apply, retained desired message read by the device on its
+  own credential, ack, `applied`, timeline, websocket. A red there with green everywhere else
+  means the pieces do not fit rather than that a piece is broken.
+
 ## D95 (2026-08-10): Live updates are invalidation signals, and `unknown` is a status
 (E3.12)
 

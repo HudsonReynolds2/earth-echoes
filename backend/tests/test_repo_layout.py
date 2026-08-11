@@ -68,7 +68,7 @@ def compose_env() -> dict[str, str]:
         # E3.7's knobs, pinned to the documented defaults. E3.13 flips
         # EOE_PUBLISH_ENABLED on; this line is where that change lands for the
         # container tests, deliberately and not by whatever `.env` says.
-        "EOE_PUBLISH_ENABLED": "false",
+        "EOE_PUBLISH_ENABLED": "true",  # E3.13 flipped the default (D61)
         "EOE_TIMEOUT_SWEEP_SECONDS": "30",
         "EOE_DRIFT_SWEEP_SECONDS": "300",
         # The rest of the compose file's interpolations, each pinned to the

@@ -13,6 +13,7 @@ draft revisions unconditionally (publication is E3's, gated by
 EOE_PUBLISH_ENABLED which E2 only reports).
 """
 
+import logging
 import uuid
 from typing import Annotated, Any, Literal
 
@@ -29,9 +30,13 @@ from app.config.catalog import CATALOG_BY_KEY
 from app.config.merge import ResolvedValue, redact_secrets
 from app.config.plan import ChangePlan, PlanError, apply_change_plan, build_change_plan
 from app.config.selection import SelectionQuery, evaluate_selection, validate_selection_query
+from app.controlplane.broker import BrokerUnavailable
+from app.controlplane.publisher import PublishError, publish_revision
 from app.errors import AppError
-from app.models import Selection, SettingsCatalog, UserSession
+from app.models import ConfigRevision, Selection, SettingsCatalog, UserSession
 from app.scoping import require_any_assignment
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config")
 
@@ -91,12 +96,21 @@ class AppliedRevisionOut(BaseModel):
     deployment_id: uuid.UUID
     changed_keys: list[str]
     checksum: str
+    #: E3.13: `pending` once published, `draft` if publication is off or the
+    #: broker refused it. Per revision, because one deployment's broker being
+    #: down must not misreport another's.
+    state: str = "draft"
 
 
 class ApplyOut(BaseModel):
+    #: The AGGREGATE, kept for E2's contract: `draft` when nothing was
+    #: published, `pending` when everything was, `partial` when a broker was
+    #: down for some. Read `revisions[].state` for the per-device truth.
     state: str
     publish_enabled: bool
     revisions: list[AppliedRevisionOut]
+    #: How many reached a device's desired topic (E3.13).
+    published: int = 0
 
 
 def _plan_for(db: DbDep, session: UserSession, body: PlanBody) -> ChangePlan:
@@ -175,16 +189,27 @@ def preview_config_change(
 
 
 @router.post("/apply", response_model=ApplyOut)
-def apply_config_change(
+async def apply_config_change(
     body: PlanBody,
     db: DbDep,
     request: Request,
     actor: Annotated[UserSession, Depends(require_csrf)],
 ) -> ApplyOut:
-    """Write the overrides, create draft revisions for every non-no_op
-    device, audit once per affected deployment - ONE transaction. Stops at
-    draft unconditionally: publication is E3's (EOE_PUBLISH_ENABLED gates
-    its eventual call-through; E2 only reports the flag)."""
+    """Write the overrides and the draft revisions in ONE transaction, then
+    publish them (task E3.13, closing the E2/E3 loop).
+
+    **The write commits before anything is published, and that ordering is
+    deliberate.** An operator's config edit is durable the moment they apply
+    it; a broker that is down then costs them a publish, not their work. Each
+    revision that could not go out stays `draft` and is reported as such, and
+    `POST /revisions/{id}/publish` is how it is retried — the same route drift
+    repair uses (D82), so there is one path and one set of refusals.
+
+    **One failure does not abort the rest.** A fleet-wide apply can span
+    deployments whose brokers are independent, and the alternative — failing
+    the whole call because one broker was unreachable — would leave the
+    operator no way to tell which devices were told.
+    """
     plan = _plan_for(db, actor, body)
     revisions, changed_by_deployment = apply_change_plan(
         db, request.app.state.secret_store, plan, body.changes, actor.user_id
@@ -225,9 +250,13 @@ def apply_config_change(
             },
         )
     db.commit()
+
+    published = await _publish_applied(request, revisions, actor.user_id)
+
     by_target = {(device.target_type, device.target_id): device for device in plan.devices}
     return ApplyOut(
-        state="draft",
+        state=_aggregate_state(len(revisions), len(published)),
+        published=len(published),
         publish_enabled=request.app.state.settings.publish_enabled,
         revisions=[
             AppliedRevisionOut(
@@ -239,6 +268,7 @@ def apply_config_change(
                     by_target[(revision.target_type, revision.target_id)].changed_keys
                 ),
                 checksum=revision.checksum,
+                state="pending" if revision.id in published else "draft",
             )
             for revision in revisions
         ],
@@ -267,3 +297,53 @@ def get_catalog(db: DbDep) -> CatalogOut:
             for row in rows
         ],
     )
+
+
+def _aggregate_state(total: int, published: int) -> str:
+    """E2's top-level `state`, kept meaningful now that publication happens.
+
+    `partial` is a new value and it earns its place: with several deployments
+    in one apply, "some devices were told and some were not" is a real outcome
+    and neither `draft` nor `pending` describes it honestly.
+    """
+    if total == 0 or published == 0:
+        return "draft"
+    return "pending" if published == total else "partial"
+
+
+async def _publish_applied(
+    request: Request, revisions: list[ConfigRevision], actor_user_id: uuid.UUID
+) -> set[uuid.UUID]:
+    """Publish every revision this apply created; return the ids that went out.
+
+    Called AFTER the commit, so nothing here can undo the operator's edit. A
+    broker that is down costs a publish and not the work: that revision stays
+    `draft`, is reported as such, and `POST /revisions/{id}/publish` retries it.
+
+    The manager is None when `EOE_PUBLISH_ENABLED` is off, and also in any
+    process that never ran the lifespan (D86) — a test client used without its
+    context manager, for one. Both mean "nothing may reach a device", which is
+    exactly `draft`.
+    """
+    manager = getattr(request.app.state, "mqtt", None)
+    settings = request.app.state.settings
+    if manager is None or not settings.publish_enabled or not revisions:
+        return set()
+
+    published: set[uuid.UUID] = set()
+    for revision in revisions:
+        try:
+            await publish_revision(
+                request.app.state.session_factory,
+                manager,
+                revision.id,
+                publish_enabled=True,
+                actor_user_id=actor_user_id,
+            )
+        except (PublishError, BrokerUnavailable) as error:
+            # Logged, counted, and left as draft. Raising would abort the rest
+            # of a fleet-wide apply over one unreachable deployment.
+            log.warning("could not publish revision %s on apply: %s", revision.id, error)
+            continue
+        published.add(revision.id)
+    return published

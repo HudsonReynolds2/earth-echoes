@@ -21,7 +21,7 @@ services:
       EOE_KEK: ${EOE_KEK:?set in deploy/.env, see .env.example}
       REDIS_URL: ${REDIS_URL:-}
       EOE_CORS_ORIGINS: ${EOE_CORS_ORIGINS:-http://localhost:15173}
-      EOE_PUBLISH_ENABLED: ${EOE_PUBLISH_ENABLED:-false}
+      EOE_PUBLISH_ENABLED: ${EOE_PUBLISH_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy

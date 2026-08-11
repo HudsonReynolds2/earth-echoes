@@ -1288,3 +1288,21 @@ reimplement their logic.** Signatures, verbatim:
 - **Frontend:** `lib/useLiveUpdates.ts`, mounted once in `Shell`. One socket per tab.
 - **Suites:** `backend/tests/test_websockets.py` (gate 50, including the two-scope
   acceptance and the commit-only bus property), `frontend/tests/live-updates.test.ts`.
+
+### Apply publishes, and the flag is on (E3.13; D61, D96) — **the E2/E3 loop is closed**
+
+- **`POST /config/apply` now publishes.** It writes overrides and draft revisions in one
+  transaction, COMMITS, then publishes each revision through E3.4's `publish_revision`.
+  Ordering is the contract: the operator's edit is durable before anything is attempted, so a
+  broker outage costs a publish and not their work.
+- **Response gains `published: int` and `revisions[].state`.** Top-level `state` is now
+  `draft` (nothing published) · `pending` (all published) · **`partial`** (some brokers were
+  down). Per-revision state is the truth; the top level is a summary.
+- **A revision that did not go out stays `draft`** and is retried with
+  `POST /revisions/{id}/publish` — the same route drift repair uses (D82). One publish path,
+  one set of refusals.
+- **`EOE_PUBLISH_ENABLED` defaults to `true`** as of this task (D61). Still per-environment,
+  and still inert for a deployment with no `deployment_service` broker row. A process that
+  never ran the lifespan holds no manager (D86) and honestly reports `draft`.
+- **Suite:** `backend/tests/test_end_to_end_loop.py` (gate 51) — the epic's definition of
+  done against a real broker and a real worker, plus the broker-outage case.
