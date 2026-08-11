@@ -56,6 +56,18 @@ SIM sessions keep the primary tree.
 
 ## Notes for whoever picks this up next
 
+- **Do not run a checkpoint gate while the SIM session is running Docker.** Measured, not
+  guessed: two broad backend sweeps taken from this worktree on 2026-08-11 while the SIM
+  session was live returned 829 passed / 7 errors and 831 passed / 5 errors. **Every error was
+  a container fixture failing to start, none was a test-logic failure, and the errored modules
+  were different in each run** — `test_e0_readiness` in the first, `test_publish_revision` and
+  `test_end_to_end_loop` in the second, each of which passed on its own immediately after. The
+  quoted fault is D99's: `/forwards/expose returned unexpected status: 500`. `conftest.docker_retry`
+  already retries exactly that string five times with a backoff, and it still exhausts under two
+  sessions publishing ports at once. **Do not widen the retry to make this go away** — it is
+  narrow on purpose (D99), and the real fix is not overlapping the two sessions. A checkpoint
+  gate run under this contention is not a red gate and must not be recorded as one; it is an
+  invalid measurement, so re-run it with the other session idle.
 - **The nine fixed choices in phase document section 2 were decided at plan approval.** They
   resolve spec 17 item 14 (dynsec required) and reverse the E4/E5 `BrokerCredentialProvider`
   ordering. Do not relitigate them mid-epic; a unit that seems to need one reopened is a
