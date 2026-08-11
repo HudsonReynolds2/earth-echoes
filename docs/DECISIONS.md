@@ -4,6 +4,65 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D94 (2026-08-10): The broker client is closed OUTSIDE its own cancellation (E3.2 defect,
+found by a gate flake)
+
+- **What went wrong:** `test_shutdown_leaves_no_running_tasks` failed twice across this batch
+  with `tasks outlived stop(): [...Client._misc_loop...]`, and passed every time it was run
+  alone. A test that only fails under load is a latent gate flake, and re-running until green
+  would have been the wrong answer.
+- **The cause, and it was a real bug:** `_connection_loop` held the client in an
+  `async with`, with `except asyncio.CancelledError: raise`. aiomqtt's `__aexit__` AWAITS —
+  it sends DISCONNECT, then cancels its own internal `_misc_loop`. Re-raising there runs
+  that teardown inside a task whose cancellation is already pending, so its first await
+  raises again, the cleanup is abandoned half-done, and `_misc_loop` is left running with a
+  live socket under it. Under load the window is wide enough to hit.
+- **Decision:** the client lives in an `AsyncExitStack`, and `_close_client` closes it in its
+  OWN task, shielded, then awaits that task to completion even after the shield re-raises.
+  The teardown therefore always finishes before `stop()` returns.
+- **Why it matters beyond a green gate:** every reconnect takes this path. A leaked
+  `_misc_loop` per reconnect is a slow leak of tasks and sockets in a process designed to
+  run for months across brokers that come and go — the flake was the symptom, not the
+  disease.
+- **Verified** by running the suite three times clean and the shutdown test again under
+  deliberate CPU contention, which is the condition that used to reproduce it.
+
+## D93 (2026-08-10): The timeline row is written inside `transition()`, and the org-wide
+half of spec 6.3 stays on the audit log (E3.11)
+
+- **Decision:** `reconciliation_event` is written by `revision_state.transition` rather than
+  by its call sites. Spec 6.3 asks for "every transition" recorded, and that function is
+  already the only writer of `config_revision.state` — so the timeline is complete BY
+  CONSTRUCTION instead of by four call sites each remembering to log. The same argument put
+  `published_at` there (D84). `test_no_transition_can_happen_without_a_timeline_row` walks
+  the entire spec 6.2 table to hold it.
+- **Decision:** spec 6.3's other half — "an Organization-wide and per-Deployment audit log
+  renders the same events filtered by scope" — is **E0.8's `GET /audit`**, not a second
+  surface over this table. E3.4, E3.5 and E3.7 have been writing `revision.publish`,
+  `revision.report`, `revision.timeout` and `revision.drift` rows with the deployment in
+  `scope` since they landed. Two org-wide logs would be two answers to one question, and the
+  one nobody was looking at would rot.
+- **The two tables are not redundant.** `audit_log` answers "who did what across this
+  organization" and holds config edits and user administration too; `reconciliation_event`
+  answers "what happened to this device" and is the only one guaranteed complete per
+  transition.
+- **`diff` and `detail` split by PROVENANCE.** `diff` comes from revision snapshots, which
+  hold spec 5.4 markers rather than plaintext, so storing values there cannot leak a secret —
+  and an operator seeing "before 48000, after 22050" is the entire point of spec 6.3's
+  "before/after effective config diff". `detail` is whatever a DEVICE or the worker said, and
+  device values are of unknown provenance, so it carries key NAMES only. Mixing them would
+  either strip the diff of its usefulness or put untrusted values on a trusted screen.
+- **The diff is recorded only on entry to `pending`**, the edge where what the platform is
+  asking for changes. Repeating it on `applied`, `drifted` and `failed` would read as four
+  separate config changes on the timeline.
+- **The first revision for a device has no diff.** It is not a change from anything, and
+  rendering the whole config as "added" buries the one key an operator edited.
+- **UI:** entries carry `data-revision-state`, deliberately not `data-status`. A revision
+  state (spec 6.2) and a device status (spec 9.3) are different vocabularies, and D40's guard
+  forbids `[data-status]` on inventory routes until E3.12 has real status to put there —
+  borrowing the attribute would defeat a guard that exists to stop plausible-looking
+  placeholders.
+
 ## D92 (2026-08-10): The worker gets a REAL healthcheck, because `disable: true` is red in
 CI and green locally (E3.7 defect, found in CI)
 

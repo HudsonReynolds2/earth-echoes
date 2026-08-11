@@ -1143,3 +1143,59 @@ curl -i -X POST http://localhost:18000/api/v1/aggregators/AGGREGATOR_ID/commands
       that never happened.
 - [ ] With the broker back, a successful command leaves exactly one audit row carrying the
       `command_id` and your user. That id is how a later conversation names one attempt.
+
+## 11. What happened to this device (E3.11)
+
+Every section so far produced state changes. This one is where they become a story an
+operator can read months later, which is what spec 6.3 asks for: every transition, with a
+timestamp, an actor, the config diff, and whatever the device said.
+
+The load-bearing property is **completeness**. The row is written inside the state machine
+itself — the single function allowed to write `config_revision.state` — so a transition that
+left no history is not possible rather than merely unlikely.
+
+### Drive a journey, then read it back
+
+Re-run §7's sequence on the aggregator: publish, ack as the device, inject drift, re-publish,
+let it time out. Then:
+
+```bash
+curl -s "http://localhost:18000/api/v1/aggregators/AGGREGATOR_ID/timeline" -b cookies.txt | jq '.items[] | {from_state, to_state, trigger, actor_email}'
+```
+
+- [ ] The entries are **newest first**, and read as the journey backwards: `failed(timeout)`,
+      `pending(republish)`, `drifted(report_diverged)`, `applied(report_match)`,
+      `pending(publish)`.
+- [ ] The two you did carry your email. The three the platform did have `actor_email: null`.
+      **That null is a fact, not a gap** — nobody answered, which is the entire content of a
+      timeout entry, and the UI says "by the platform" rather than "unknown user".
+- [ ] The `pending(publish)` entry carries a `diff` naming the setting you changed with its
+      before and after. The other four carry `diff: null`: they moved state without changing
+      what was asked for, and repeating the diff on each would read as four config changes.
+- [ ] The `drifted` entry's `detail` names the differing **keys** and no values.
+
+### In the UI
+
+- [ ] Open the pod page. Under the Aggregator card there is a **Timeline** panel showing the
+      same entries, with the diff as a small before/after table.
+- [ ] Open a listener detail page. Same panel, its own history, keyed by MAC.
+- [ ] A device you have never published to says "No configuration has been published to this
+      device yet" rather than showing an empty box. Never-transitioned is a real answer.
+- [ ] Inspect the entries in devtools: they carry `data-revision-state`, **not**
+      `data-status`. A revision state and a device status are different vocabularies, and the
+      status dots are still E3.12's to earn (D40 is not lifted yet).
+
+### The org-wide view is the audit log, on purpose
+
+- [ ] `GET /api/v1/audit?action=revision.timeout` and its siblings (`revision.publish`,
+      `revision.report`, `revision.drift`) render the same story across every device, and
+      `?scope=DEPLOYMENT_ID` narrows it to one deployment. That is spec 6.3's second surface,
+      and it is E0.8's audit log rather than a second timeline API: two org-wide logs would be
+      two answers to one question, and the one nobody looked at would rot (D93).
+
+### History outlives what it describes
+
+- [ ] Delete a revision row directly in Postgres and reload the timeline. **The entry is
+      still there.** Every reference out of `reconciliation_event` is deliberately un-FK'd
+      (D33): a timeline exists to answer questions about things that are gone, and a cascade
+      would erase exactly the history somebody is looking for.

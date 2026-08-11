@@ -42,7 +42,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ConfigRevision, utcnow
+from app.models import ConfigRevision, ReconciliationEvent, utcnow
 
 
 class RevisionState(StrEnum):
@@ -298,6 +298,25 @@ def transition(
     at = utcnow()
     if target is RevisionState.PENDING:
         revision.published_at = at
+    db.add(
+        ReconciliationEvent(
+            revision_id=revision.id,
+            target_type=revision.target_type,
+            target_id=revision.target_id,
+            deployment_id=revision.deployment_id,
+            from_state=source.value,
+            to_state=target.value,
+            trigger=trigger.value,
+            at=at,
+            actor_user_id=actor_user_id,
+            # Only on entry to `pending`: that is the edge where what the
+            # platform is ASKING FOR changes. The others move state without
+            # changing the desired config, and a diff repeated on each of them
+            # would read as four separate config changes on the timeline.
+            diff=_diff_against_previous(db, revision) if target is RevisionState.PENDING else None,
+            detail=detail,
+        )
+    )
     return TransitionRecord(
         revision_id=revision.id,
         target_type=revision.target_type,
@@ -395,3 +414,52 @@ def supersede_open_revisions(
             )
         )
     return records
+
+
+#: How many changed keys one timeline diff carries. Bounded for the reason
+#: `consumer.MAX_DIFFERING_KEYS` is: a first revision against nothing, or a
+#: catalog-wide edit, would otherwise write the entire key space into a row
+#: that a UI renders inline.
+MAX_DIFF_KEYS = 40
+
+
+def _diff_against_previous(db: Session, revision: ConfigRevision) -> dict[str, Any] | None:
+    """Spec 6.3's "before/after effective config diff", for one revision.
+
+    Compared against the newest OTHER revision for the same device, whatever
+    state it reached — an operator reading a timeline wants the change against
+    what was last asked for, and a `failed` predecessor was still asked for.
+
+    **Snapshots only, never a device report.** Both sides come from
+    `config_revision.snapshot`, which holds secret MARKERS rather than
+    plaintext (spec 5.4), so storing values here cannot leak one. Values a
+    DEVICE supplied are of unknown provenance and go in `detail` as key names,
+    never here — that split is why the two columns exist.
+
+    Returns None when there is nothing to compare against: the first revision
+    for a device is not a change from anything, and rendering the whole
+    config as "added" would bury the one key an operator actually edited.
+    """
+    previous = db.scalars(
+        select(ConfigRevision)
+        .where(
+            ConfigRevision.target_type == revision.target_type,
+            ConfigRevision.target_id == revision.target_id,
+            ConfigRevision.id != revision.id,
+            ConfigRevision.created_at <= revision.created_at,
+        )
+        .order_by(ConfigRevision.created_at.desc(), ConfigRevision.id.desc())
+        .limit(1)
+    ).first()
+    if previous is None:
+        return None
+
+    before: dict[str, Any] = previous.snapshot or {}
+    after: dict[str, Any] = revision.snapshot or {}
+    changed = sorted(
+        {key for key in before.keys() & after.keys() if before[key] != after[key]}
+        | (before.keys() ^ after.keys())
+    )[:MAX_DIFF_KEYS]
+    if not changed:
+        return None
+    return {key: {"before": before.get(key), "after": after.get(key)} for key in changed}

@@ -132,6 +132,12 @@ E0_ROUTES = {
     # device dedupes its own retries, and two operator submissions are two
     # decisions.
     ("POST", f"{API_PREFIX}/aggregators/{{aggregator_id}}/commands"),
+    # E3.11 (gate 49): the spec 6.3 per-device timeline. The ORG-wide and
+    # per-deployment halves of spec 6.3 are E0.8's `GET /audit` filtered by
+    # scope, deliberately not rebuilt here - two answers to one question
+    # would drift apart.
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/timeline"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/timeline"),
 }
 
 E0_TABLES = {
@@ -182,6 +188,12 @@ E0_TABLES = {
     # LWT is Aggregator-only, and an `offline` will is published by the broker
     # rather than by the device. See D88.
     "aggregator_status",
+    # E3.11 (gate 49): one row per spec 6.2 transition, written by
+    # `revision_state.transition` and nothing else - which is what makes a
+    # device timeline complete by construction. Append-only evidence, every
+    # reference out of it un-FK'd (D33) so history outlives the revision it
+    # describes and the device it happened to.
+    "reconciliation_event",
 }
 
 

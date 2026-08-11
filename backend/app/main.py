@@ -37,6 +37,7 @@ from app.api.organizations import router as organizations_router
 from app.api.pods import router as pods_router
 from app.api.revisions import router as revisions_router
 from app.api.selections import router as selections_router
+from app.api.timeline import router as timeline_router
 from app.api.totp import router as totp_router
 from app.api.users import router as users_router
 from app.controlplane.broker import MqttClientManager, load_broker_coordinates
@@ -152,6 +153,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(entity_config_router)
     api_router.include_router(selections_router)
     api_router.include_router(revisions_router)
+    api_router.include_router(timeline_router)
     app.include_router(api_router)
 
     return app

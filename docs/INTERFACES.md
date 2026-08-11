@@ -1223,3 +1223,36 @@ reimplement their logic.** Signatures, verbatim:
 - **Suite:** `backend/tests/test_command_channel.py` (gate 48), carrying both halves of the
   acceptance — distinct ids per submission, and a mock device deduplicating a redelivery of
   one id against a real Mosquitto.
+
+### `reconciliation_event` and the per-device timeline (E3.11; spec 6.3; D93)
+
+- **Table** (migration `f81c6ab3d740`): `revision_id`, `target_type`/`target_id` (the
+  `config_revision` convention — aggregators by PLATFORM UUID, listeners by MAC, D75),
+  `deployment_id`, `from_state`, `to_state`, `trigger`, `at`, `actor_user_id`, `diff`,
+  `detail`. Every reference out is **un-FK'd** (D33): history outlives the revision it
+  describes and the device it happened to.
+- **Written by `revision_state.transition` and by nothing else.** That function is the only
+  writer of `config_revision.state`, so putting the record inside it makes the timeline
+  complete **by construction** rather than by every call site remembering. A later writer
+  that sets `state` directly would break spec 6.3 silently — don't add one.
+- **`diff` vs `detail` is a provenance split, not a formatting one.** `diff` is
+  `{key: {before, after}}` from revision SNAPSHOTS, which carry secret markers rather than
+  plaintext (spec 5.4), so values are safe there; present only on entry to `pending`, the
+  edge where the desired config actually changes. `detail` is device- or worker-supplied —
+  differing key NAMES, error text — and **never device-supplied values**.
+- **`GET /aggregators/{id}/timeline` · `GET /listeners/{mac}/timeline`** — `VIEW_STATUS`
+  (a viewer is exactly who reads a history), D35 scoping, newest first, `?revision_id=` and
+  `?to_state=` filters, D7 pagination. `actor_email` is resolved for display and is **null
+  for system moves**; that null means nobody did it and must never render as "unknown".
+- **The org-wide and per-deployment halves of spec 6.3 are E0.8's `GET /audit`**, filtered
+  by `scope`, and are deliberately NOT rebuilt over this table. Two answers to one question
+  drift apart. `audit_log` answers "who did what across the organization";
+  `reconciliation_event` answers "what happened to this device".
+- **Frontend:** `components/DeviceTimeline.tsx`, mounted on the pod page's aggregator card
+  and on the listener detail page; pure helpers in `lib/timeline.ts`. It marks entries with
+  **`data-revision-state`, never `data-status`** — a spec 6.2 revision state and a spec 9.3
+  device status are different vocabularies, and D40's guard still forbids the latter on
+  inventory routes until E3.12.
+- **Suites:** `backend/tests/test_timeline.py` (gate 49), including a parametrized sweep over
+  the whole spec 6.2 table proving no transition can happen without a row, and
+  `frontend/tests/timeline.test.tsx`.

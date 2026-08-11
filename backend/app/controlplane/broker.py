@@ -63,6 +63,39 @@ MQTT_SERVICE_KEY = "mqtt"
 KEEPALIVE_SECONDS = 30
 
 
+async def _close_client(stack: contextlib.AsyncExitStack) -> None:
+    """Close an aiomqtt client's context, even while being cancelled.
+
+    **Why this is not just `async with`.** aiomqtt's `__aexit__` awaits: it
+    sends DISCONNECT and then cancels its own internal `_misc_loop` task. Run
+    that inside a task whose cancellation is already pending — which is exactly
+    what `stop()` does — and its first `await` raises `CancelledError` again,
+    the teardown is abandoned half-done, and `_misc_loop` is left running with
+    a live socket under it. That leak is invisible in a quiet test run and
+    shows up as a flake under load, which is how it was found: gate 49's
+    `test_shutdown_leaves_no_running_tasks` (D94).
+
+    So the close runs in its OWN task, shielded, and is then awaited to
+    completion even after the shield re-raises. Suppressing everything is
+    deliberate: this is shutdown, the connection is going away regardless, and
+    a broker that has already vanished will make DISCONNECT fail.
+    """
+    closing = asyncio.ensure_future(stack.aclose())
+    try:
+        await asyncio.shield(closing)
+    except asyncio.CancelledError:
+        # We were cancelled while it ran. The shield kept `closing` alive; wait
+        # for it here so the task really is gone before we return, then let the
+        # cancellation continue up.
+        with contextlib.suppress(Exception):
+            await closing
+        raise
+    except Exception:
+        # A DISCONNECT to a broker that is already gone. Nothing to do about
+        # it, and nothing worth a stack trace on every reconnect.
+        log.debug("broker client teardown raised; the connection is going away anyway")
+
+
 class BrokerUnavailable(RuntimeError):
     """A publish was attempted for a deployment with no live connection.
 
@@ -445,28 +478,36 @@ class MqttClientManager:
         connected_event = self._connected[coords.deployment_id]
         attempt = 0
         while not self._stopping.is_set():
+            # An AsyncExitStack rather than `async with`, so that the client's
+            # teardown can be run OUTSIDE the cancellation that triggered it.
+            # See `_close_client`: aiomqtt's `__aexit__` awaits, and running it
+            # inside an already-cancelled task strands its internal task.
+            stack = contextlib.AsyncExitStack()
             try:
-                async with aiomqtt.Client(
-                    hostname=coords.host,
-                    port=coords.port,
-                    username=coords.username,
-                    password=coords.password,
-                    identifier=f"{self._client_id_prefix}-{coords.slug}-{self._instance_id}",
-                    tls_context=tls_context(coords),
-                    keepalive=self._keepalive,
-                    clean_session=True,
-                ) as client:
-                    attempt = 0
-                    # Subscribe BEFORE announcing the connection: a caller that
-                    # publishes the moment wait_connected returns must not race
-                    # its own subscription.
-                    await self._subscribe_all(client, coords)
-                    self._clients[coords.deployment_id] = client
-                    connected_event.set()
-                    log.info("connected to the %s", coords)
-                    async for message in client.messages:
-                        await self._dispatch(coords, message)
+                client = await stack.enter_async_context(
+                    aiomqtt.Client(
+                        hostname=coords.host,
+                        port=coords.port,
+                        username=coords.username,
+                        password=coords.password,
+                        identifier=f"{self._client_id_prefix}-{coords.slug}-{self._instance_id}",
+                        tls_context=tls_context(coords),
+                        keepalive=self._keepalive,
+                        clean_session=True,
+                    )
+                )
+                attempt = 0
+                # Subscribe BEFORE announcing the connection: a caller that
+                # publishes the moment wait_connected returns must not race
+                # its own subscription.
+                await self._subscribe_all(client, coords)
+                self._clients[coords.deployment_id] = client
+                connected_event.set()
+                log.info("connected to the %s", coords)
+                async for message in client.messages:
+                    await self._dispatch(coords, message)
             except asyncio.CancelledError:
+                await _close_client(stack)
                 raise
             except aiomqtt.MqttError as error:
                 log.warning("lost the %s: %s", coords, error)
@@ -475,9 +516,15 @@ class MqttClientManager:
                 # broker that cannot be reached; retry rather than die and
                 # leave one deployment permanently deaf.
                 log.exception("could not reach the %s", coords)
+            else:
+                await _close_client(stack)
             finally:
                 self._clients.pop(coords.deployment_id, None)
                 connected_event.clear()
+                # The non-cancelled error paths (MqttError, anything else) fall
+                # through to here with the stack still open; closing twice is a
+                # no-op, so this covers them without a third call site.
+                await _close_client(stack)
 
             if self._stopping.is_set():
                 return

@@ -17,6 +17,7 @@ import { Link, useOutletContext, useParams } from "react-router-dom";
 
 import { BulkEditModal } from "../../components/BulkEditModal";
 import { Can, useCan } from "../../components/Can";
+import { DeviceTimeline } from "../../components/DeviceTimeline";
 import { EmptyState } from "../../components/EmptyState";
 import { EntityTable } from "../../components/EntityTable";
 import { NameConflictDialog } from "../../components/NameConflictDialog";
@@ -260,6 +261,7 @@ export function PodLevel() {
           </p>
         )}
       </section>
+      {row.aggregator && <DeviceTimeline target={{ kind: "aggregator", id: row.aggregator.id }} />}
       {showCreate && row.aggregator && (
         <section className="card">
           <form

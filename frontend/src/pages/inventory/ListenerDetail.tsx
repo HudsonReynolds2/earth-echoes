@@ -12,6 +12,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Can } from "../../components/Can";
 import { EmptyState } from "../../components/EmptyState";
 import { PageHeader } from "../../components/PageHeader";
+import { DeviceTimeline } from "../../components/DeviceTimeline";
 import { TagEditor } from "../../components/TagEditor";
 import { getEffectiveConfig } from "../../lib/config";
 import { deleteListener, getListener, patchListener } from "../../lib/inventory";
@@ -114,6 +115,7 @@ export function ListenerDetail() {
         <p className="muted">Live status arrives with E3 · telemetry with E5.</p>
       </section>
       <EffectiveConfigCard mac={row.mac} />
+      <DeviceTimeline target={{ kind: "listener", mac: row.mac }} />
       {editing && (
         <section className="card">
           <form

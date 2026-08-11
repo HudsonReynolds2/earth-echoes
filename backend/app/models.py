@@ -779,3 +779,63 @@ class AggregatorStatus(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class ReconciliationEvent(Base):
+    """One spec 6.2 transition, as timeline evidence (task E3.11; spec 6.3).
+
+    Spec 6.3 asks for "every transition with a timestamp, the actor (user or
+    system), the before/after effective config diff, and any device-supplied
+    detail". This is that row, and it is written by
+    `revision_state.transition` and by nothing else — the same argument that
+    put `published_at` there (D84). Every state change in the system passes
+    through that one function, so recording the timeline inside it makes the
+    timeline complete BY CONSTRUCTION rather than by every call site
+    remembering to log.
+
+    **Evidence, not current state**, so it is append-only and un-FK'd on the
+    D33 precedent: a transition must survive the revision being pruned and the
+    device being decommissioned. It is what the E3.11 timeline renders after
+    the thing it describes is gone.
+
+    **Two fields, because they have two different provenances.** `diff` is the
+    PLATFORM's side — how this revision's config differs from the one before
+    it, taken from revision snapshots, which hold secret markers rather than
+    plaintext (spec 5.4) and so are safe to store whole. `detail` is the
+    DEVICE's side, or the worker's: differing key NAMES on a mismatch, the
+    Aggregator's own error text. Values from a device are of unknown
+    provenance and never land in `diff`.
+    """
+
+    __tablename__ = "reconciliation_event"
+    __table_args__ = (
+        # The timeline query: one device, newest first.
+        Index("ix_reconciliation_event_timeline", "target_type", "target_id", "at"),
+        Index("ix_reconciliation_event_scope", "deployment_id", "at"),
+        CheckConstraint("target_type IN ('aggregator','listener')", name="target_type_vocab"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    #: Un-FK'd (D33): history outlives the revision it describes.
+    revision_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    #: The `config_revision` convention exactly — aggregators by PLATFORM
+    #: UUID, listeners by MAC (D75) — so a device's timeline is one query.
+    target_type: Mapped[str] = mapped_column(String(20))
+    target_id: Mapped[str] = mapped_column(String(100))
+    #: For the per-deployment audit view (spec 6.3). Un-FK'd like the rest.
+    deployment_id: Mapped[uuid.UUID] = mapped_column()
+    from_state: Mapped[str] = mapped_column(String(20))
+    to_state: Mapped[str] = mapped_column(String(20))
+    trigger: Mapped[str] = mapped_column(String(40))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    #: NULL means the system did it — a timeout, a device report, a drift
+    #: sweep. The same convention `audit_log` uses, so the two surfaces agree
+    #: on what "no actor" looks like.
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    #: `{key: {"before": ..., "after": ...}}` against the previous revision for
+    #: this device, from SNAPSHOTS only. Present on entry to `pending`, where
+    #: the config change actually happens; None on the other edges, which move
+    #: state without changing what was asked for.
+    diff: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    #: Device- or worker-supplied. Key NAMES on a mismatch, never values.
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
