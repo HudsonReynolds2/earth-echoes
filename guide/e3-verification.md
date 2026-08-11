@@ -1082,3 +1082,64 @@ docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_p
       E3.12 pushes them live, and E6 colours the map from
       `controlplane/liveness.listener_verdict` — the single function all three share, so that
       none of them can independently decide a sleeping Listener looks broken.
+
+## 10. Telling a device what to do (E3.10)
+
+Everything so far has been declarative: the platform states desired config and the device
+converges on it. Commands are the exception — `restart`, `resync`, `flush_buffer` are
+one-shot imperatives, and they behave differently on purpose.
+
+You need the §0 stack with `EOE_PUBLISH_ENABLED=true` (§7), and a signed-in operator.
+
+### The device has to be listening
+
+The cmd topic is **not retained**. Subscribe as the device first, in one terminal:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_sub \
+  -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt \
+  -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -v \
+  -t eoe/redwood-coast/agg/demo-agg-rc-01/cmd
+```
+
+Then send a command (the aggregator's **platform UUID** goes in the URL — copy it from the
+address bar on its page):
+
+```bash
+curl -i -X POST http://localhost:18000/api/v1/aggregators/AGGREGATOR_ID/commands \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: CSRF" -b cookies.txt \
+  -d '{"command":"restart"}'
+```
+
+- [ ] **202 Accepted**, not 200. The platform published to a topic; it did not watch the
+      device restart. Claiming 200 would report an outcome nobody observed.
+- [ ] The subscriber prints the command, and the topic names `demo-agg-rc-01` — the
+      `aggregator_uuid`, never the platform UUID you just put in the URL. Two different
+      identifiers for one device (spec 4.2); only one of them means anything on the wire.
+- [ ] Stop the subscriber and send another command, then start it again. **Nothing arrives.**
+      That is the unretained flag doing its job: a command is a one-shot, and a retained one
+      would fire at a device coming back online a fortnight later.
+
+### Two presses are two decisions
+
+- [ ] Send `restart` twice with the subscriber running. Both responses are 202 and their
+      `command_id` values **differ**, as do the two messages on the wire.
+- [ ] That is the spec 7.4 contract, and it cuts both ways. The device deduplicates its own
+      QoS 1 retries by `command_id`, so the ids must differ or the device would drop your
+      second restart as a redelivery and the API would report success for something that
+      never happened. Deduplicating retries is the device's job; deduplicating operators is
+      nobody's.
+
+### Who may, and what happens when the broker is down
+
+- [ ] As a **viewer** scoped to redwood-coast: **403**, naming `manage_devices`. Not 404 —
+      they can read that aggregator, so pretending it does not exist would be a lie about a
+      device on their screen.
+- [ ] As an operator scoped to a **different** deployment: **404** (D35).
+- [ ] `{"command":"shutdown"}`: **422**. The vocabulary is closed at the boundary.
+- [ ] Stop the broker and send a command: **503**, code `service_unavailable`. Then check
+      `GET /api/v1/audit?action=aggregator.command` — there is **no row** for it. Nothing
+      went out, so nothing is recorded; an audit row here would put a restart on the timeline
+      that never happened.
+- [ ] With the broker back, a successful command leaves exactly one audit row carrying the
+      `command_id` and your user. That id is how a later conversation names one attempt.

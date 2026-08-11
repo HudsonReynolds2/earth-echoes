@@ -1194,3 +1194,32 @@ reimplement their logic.** Signatures, verbatim:
   contradicting spec 6.5.
 - **Suite:** `backend/tests/test_listener_liveness.py` (gate 47), carrying all three of the
   task's acceptance criteria by name.
+
+### `POST /aggregators/{aggregator_id}/commands` (E3.10; spec 7.2, 7.4, 13)
+
+- **Body** `{command}` from the closed vocabulary `restart | resync | flush_buffer`
+  (`contracts.mqtt.CommandName`); anything else is a 422 at the boundary, so no firmware ever
+  meets a verb it does not know. **Response** `{command_id, command, aggregator_id,
+  aggregator_uuid, topic, published_at}`.
+- **202, not 200.** The platform published to a topic; it did not watch the device act. The
+  cmd topic is deliberately **not retained** (spec 7.2) — a command is a one-shot, and a
+  retained one re-fires on every reconnect, so a device returning after a fortnight would
+  restart because of a button pressed then. An offline device therefore misses the command
+  entirely, by design.
+- **A fresh `command_id` per submission, always.** Spec 7.4 gives the device the id so it can
+  drop its OWN redeliveries; two operator submissions are two decisions, and reusing an id
+  would let the device swallow the second while the API reported success. Deduplicating
+  retries is the device's job; deduplicating operators is nobody's.
+- **Scoping** is the two-step D82 rule: `VIEW_STATUS` decides 404, `MANAGE_DEVICES` decides
+  403 naming the permission — a viewer reads these rows through `GET /aggregators/{id}`, so a
+  404 would be a lie about a device on their screen. CSRF required.
+- **Refusals:** publication disabled → 409 (commands ride the same outbound connection as
+  publishes, D86) · broker down → **503 `service_unavailable`** (D83) · unknown or invisible
+  aggregator → 404. **A command that never reached the broker is not audited**, since an
+  audit row would put a restart on the timeline that never happened.
+- **Audit** `aggregator.command`, detail `{command, command_id, topic}` — written AFTER the
+  publish, unlike a revision: there is no transaction to roll a broker write back out of, so
+  the row records what actually went out.
+- **Suite:** `backend/tests/test_command_channel.py` (gate 48), carrying both halves of the
+  acceptance — distinct ids per submission, and a mock device deduplicating a redelivery of
+  one id against a real Mosquitto.

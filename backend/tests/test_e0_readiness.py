@@ -126,6 +126,12 @@ E0_ROUTES = {
     # this route is how drift is repaired. E3.13 wires E2's bulk apply to the
     # same `publish_revision` beside it.
     ("POST", f"{API_PREFIX}/revisions/{{revision_id}}/publish"),
+    # E3.10 (gate 48): the spec 7.2 command channel. 202, not 200 - the
+    # platform published to an unretained topic, it did not watch the device
+    # restart. Every submission mints a fresh `command_id` (spec 7.4): the
+    # device dedupes its own retries, and two operator submissions are two
+    # decisions.
+    ("POST", f"{API_PREFIX}/aggregators/{{aggregator_id}}/commands"),
 }
 
 E0_TABLES = {

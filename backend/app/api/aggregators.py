@@ -7,6 +7,7 @@ device self-declaration).
 """
 
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -29,9 +30,11 @@ from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
 from app.auth.rbac import Permission, has_permission
 from app.config.overrides import delete_overrides_for
+from app.contracts.mqtt import QOS, Command, CommandName, command_topic, encode
+from app.controlplane.broker import BrokerUnavailable
 from app.controlplane.consumer import delete_device_state_for
 from app.errors import AppError
-from app.models import Aggregator, Listener, Pod, UserSession
+from app.models import Aggregator, Deployment, Listener, Pod, UserSession, utcnow
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
 
 router = APIRouter(prefix="/aggregators")
@@ -254,3 +257,115 @@ def put_aggregator_tags(
     db.commit()
     db.refresh(row)
     return TagsOut(tags=row.tags)
+
+
+# --- E3.10: the command channel (spec 7.2, 7.4, 13) -------------------------
+
+
+class CommandBody(BaseModel):
+    """What to tell the device to do. The vocabulary is the spec 7.2 table's,
+    closed by `CommandName` — an unknown verb is a 422 at the boundary rather
+    than bytes on a topic no firmware will recognize."""
+
+    command: CommandName
+
+
+class CommandOut(BaseModel):
+    """`command_id` is the whole contract with the device (spec 7.4): the
+    device deduplicates its own QoS 1 retries by it, and the operator gets it
+    back so a support conversation can name one specific attempt."""
+
+    command_id: uuid.UUID
+    command: CommandName
+    aggregator_id: uuid.UUID
+    aggregator_uuid: str
+    topic: str
+    published_at: datetime
+
+
+@router.post("/{aggregator_id}/commands", response_model=CommandOut, status_code=202)
+async def send_command(
+    aggregator_id: uuid.UUID,
+    body: CommandBody,
+    request: Request,
+    db: DbDep,
+    actor: Annotated[UserSession, Depends(require_csrf)],
+) -> CommandOut:
+    """Send one one-shot command to an Aggregator (spec 7.2, 7.4).
+
+    **202, not 200.** The platform has published to a topic; it has not
+    watched the device restart. A device that is offline right now will never
+    see this at all — the cmd topic is deliberately NOT retained (spec 7.2), a
+    command being a one-shot whose retained copy would re-fire on every
+    reconnect, possibly weeks later. 200 would claim an outcome nobody
+    observed.
+
+    **Every submission gets a fresh `command_id`, and that is deliberate.**
+    Spec 7.4 gives the device the id so it can drop its own redeliveries; two
+    operator submissions of "restart" are two decisions, and collapsing them
+    under one id would silently swallow the second. Deduplicating retries is
+    the device's job; deduplicating operators is nobody's.
+
+    Two-step scoping, the D82 rule: an aggregator the caller cannot SEE
+    answers 404, one they can see but may not command answers 403 naming the
+    permission. A viewer reads these rows through `GET /aggregators/{id}`, so
+    a 404 here would be a lie about a device on their screen.
+    """
+    row = db.get(Aggregator, aggregator_id)
+    if row is None:
+        raise not_found("aggregator")
+    deployment_id = deployment_of_aggregator(db, row)
+    if not has_permission(actor.user.role_assignments, Permission.VIEW_STATUS, deployment_id):
+        raise not_found("aggregator")
+    if not has_permission(actor.user.role_assignments, Permission.MANAGE_DEVICES, deployment_id):
+        raise AppError(
+            "forbidden", "requires permission manage_devices in this deployment", status_code=403
+        )
+
+    manager = getattr(request.app.state, "mqtt", None)
+    if manager is None:
+        # The API's outbound connection rides `EOE_PUBLISH_ENABLED` (D86), and
+        # commands ride the same socket. Same refusal as the publish route, and
+        # the flag is the thing an operator can act on.
+        raise AppError(
+            "conflict",
+            "publication is disabled on this platform (EOE_PUBLISH_ENABLED)",
+            status_code=409,
+        )
+
+    slug = db.scalars(
+        select(Deployment.slug)
+        .join(Pod, Pod.deployment_id == Deployment.id)
+        .where(Pod.id == row.pod_id)
+    ).one()
+    payload = Command(at=utcnow(), command=body.command)
+    topic = command_topic(slug, row.aggregator_uuid)
+    try:
+        # NOT retained: see the docstring, and `contracts.mqtt.Command`.
+        await manager.publish(deployment_id, topic, encode(payload), qos=QOS, retain=False)
+    except BrokerUnavailable as error:
+        # Nothing was sent and nothing was recorded, so this is honestly
+        # retryable — the D83 code for exactly that.
+        raise AppError("service_unavailable", str(error), status_code=503) from error
+
+    # Audited AFTER the publish, unlike a revision: there is no transaction to
+    # roll back a broker write out of, so the audit row records what actually
+    # went out rather than what was about to.
+    record_audit(
+        db,
+        action="aggregator.command",
+        entity_type="aggregator",
+        entity_id=str(row.id),
+        actor_user_id=actor.user_id,
+        scope=deployment_id,
+        detail={"command": body.command, "command_id": str(payload.command_id), "topic": topic},
+    )
+    db.commit()
+    return CommandOut(
+        command_id=payload.command_id,
+        command=body.command,
+        aggregator_id=row.id,
+        aggregator_uuid=row.aggregator_uuid,
+        topic=topic,
+        published_at=payload.at,
+    )
