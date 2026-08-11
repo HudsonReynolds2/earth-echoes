@@ -4,6 +4,39 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D110 (2026-08-11): The services PUT is a partial collection of wholesale members, and it
+has no delete (E5.2)
+
+- **Decision:** `PUT /deployments/{id}/services` takes an object of up to five services. A
+  service **present** in the body is written wholesale — every field the caller omits is
+  cleared, the `put_overrides` and E1.7 tags precedent. A service **absent** is left
+  completely untouched. There is no way to delete a service row through this endpoint.
+- **Why the two halves differ, when "PUT is never a merge" would suggest one rule.** They are
+  answers to two different questions. *Within* a service, a merge means a field the operator
+  cleared silently keeps its old value, which is the bug the tags precedent exists to prevent.
+  *Across* services, wholesale replacement would mean the S5 wizard's per-service step has to
+  resubmit the other four services on every save — including four credentials it does not
+  hold, which is precisely what the write-only design forbids it from having. So the
+  collection is partial and its members are total.
+- **No delete, because the `mqtt` row is not optional.** `devbroker.register_services` writes
+  one for every deployment and `load_broker_coordinates` reads it; deleting it would strand
+  the deployment's control plane with no route back except a migration. E5.1 already
+  established the right analogy — service rows are infrastructure attached to the deployment,
+  so `DELETE /deployments/{id}` removes them all and nothing removes them one at a time.
+  Unsetting a *credential* is fully supported (omit the field); that is a different act.
+- **The mqtt password is required at the boundary, not merely by the database.**
+  `MqttSettings.password` is typed `str | KeepSecret` with no `None`, because the
+  `mqtt_coordinates_required` CHECK makes `password_secret_name` NOT NULL for an mqtt row: an
+  omitted password would be an `IntegrityError` the catch-all turns into a 500. Same rule as
+  E5.1's — the database is what makes it true, and the boundary is what makes it a 422.
+- **The keep sentinel is a Pydantic model, not a dict comparison.** `KeepSecret` with
+  `extra="forbid"` means `{"$secret_set": false}` or a stray key is a located 422 rather than
+  being quietly treated as a plaintext value that happens to look like an object. The sentinel
+  VALUE is still `app.config.validation.KEEP_SENTINEL` — reused, not reinvented, so the
+  services form and the config editor round-trip secrets the same way.
+- **Reference:** phase-5 §4 task E5.2, D51, D110's own suite
+  `backend/tests/test_services_api.py`; `docs/INTERFACES.md` "Owned by E5".
+
 ## D109 (2026-08-11): A fourth cross-epic edit, forced rather than chosen: an under-specified
 broker row is skipped, not fatal (E5.1)
 

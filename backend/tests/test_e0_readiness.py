@@ -142,6 +142,14 @@ E0_ROUTES = {
     # not appear in the OpenAPI paths this set is built from, which is why
     # it is absent here rather than forgotten - `test_websockets.py` is its
     # contract.
+    # E5.2: the write-only services surface (spec 16.2, 13). Two routes over
+    # all five services rather than ten per-service ones - the wizard saves a
+    # subset in one call, and a service absent from the body is untouched.
+    # There is deliberately NO delete: removing the `mqtt` row would strand
+    # the deployment's control plane, and `DELETE /deployments/{id}` is what
+    # removes them all.
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services"),
+    ("PUT", f"{API_PREFIX}/deployments/{{deployment_id}}/services"),
 }
 
 E0_TABLES = {

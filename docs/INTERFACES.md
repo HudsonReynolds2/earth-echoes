@@ -1359,3 +1359,66 @@ reimplement their logic.** Signatures, verbatim:
   never ran the lifespan holds no manager (D86) and honestly reports `draft`.
 - **Suite:** `backend/tests/test_end_to_end_loop.py` (gate 51) — the epic's definition of
   done against a real broker and a real worker, plus the broker-outage case.
+
+---
+
+## Owned by E5
+
+### `GET/PUT /deployments/{id}/services` — the write-only services API (E5.2; spec 16.2, 13; D51, D110)
+
+- **`GET`** returns all five spec 16.2 services **always**, configured or not, as an object
+  keyed by `service_key` and inserted in the spec's order (`mqtt`, `influx`, `prometheus`,
+  `grafana`, `s3`), so a client iterating the object gets the spec's order without sorting.
+  Each entry is `{service_key, configured, status, status_reason, last_tested_at,
+  consecutive_failures, settings}`. `status` and its siblings are E5.5's to write; until then
+  every row reads `untested` / `0`.
+- **`settings` is REDACTED by construction.** It is built by
+  `app/services/schemas.py::redacted_settings`, which reads the row and **never SecretStore**,
+  so no branch of the read can return a credential. A set secret renders as the D51 keep
+  sentinel `{"$secret_set": true}`; an unset one is absent from the object entirely.
+- **`PUT` is a partial collection of wholesale members (D110).** A service **present** in
+  `body.services` is replaced wholesale — every field the caller omits is cleared, the
+  `put_overrides` / E1.7 tags precedent. A service **absent** is left completely untouched, so
+  the wizard can save one step without resubmitting the other four. **There is no delete:**
+  removing the `mqtt` row would strand the deployment's control plane, and
+  `DELETE /deployments/{id}` (E5.1) is what removes them all.
+- **Secret fields accept exactly three things:** a plaintext string (stored under
+  `deployment:{deployment_id}:{service_key}_{field}` and never echoed), the keep sentinel
+  (keep what is stored — a keep sentinel for a credential that is **not** set is a 422,
+  `code: "no_stored_secret"`), or omission/null (unset it, and the orphaned SecretStore entry
+  is deleted **after** the commit, D51).
+- **The broker password name is `deployment:{id}:mqtt_password`**, which is exactly what
+  `devbroker.secret_name` mints — so Path A rewriting broker credentials through this API
+  lands on the name `load_broker_coordinates` reads. Pinned by a test, not by coincidence.
+  It lives in the `password_secret_name` **column**; every other credential lives in the
+  `secret_names` map.
+- **Typed at the boundary** (phase-5 fixed choice 1, rule R2): one `extra="forbid"` Pydantic
+  model per service in `app/services/schemas.py` — `MqttSettings` (host, port, tls_enabled,
+  ca_cert_pem, username, **password required**), `InfluxSettings` (url, database, token),
+  `PrometheusSettings` (read_url, remote_write_url, remote_write_user,
+  remote_write_password), `GrafanaSettings` (base_url, service_account_token), `S3Settings`
+  (bucket, region, endpoint, access_key, secret_key). `SERVICE_SCHEMAS` is keyed by
+  `service_key` and its keys are asserted equal to `models.SERVICE_KEYS` at import time, so a
+  sixth service cannot reach the database without a model to type it.
+- **`plan_write` is pure.** It takes submitted settings plus the row that exists today and
+  returns a `ServiceWritePlan` naming what to write, what to `SecretStore.put` and what to
+  delete after the commit. Every plan is computed before anything is written, so a rejected
+  second service never leaves the first half-saved.
+- **Permissions:** `PUT` needs `MANAGE_SERVICES` scoped to the deployment, plus CSRF; `GET`
+  needs `VIEW_SERVICES`. The permission check runs before any lookup, so the route never
+  confirms a deployment's existence to a caller who may not know it.
+- **Audit:** `services.update`, `entity_type="deployment"`, scope = the deployment, detail
+  `{"services": {service_key: [field names written]}}` — **names only, never values**.
+  Nothing is audited when the body submits no services.
+- **Suite:** `backend/tests/test_services_api.py`.
+
+### Two new permissions (E5.2; phase-5 fixed choice 9)
+
+- **`MANAGE_SERVICES`** — Owner and Deployment Operator only. A deployment's service
+  credentials are its keys to everything it stores; a Field Tech provisions hardware and has
+  no business holding an Influx admin token.
+- **`VIEW_SERVICES`** — all four roles. The services API is write-only, so a read carries
+  endpoints and status and no secret, and status has to render everywhere.
+- Both extend `app/auth/rbac.py`, `frontend/src/lib/rbac.ts`, `backend/tests/test_rbac.py`
+  and `frontend/tests/rbac.test.tsx`. The RBAC suite is test-critical (spec 14.5): these are
+  **additions** to its matrix and every existing assertion is untouched.

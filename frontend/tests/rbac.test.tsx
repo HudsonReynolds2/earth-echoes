@@ -42,6 +42,24 @@ describe("can() decision mirror", () => {
     expect(can([], "view_status", DEP_A)).toBe(false);
     expect(can([{ role: "made_up", deployment_id: null }], "view_status")).toBe(false);
   });
+
+  // E5.2 (phase-5 fixed choice 9). The parity test below already fails on any
+  // divergence from the backend map; this states the rule the wizard reads
+  // from, so a UI change that hides the services step behind the wrong
+  // permission fails here rather than in review.
+  it("lets every role see services and only owner + operator manage them", () => {
+    const scopedOperator: Assignment[] = [{ role: "deployment_operator", deployment_id: DEP_A }];
+    const orgViewer: Assignment[] = [{ role: "viewer", deployment_id: null }];
+
+    expect(can(orgOwner, "manage_services", DEP_A)).toBe(true);
+    expect(can(scopedOperator, "manage_services", DEP_A)).toBe(true);
+    expect(can(scopedOperator, "manage_services", DEP_B)).toBe(false);
+    expect(can(scopedTech, "manage_services", DEP_A)).toBe(false);
+    expect(can(orgViewer, "manage_services", DEP_A)).toBe(false);
+
+    expect(can(scopedTech, "view_services", DEP_A)).toBe(true);
+    expect(can(orgViewer, "view_services", DEP_A)).toBe(true);
+  });
 });
 
 describe("parity with the canonical backend map", () => {

@@ -59,6 +59,21 @@ MATRIX = [
     (Role.VIEWER, None, Permission.MANAGE_CONFIG, DEPLOYMENT_A, False),
     (Role.VIEWER, None, Permission.MANAGE_DEVICES, DEPLOYMENT_A, False),
     (Role.VIEWER, None, Permission.MANAGE_USERS, None, False),
+    # E5.2 additions (phase-5 fixed choice 9). Rows ADDED to the matrix; every
+    # assertion above is untouched. Deployment service credentials are the
+    # deployment's keys to everything it stores, so MANAGE stops at Owner and
+    # Deployment Operator; VIEW reaches all four because the API is write-only
+    # and status has to render for everyone.
+    (Role.OWNER, None, Permission.MANAGE_SERVICES, DEPLOYMENT_A, True),
+    (Role.OWNER, None, Permission.VIEW_SERVICES, DEPLOYMENT_B, True),
+    (Role.DEPLOYMENT_OPERATOR, DEPLOYMENT_A, Permission.MANAGE_SERVICES, DEPLOYMENT_A, True),
+    (Role.DEPLOYMENT_OPERATOR, DEPLOYMENT_A, Permission.VIEW_SERVICES, DEPLOYMENT_A, True),
+    (Role.DEPLOYMENT_OPERATOR, DEPLOYMENT_A, Permission.MANAGE_SERVICES, DEPLOYMENT_B, False),
+    (Role.DEPLOYMENT_OPERATOR, DEPLOYMENT_A, Permission.MANAGE_SERVICES, None, False),
+    (Role.FIELD_TECH, DEPLOYMENT_A, Permission.VIEW_SERVICES, DEPLOYMENT_A, True),
+    (Role.FIELD_TECH, DEPLOYMENT_A, Permission.MANAGE_SERVICES, DEPLOYMENT_A, False),
+    (Role.VIEWER, None, Permission.VIEW_SERVICES, DEPLOYMENT_A, True),
+    (Role.VIEWER, None, Permission.MANAGE_SERVICES, DEPLOYMENT_A, False),
 ]
 
 
@@ -90,6 +105,22 @@ def test_every_role_has_an_explicit_permission_set():
     for role in (Role.DEPLOYMENT_OPERATOR, Role.FIELD_TECH, Role.VIEWER):
         assert Permission.MANAGE_USERS not in ROLE_PERMISSIONS[role], (
             f"{role}: org administration is owner-only (spec 12.3)"
+        )
+
+
+def test_service_credentials_are_manageable_by_owner_and_operator_only():
+    """E5.2, phase-5 fixed choice 9. Named separately from the matrix because
+    the rule is about WHO holds a deployment's keys, and a future role added
+    to ROLE_PERMISSIONS should have to answer this question explicitly."""
+    for role in (Role.OWNER, Role.DEPLOYMENT_OPERATOR):
+        assert Permission.MANAGE_SERVICES in ROLE_PERMISSIONS[role]
+    for role in (Role.FIELD_TECH, Role.VIEWER):
+        assert Permission.MANAGE_SERVICES not in ROLE_PERMISSIONS[role], (
+            f"{role} must not hold deployment service credentials"
+        )
+    for role in Role:
+        assert Permission.VIEW_SERVICES in ROLE_PERMISSIONS[role], (
+            f"{role}: the services read is write-only and status renders everywhere"
         )
 
 

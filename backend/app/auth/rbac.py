@@ -36,6 +36,13 @@ class Permission(StrEnum):
     VIEW_PROVISIONING = "view_provisioning"
     VIEW_TELEMETRY = "view_telemetry"
     VIEW_STATUS = "view_status"
+    # E5.2, phase-5 fixed choice 9. A deployment's service credentials are its
+    # keys to everything it stores, so MANAGE is Owner and Deployment Operator
+    # only - a Field Tech provisions hardware and has no business holding an
+    # Influx admin token. VIEW goes to all four roles: the services API is
+    # write-only, so a read carries endpoints and status and no secret.
+    MANAGE_SERVICES = "manage_services"
+    VIEW_SERVICES = "view_services"
 
 
 # Spec 12.3, verbatim intent: Owner has everything; Deployment Operator manages
@@ -52,6 +59,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.VIEW_PROVISIONING,
             Permission.VIEW_TELEMETRY,
             Permission.VIEW_STATUS,
+            Permission.MANAGE_SERVICES,
+            Permission.VIEW_SERVICES,
         }
     ),
     Role.FIELD_TECH: frozenset(
@@ -59,6 +68,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.MANAGE_PROVISIONING,
             Permission.VIEW_PROVISIONING,
             Permission.VIEW_STATUS,
+            Permission.VIEW_SERVICES,
         }
     ),
     Role.VIEWER: frozenset(
@@ -66,6 +76,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
             Permission.VIEW_PROVISIONING,
             Permission.VIEW_TELEMETRY,
             Permission.VIEW_STATUS,
+            Permission.VIEW_SERVICES,
         }
     ),
 }
