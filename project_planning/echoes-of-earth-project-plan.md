@@ -172,6 +172,8 @@ Definition of done: an operator either enters existing service credentials and s
 11. **E5.11 Rotation and regeneration flow.** Regenerate with rotated credentials, re-verify, republish device config through the control plane.
 12. **E5.12 Onboarding wizard UI.** Both paths, per-service test results, verify-services step, status display, bundle-generation gating on broker verification. (Follows DES.6 wireframes if available.)
 
+> **Addendum PLAN-3-03 (2026-08-11, ref project-changes #24):** E5's phase document is `project_planning/phase-5-deployment-services.md` and is binding for the epic. It adds an E5.0 (phase document and records) ahead of the twelve tasks above, and changes three things this document states. **dynsec is required for v1**, closing spec 17 item 14: E5.6 ships no manual-install fallback and no held-bundle state, so E5.6's "manual-install fallback with held-bundle state for non-dynsec brokers" above no longer describes the epic. **The E4.6/E5.6 interface dependency reverses** — E5.6 *defines* `BrokerCredentialProvider` and E4.6 consumes it, because E4 was not started before E5 began; section 4's "E4.6 depends on E5.6" is unchanged in direction and now covers the interface itself. And **two new permissions**, `MANAGE_SERVICES` and `VIEW_SERVICES`, join the E0.7 map. Five of the twelve tasks split into lettered units for gating (E5.4 into a-e, E5.7 into a-b, E5.8 into a-b, E5.12 into a-b); the tasks, their order, and the epic's definition of done are otherwise unchanged.
+
 ### E6: Map and monitoring
 
 Goal: the spatial and status view of the fleet.

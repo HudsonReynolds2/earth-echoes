@@ -5,6 +5,51 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #24 (2026-08-11): The E5 phase document, dynsec as a requirement, and a reversed E4/E5 dependency
+
+- **What changed:** epic E5 gains its phase document,
+  `project_planning/phase-5-deployment-services.md`, written to the project plan §5 structure
+  and now the binding scope for the epic. Six things in it change what the planning documents
+  said, rather than merely elaborating it.
+- **A thirteenth unit, E5.0.** The project plan lists twelve E5 tasks and no phase-document
+  task. E5.0 is the document, `project_planning/e5-progress-ledger.md`, and these records.
+  Same shape as E4.0 and SIM.0.
+- **dynsec becomes a requirement for v1, closing spec 17 item 14.** The item offers a choice
+  between spec 16.4's manual-install fallback with held-bundle state and requiring the
+  dynamic security plugin. The owner chose to require it. This deletes a UI flow, a state
+  machine, and a class of half-provisioned deployment, at the cost of excluding brokers
+  without the plugin — for which the tester's failure message says exactly what to enable.
+  Task E5.6 shrinks accordingly: no `ManualCredentialProvider`, no `pending_manual_install`
+  state, no confirm-install endpoint.
+- **The E4/E5 `BrokerCredentialProvider` dependency reverses.** `phase-4-provisioning.md` §2
+  fixed choice 1 has E4.6 shipping the provider seam and E5.6 adding an implementation. That
+  assumed E4 landed first; it has not been started, while E5 is being built now. So **E5.6
+  defines the protocol** and ships `DynsecCredentialProvider` and
+  `DevBrokerCredentialProvider`. E4.6 is left with exactly what phase 4 promised it: choose a
+  provider and flip `EOE_BOOTSTRAP_CREDENTIALS`.
+- **Three cross-epic edits are authorized in advance**, all recorded in `DECISIONS.md`: two
+  E3-owned (`MqttClientManager.refresh()`, and a `service_config_sweep` on the existing sweep
+  runner) and one E2-owned (`DevicePlan.changed_keys` computed from stripped snapshots). The
+  E3 pair is confined to task E5.7b so the whole cross-epic surface is one diff. A fourth is
+  a stop-and-ask.
+- **Two new permissions**, `MANAGE_SERVICES` and `VIEW_SERVICES`, extending the test-critical
+  RBAC map and its frontend mirror. Neither the project plan nor the spec names them; E0.7
+  defined no services verb and reusing `MANAGE_CONFIG` would hand a Field Tech write access
+  to a deployment's Influx admin token.
+- **Process, for this epic only:** one branch (`e5-batch-1`) and one PR rather than phase
+  4's per-batch shape, and the full gate at five checkpoints rather than after every numbered
+  unit — with the compensating rule that nothing reaches the remote without a full green
+  gate. Recorded as a deviation in `DECISIONS.md`.
+- **What did NOT change:** the twelve tasks, their order, or the epic's definition of done.
+  Spec 16's two paths, five testers, and status lifecycle are implemented as written.
+- **Who approved:** the owner, on 2026-08-11, at plan approval, choosing dynsec-required, the
+  new permissions, the hybrid container/fake test strategy, the single branch, and the
+  checkpoint gate cadence.
+- **Affects:** project_planning/echoes-of-earth-project-plan.md §3 (epic E5),
+  project_planning/phase-4-provisioning.md §2 (fixed choice 1),
+  project_planning/echoes-of-earth-platform-spec-v1.1.md §17 (item 14)
+- **Addendum:** PLAN-3-03, PHASE4-2-01, SPEC-17-01
+
 ## #23 (2026-08-11): The SIM phase document, and the simulation scale it fixes
 
 - **What changed:** epic SIM gains its phase document,

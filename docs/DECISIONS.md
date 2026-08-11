@@ -4,6 +4,129 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D108 (2026-08-11): Three cross-epic edits are authorized in advance, and a fourth is a
+stop-and-ask (E5.0)
+
+- **Decision:** epic E5 may make exactly three edits outside its own surface, named here
+  before any of them is written so the boundary is a document and not a judgement call made
+  at 2am. Two are E3-owned and both land in task E5.7b, so the whole cross-epic surface is
+  one diff a reviewer can read at once. One is E2-owned.
+- **`MqttClientManager.refresh()` (E3.2).** `INTERFACES.md` states as a contract that
+  "coordinates load once, at `start()`. Adding a deployment's broker row takes a manager
+  restart; E3.7 owns that lifecycle." That was an honest limitation while nothing changed
+  broker rows at runtime. E5 changes them as a matter of course — Path B writes a new one,
+  rotation changes a password, a new deployment gets its first — so it becomes a bug the
+  moment E5 ships. `refresh()` re-runs the loader, diffs by `deployment_id`, and starts,
+  cancels or restarts tasks; the diff is three lines because `BrokerCoordinates` is a frozen
+  dataclass and a rotated password therefore *is* a difference. `start()`'s semantics are
+  unchanged. A poll beats `LISTEN`/`NOTIFY` here: a new deployment's broker cannot be dialled
+  before the operator has finished configuring it anyway, so a channel and a payload contract
+  buy nothing but a second delivery path to keep correct.
+- **`service_config_sweep` on `ReconciliationWorker` (E3.7).** Spec 16.4 requires service
+  settings to be published "as soon as the device exists in inventory", so a device created
+  *after* the services save must still get its retained config. The sweep runner is already a
+  generic `(name, interval, callable)`; this is a third entry, not new machinery.
+- **`DevicePlan.changed_keys` (E2.6).** It compares raw before/after maps including
+  write-restricted keys, while its sibling `snapshot_from_raw` correctly strips them from
+  listener snapshots. So one services save marks every Listener changed and mints a revision
+  per listener whose snapshot is byte-identical to the previous one — on a SIM fleet, ~600
+  pointless revisions and retained publishes per save. Computing `changed_keys` from stripped
+  snapshots fixes it at the source and makes preview honest at the same time.
+- **What stays untouched:** `app/contracts/mqtt.py`, `app/controlplane/consumer.py`,
+  `app/controlplane/revision_state.py`, `app/config/merge.py`, and every assertion in the four
+  test-critical suites. A fourth cross-epic edit is a stop-and-ask under rule R2, not a
+  judgement the implementing session gets to make.
+- **Reference:** spec 16.4; phase-5 §2 and tasks E5.7a/E5.7b; project-changes #24.
+
+## D107 (2026-08-11): E5 gates at five checkpoints rather than per task, and nothing unverified
+reaches the remote (E5.0)
+
+- **Decision:** for epic E5 only, the full `make gate` runs at five checkpoints (C1-C5 in the
+  phase document) rather than at the end of every numbered unit; each unit ends with its own
+  targeted tests, `ruff` and `mypy app` instead. This is a deliberate deviation from rule R0's
+  "every numbered task ends with a gate", taken by the owner on wall-clock grounds: E5 is
+  eighteen units, and eighteen full gates is roughly ninety minutes of pure gate.
+- **The compensating discipline, which is what actually preserves R0's guarantee:** nothing
+  reaches the remote without a full green gate. Commits between checkpoints are local and
+  unpushed. The push and the tag remain the gated events, a checkpoint is green only on 0
+  failed / 0 skipped / 0 xfailed / 0 deselected across the ENTIRE accumulated suite, and a red
+  gate is still never committed, never pushed, and never summarized as a pass. Every rule R0
+  prohibition on *how* a gate may be run — no skip markers, no `-k`, no `--maxfail`, no
+  allowlists, Docker a hard prerequisite — is untouched.
+- **Why this is safe here and is not a precedent.** What R0 buys is that no broken state is
+  ever built upon and no broken state is ever published. The second half is preserved exactly.
+  The first is weakened to a five-unit window, which is bounded by keeping the units within a
+  checkpoint tightly related — a checkpoint is a coherent slice (the data model, the testers,
+  the delivery path, the stack, the UI), so a failure surfaces among code written for one
+  purpose rather than across the epic.
+- **Reference:** rule R0; phase-5 §2 "Process choices"; e5-progress-ledger.md.
+
+## D106 (2026-08-11): `MANAGE_SERVICES` and `VIEW_SERVICES` join the permission enum (E5.0)
+
+- **Decision:** E5 adds two permissions rather than reusing `MANAGE_CONFIG`. Manage goes to
+  Owner and Deployment Operator; view goes to all four roles. `app/auth/rbac.py`,
+  `backend/tests/test_rbac.py` and `frontend/src/lib/rbac.ts` all gain rows.
+- **Why not reuse.** `MANAGE_CONFIG` is held by Field Tech's neighbours and by Deployment
+  Operator, and a services PUT writes a deployment's Influx admin token, S3 secret key,
+  Grafana service-account token and broker password. A Field Tech's role is provisioning
+  hardware in the field; handing that role the deployment's keys to everything because the
+  endpoint happens to live near config would be an access-control decision made by
+  convenience. Separating read from write matters too: status must render for a Viewer,
+  because a Viewer looking at a map needs to know the deployment is degraded.
+- **Extending a test-critical suite is permitted; weakening it is not.** `test_rbac.py` is one
+  of the four spec 14.5 components. Every existing assertion stays; the new permissions are
+  additional rows in its table, and the frontend parity test covers them the same way.
+  `rbac.py`'s own docstring authorizes exactly this shape: "later epics extend the enum and the
+  map deliberately, never ad hoc."
+- **Reference:** spec 12.3, 14.5, 16.2; phase-5 §2 fixed choice 9; project-changes #24.
+
+## D105 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4, reversing
+the phase-4 ordering (E5.0)
+
+- **Decision:** `phase-4-provisioning.md` §2 fixed choice 1 says E4.6 ships the provider seam
+  and "E5.6's entire job is to add a dynsec provider and flip the default". That ordering
+  assumed E4 landed first. E4 has not been started and E5 is being built now, so the
+  dependency reverses: **E5.6 defines the protocol** (`mint`, `revoke`, `state`) and ships
+  `DynsecCredentialProvider` plus `DevBrokerCredentialProvider`.
+- **E4.6's job is unchanged in substance.** It still chooses a provider and flips
+  `EOE_BOOTSTRAP_CREDENTIALS`; it simply imports the protocol instead of declaring it. Phase 4
+  carries addendum PHASE4-2-01 saying so, so a session picking up E4 does not write a second
+  interface and then discover it already exists.
+- **Why not wait for E4.** E5.6 needs to mint credentials regardless — the generated stack in
+  spec 16.3 pre-creates the platform account and the deployment-namespace role, and the whole
+  point of dynsec minting is that per-device credentials exist before hardware ships. Building
+  it without a named interface, for E4 to later wrap, would be the same work with the seam
+  discovered afterwards rather than designed.
+- **Reference:** spec 16.4; phase-4 §2 fixed choice 1; phase-5 §2 fixed choice 6;
+  project-changes #24.
+
+## D104 (2026-08-11): dynsec is required for v1, closing spec 17 item 14 (E5.0)
+
+- **Decision:** the platform mints per-device broker credentials through Mosquitto's dynamic
+  security API, and a broker without the plugin cannot be verified. Spec 16.4's manual-install
+  fallback — generate the credential pair, present it to the operator, hold the bundle until
+  they confirm — is **not built**. Spec 17 item 14 offered exactly this choice and the owner
+  took the requiring branch.
+- **What it deletes.** A second `BrokerCredentialProvider` implementation, a
+  `pending_manual_install` state and its confirm endpoint, a held-bundle predicate E4 would
+  have had to consult, a wizard branch, and the class of deployment that is half-provisioned
+  because someone was going to paste an ACL into a broker host and did not. Every one of those
+  is a place where a device could end up unable to reach the control plane for a reason nobody
+  is watching.
+- **What it costs, stated rather than hidden.** An operator running a Mosquitto without
+  `dynamic_security.so` must enable it before their deployment can be verified. The MQTT
+  tester's failure message names the plugin and what to add to `mosquitto.conf`, and the
+  probe distinguishes "plugin absent" from "your platform account is not an admin" because
+  those have completely different remedies.
+- **The consequence that had to be built, not just written.** The dynsec verdict is part of
+  broker verification, so `absent` and `denied` both keep `services_status` off `verified` —
+  which by spec 16.5 blocks provisioning-bundle generation, since the bootstrap block embeds
+  broker credentials that would not exist.
+- **Item 14 is now closed.** Item 13 (Chameleon Cloud VM auto-provisioning) stays open and
+  stays out of scope; Path B still ends at a downloadable bundle.
+- **Reference:** spec 16.2, 16.4, 16.5, 17 item 14; phase-5 §2 fixed choice 4 and task E5.6;
+  project-changes #24; spec addendum SPEC-17-01.
+
 ## D103 (2026-08-11): A mock Aggregator announces `offline` when it leaves politely, and the
 LWT acceptance kills a real process (SIM.1)
 
