@@ -779,22 +779,66 @@ reimplement their logic.** Signatures, verbatim:
   derive from it, so a caller can catch either level. **`PayloadError` is safe to log
   verbatim** — it names the model and the failing fields and never the values (D68).
 
-### `deployment_service` — broker coordinates (E3.1; spec 7.1) — **E5 EXTENDS THIS**
+### `deployment_service` — the five deployment services (E3.1, widened by E5.1; spec 7.1, 16.2)
 
-- **Table** (migration `a41f9c7b2e05`, singular per D30): `id`, `deployment_id` FK,
-  `service_key` CHECK-constrained to `('mqtt')` for now, `host`, `port` (CHECK 1..65535),
-  `tls_enabled`, `ca_cert_pem`, `username`, `password_secret_name`, timestamps.
+- **Table** (migration `a41f9c7b2e05`, widened by `a31287354e23`, singular per D30): `id`,
+  `deployment_id` FK, `service_key`, `host`, `port` (CHECK 1..65535), `tls_enabled`,
+  `ca_cert_pem`, `username`, `password_secret_name`, `config`, `secret_names`, `status`,
+  `status_reason`, `last_tested_at`, `consecutive_failures`, `last_test_detail`, timestamps.
   UNIQUE `(deployment_id, service_key)`.
-- **E5 owns extending it** with the Influx/Grafana/Prometheus/S3 rows, connection tests, and
-  the spec 16.5 verification status lifecycle — by widening the `service_key` CHECK and
-  adding columns here, **not** by starting a second table. E3 reads this row and writes only
-  the `mqtt` one.
+- **`service_key` is CHECK-constrained to the five spec 16.2 services**: `mqtt`, `influx`,
+  `prometheus`, `grafana`, `s3` — `models.SERVICE_KEYS`, in that order.
+  `tests/test_services_model.py` pins the tuple against a hand transcription of the spec
+  table, so **a sixth key without a spec revision is a red gate** (the
+  `test_settings_catalog.py` pattern). E3 reads and writes only the `mqtt` row.
+- **E5 widened this table; it did not fork it** (phase-5 fixed choice 1). The six MQTT-shaped
+  columns stay where they are — moving them would rewrite `load_broker_coordinates`,
+  `devbroker.register_services` and the `port_range` CHECK for no benefit.
+- **`host`, `port`, `username` and `password_secret_name` are nullable, and CONDITIONALLY
+  REQUIRED** by `ck_deployment_service_mqtt_coordinates_required`:
+  `service_key <> 'mqtt' OR (host IS NOT NULL AND port IS NOT NULL AND username IS NOT NULL
+  AND password_secret_name IS NOT NULL)`. The database is the enforcer, deliberately — a
+  Python guard would be routed around by the first writer that forgot it.
+- **`config` (JSONB, NOT NULL, default `{}`)** carries the heterogeneous per-service fields;
+  **`secret_names` (JSONB, NOT NULL, default `{}`)** maps a field name to its SecretStore
+  name and **never to a value**, the same rule `password_secret_name` follows. Fifteen
+  nullable columns whose validity is a function of `service_key` would document and constrain
+  nothing, and a CHECK cannot validate a URL: the typing that matters happens at the write
+  boundary, one Pydantic model per service (E5.2).
+- **Per-service status** — `status` CHECK-constrained to `('untested','verified','failed')`
+  (`models.SERVICE_STATUS_VOCAB`, spec 16.2), default `untested`; plus `status_reason`,
+  `last_tested_at`, `consecutive_failures` (default 0) and `last_test_detail`. **This is a
+  DIFFERENT vocabulary from `deployment.services_status`** (spec 16.5) and the two are never
+  interchangeable. E5.1 creates the columns; **E5.5 owns every transition.**
 - **`deployment_id` IS a real foreign key**, unlike the immutable-evidence tables (D33/D55):
   a service row describes a live connection and is meaningless once its deployment is gone.
+  **`DELETE /deployments/{id}` deletes these rows** through
+  `app.services.store.delete_services_for`, beside the existing `delete_overrides_for` call,
+  and deletes the returned SecretStore names only AFTER the commit (D51). It does **not**
+  refuse on them: `devbroker.register_services` writes an `mqtt` row for every deployment, so
+  a refusal would make deletion permanently impossible.
 - **Credentials never live in the row.** `password_secret_name` names a SecretStore entry
-  (`deployment:{deployment_id}:mqtt_password`); `ca_cert_pem` is deliberately NOT a secret —
-  it is the public trust anchor the platform verifies the broker against, and storing the
-  PEM rather than a path keeps it portable across API replicas and containers.
+  (`deployment:{deployment_id}:{service_key}_password`); `ca_cert_pem` is deliberately NOT a
+  secret — it is the public trust anchor the platform verifies the broker against, and storing
+  the PEM rather than a path keeps it portable across API replicas and containers.
+- **`app/services/store.py`** (E5.1) is the row access: `load_service(db, deployment_id,
+  service_key)`, `load_services(db, deployment_id)` (spec 16.2 order), `upsert_service(...)`
+  (**wholesale replace, never a merge** — the E1.7 tags and `put_overrides` precedent) and
+  `delete_services_for(db, deployment_id) -> tuple[str, ...]`, which returns every
+  `password_secret_name` plus every value in every `secret_names` map. Stage-never-commit;
+  the caller owns the transaction. **Nothing there writes the status columns.**
+  `app/services/` means DEPLOYMENT services; `app/config/service.py` is the unrelated merge
+  accessor.
+
+### `deployment.services_status` — the spec 16.5 rollup (E5.1) — **E5.5 IS ITS ONLY WRITER**
+
+- Column on `deployment`, CHECK-constrained to `('unconfigured','pending_verification',
+  'verified','degraded')` (`models.SERVICES_STATUS_VOCAB`), NOT NULL, default `unconfigured`.
+- **Denormalized deliberately** (phase-5 fixed choice 2): E6.4's map rollup and E7.4's Owner
+  fan-out both read it once per deployment, inside fan-outs that are already cross-deployment.
+  The correctness risk is answered by making E5.5's `app/services/status.py::roll_up` the only
+  writer and asserting the invariant across the suite — not by arguing about it.
+- E5.1 creates the column and its default and **writes nothing**.
 
 ### The development broker (E3.1; spec 7.1)
 
@@ -849,6 +893,15 @@ reimplement their logic.** Signatures, verbatim:
   row with `service_key == "mqtt"`, ordered by slug, resolving `password_secret_name` through
   SecretStore. A row whose secret is unreadable is **skipped with a warning naming the secret,
   never its value** — one badly provisioned deployment must not deafen the others (D64).
+  **Amended by E5.1:** a row missing any of `host` / `port` / `username` /
+  `password_secret_name` is skipped the same way, with a warning naming the deployment and the
+  missing COLUMNS. Those columns became nullable when `deployment_service` widened to five
+  services, and `ck_deployment_service_mqtt_coordinates_required` is what keeps them mandatory
+  on the broker row — so the branch should be unreachable, and exists because a future
+  migration touching that CHECK must cost one deployment its connection rather than crash the
+  loader every deployment shares. **This is one of the E3-owned edits E5 is authorized to
+  make; the return value is otherwise byte-for-byte what it was before the migration**,
+  asserted across the migration boundary in `tests/test_services_model.py`.
 - **`tls_context(coordinates)`** → `ssl.SSLContext | None`. When `ca_cert_pem` is set, that CA
   is the **only** trust anchor (D65) — deliberately not "system store plus this one".
   `check_hostname` and `CERT_REQUIRED` hold on both branches, minimum TLS 1.2; aiomqtt's

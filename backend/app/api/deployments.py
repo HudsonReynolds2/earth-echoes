@@ -33,6 +33,7 @@ from app.errors import AppError
 from app.inventory.naming import next_free_slug, slugify
 from app.models import Deployment, Pod, RoleAssignment, UserSession
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
+from app.services.store import delete_services_for
 
 router = APIRouter(prefix="/deployments")
 
@@ -220,6 +221,14 @@ def delete_deployment(
         },
     )
     orphaned_secrets = delete_overrides_for(db, "deployment", str(row.id))  # E2.4 cleanup (D51)
+    # E5.1: the deployment's service rows go the same way, and for the same
+    # reason the override row does. `deployment_service.deployment_id` is a
+    # real foreign key and `devbroker.register_services` writes an `mqtt` row
+    # for EVERY deployment, so a refusal here would make deletion permanently
+    # impossible rather than merely blocked; phase 1's "no cascade deletes"
+    # rule is about entities in the hierarchy, and a service row is
+    # infrastructure attached to the deployment.
+    orphaned_secrets += delete_services_for(db, row.id)
     db.delete(row)
     record_audit(
         db,

@@ -23,7 +23,7 @@ SIM sessions keep the primary tree.
 | Unit | Status | Checkpoint | Decisions | Notes |
 |---|---|---|---|---|
 | E5.0 Phase document and records | in progress | C1 | D104- | Phase doc, this ledger, project-changes entries, plan §3 / phase-4 §2 / spec item 14 addenda. Docs only. |
-| E5.1 Services data model | not started | C1 | — | Widen `service_key` to five, conditional `mqtt` CHECK, `config`/`secret_names` JSONB, four status columns, `deployment.services_status`. Fixes the `DELETE /deployments/{id}` 500. |
+| E5.1 Services data model | built, targeted tests green | C1 | to record: the `load_broker_coordinates` skip | Migration `a31287354e23`. Widened `service_key` to five, conditional `mqtt` CHECK, `config`/`secret_names` JSONB, five status columns, `deployment.services_status`, `app/services/store.py`. Fixed the `DELETE /deployments/{id}` 500. One additive E3-owned edit in `controlplane/broker.py`: a row missing its connection columns is skipped, not fatal. |
 | E5.2 Write-only secrets API | not started | C1 | — | `GET/PUT .../services`, one Pydantic model per service, D51 keep sentinel reused. Adds `MANAGE_SERVICES`/`VIEW_SERVICES` to rbac.py, test_rbac.py and rbac.ts. |
 | **C1 full gate** | — | — | — | Baseline and post-C1 warm gate durations recorded below. |
 | E5.3 Connection test framework | not started | C2 | — | `ServiceTester` protocol, `TestResult`/`CheckResult` with remedy, concurrent runner with timeout budgets, `POST .../services/test` over candidate or stored credentials. |
@@ -60,8 +60,11 @@ SIM sessions keep the primary tree.
   resolve spec 17 item 14 (dynsec required) and reverse the E4/E5 `BrokerCredentialProvider`
   ordering. Do not relitigate them mid-epic; a unit that seems to need one reopened is a
   stop-and-ask.
-- **Exactly two E3-owned edits are authorized**, both in E5.7b, both named in the phase
-  document. `app/contracts/mqtt.py`, `app/controlplane/consumer.py` and
+- **Two *discretionary* E3-owned edits are authorized**, both in E5.7b, both named in the phase
+  document. A third landed in E5.1, **forced not chosen** — the nullability change breaks
+  `load_broker_coordinates` under `mypy --strict`, so an under-specified row is now skipped
+  rather than fatal (D109). A further discretionary E3 edit is a stop-and-ask.
+  `app/contracts/mqtt.py`, `app/controlplane/consumer.py` and
   `app/controlplane/revision_state.py` are not touched at all.
 - **The `service_restricted` refusal in `app/config/validation.py` stays true for operators.**
   E5 writes the twelve keys through a keyword-only `allow_write_restricted` flag defaulted off,

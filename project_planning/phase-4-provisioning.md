@@ -133,7 +133,7 @@ need one reopened is a stop-and-ask.
    exists for this deployment"**, 422 otherwise, at one call site carrying an explicit
    `# E5.5 replaces this predicate` marker.
 
-   > **Addendum PHASE4-2-01 (2026-08-11, ref project-changes #24):** This choice assumed E4
+   > **Addendum PHASE4-2-01 (2026-08-11, ref project-changes #26):** This choice assumed E4
    > would land before E5. It did not — E5 was built first, so **the direction of this
    > dependency has reversed and three sentences above are now stale.** `BrokerCredentialProvider`
    > is **defined by E5.6**, in `backend/app/services/credentials.py`, together with

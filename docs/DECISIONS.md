@@ -4,6 +4,32 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D109 (2026-08-11): A fourth cross-epic edit, forced rather than chosen: an under-specified
+broker row is skipped, not fatal (E5.1)
+
+- **Decision:** `load_broker_coordinates` in `app/controlplane/broker.py` now skips a
+  `deployment_service` row missing any of `host`, `port`, `username` or `password_secret_name`,
+  logging a warning that names the deployment slug and the missing **column names** and never a
+  credential. This sits beside the existing `SecretStoreError` skip and follows the same D64
+  rule: one badly provisioned deployment must not deafen the others.
+- **Why it is a fourth edit when D108 says three, and why that is not a boundary being quietly
+  widened.** D108 authorized three *discretionary* cross-epic edits. This one is **forced**:
+  E5.1 makes those four columns nullable so non-`mqtt` service rows can exist at all, which
+  turns `Mapped[str]` into `Mapped[str | None]` and makes the existing loader body fail
+  `mypy --strict`. Something had to change there. The alternatives were to raise (a single
+  malformed row would then take down every deployment's control plane, which is exactly what
+  D64 rejected) or to cast the nulls away (which converts a type error into a runtime one at a
+  worse moment). Skipping is the answer the module already gives to the neighbouring case.
+- **It is unreachable while the schema holds.** The new
+  `ck_deployment_service_mqtt_coordinates_required` CHECK makes an `mqtt` row with a null host
+  impossible, and non-`mqtt` rows are never loaded by this function. The guard is defence
+  against a future migration, not against present data — the code comment says so, and its test
+  has to drop the constraint to reach it.
+- **The count in the phase document and the ledger was corrected rather than left to drift.**
+  Both now say three discretionary plus this one forced, with the distinction stated. A record
+  that says "exactly two" while the tree contains four is worse than no record.
+- **Reference:** D64, D108; phase-5 §2 and task E5.1; `backend/tests/test_services_model.py`.
+
 ## D108 (2026-08-11): Three cross-epic edits are authorized in advance, and a fourth is a
 stop-and-ask (E5.0)
 
@@ -98,7 +124,7 @@ the phase-4 ordering (E5.0)
   it without a named interface, for E4 to later wrap, would be the same work with the seam
   discovered afterwards rather than designed.
 - **Reference:** spec 16.4; phase-4 §2 fixed choice 1; phase-5 §2 fixed choice 6;
-  project-changes #24.
+  project-changes #26.
 
 ## D104 (2026-08-11): dynsec is required for v1, closing spec 17 item 14 (E5.0)
 
@@ -125,7 +151,7 @@ the phase-4 ordering (E5.0)
 - **Item 14 is now closed.** Item 13 (Chameleon Cloud VM auto-provisioning) stays open and
   stays out of scope; Path B still ends at a downloadable bundle.
 - **Reference:** spec 16.2, 16.4, 16.5, 17 item 14; phase-5 §2 fixed choice 4 and task E5.6;
-  project-changes #24; spec addendum SPEC-17-01.
+  project-changes #25; spec addendum SPEC-17-01.
 
 ## D103 (2026-08-11): A mock Aggregator announces `offline` when it leaves politely, and the
 LWT acceptance kills a real process (SIM.1)

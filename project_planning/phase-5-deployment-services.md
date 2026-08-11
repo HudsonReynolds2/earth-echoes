@@ -254,12 +254,20 @@ stop-and-ask.
   `sim-progress-ledger.md`**. Gate tags take `max(existing gate-* tags) + 1` at tag time
   rather than a pre-assigned integer, because SIM's numbering moves.
 
-### The two E3-owned edits this phase is authorized to make
+### The E3-owned edits this phase is authorized to make
 
-Both land in **E5.7b**, so the whole cross-epic surface is one task's diff. Each needs an
-`INTERFACES.md` amendment and a `DECISIONS.md` entry. **A third E3 edit is a stop-and-ask
-(rule R2).** No edit to `app/contracts/mqtt.py`, `app/controlplane/consumer.py`, or
-`app/controlplane/revision_state.py`.
+Two are **discretionary** and both land in **E5.7b**, so the whole chosen cross-epic surface is
+one task's diff. Each needs an `INTERFACES.md` amendment and a `DECISIONS.md` entry. **A third
+discretionary E3 edit is a stop-and-ask (rule R2).** No edit to `app/contracts/mqtt.py`,
+`app/controlplane/consumer.py`, or `app/controlplane/revision_state.py`.
+
+A third edit was **forced rather than chosen** and landed in E5.1: making the four MQTT
+coordinate columns nullable turns `Mapped[str]` into `Mapped[str | None]` and breaks
+`load_broker_coordinates` under `mypy --strict`, so that function now skips an under-specified
+row with a warning naming the deployment and the missing columns, beside its existing
+`SecretStoreError` skip (D64's rule, D109's entry). It is unreachable while the new conditional
+CHECK holds. It is counted here rather than folded into the two, because a document that says
+"exactly two" while the tree contains three is worse than no document.
 
 1. **`MqttClientManager.refresh()`.** `INTERFACES.md` states as a contract that "coordinates
    load once, at `start()`. Adding a deployment's broker row takes a manager restart." That was

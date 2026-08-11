@@ -144,6 +144,16 @@ def load_broker_coordinates(
     A row whose secret is missing is SKIPPED with a warning rather than
     raising: one deployment provisioned badly must not stop the control plane
     for every other deployment. The warning names the secret, never its value.
+
+    A row missing its connection columns is skipped the same way, and for the
+    same reason (D64). E5.1 made `host`, `port`, `username` and
+    `password_secret_name` nullable so a Grafana or S3 row is not four
+    meaningless empty strings; the `mqtt_coordinates_required` CHECK is what
+    keeps them mandatory on THIS row, so the branch below should be
+    unreachable. It exists because "should be unreachable" is not a thing to
+    dial a socket on, and because a future migration that touched that
+    constraint must degrade to one deaf deployment rather than to a crash in
+    the loader every deployment shares.
     """
     coordinates: list[BrokerCoordinates] = []
     with session_factory() as db:
@@ -154,13 +164,32 @@ def load_broker_coordinates(
             .order_by(Deployment.slug)
         ).all()
         for service, slug in rows:
+            host, port = service.host, service.port
+            username, secret = service.username, service.password_secret_name
+            if host is None or port is None or username is None or secret is None:
+                missing = [
+                    name
+                    for name, value in (
+                        ("host", host),
+                        ("port", port),
+                        ("username", username),
+                        ("password_secret_name", secret),
+                    )
+                    if value is None
+                ]
+                log.warning(
+                    "skipping the %s broker: its deployment_service row is missing %s",
+                    slug,
+                    ", ".join(missing),
+                )
+                continue
             try:
-                password = secret_store.get(service.password_secret_name)
+                password = secret_store.get(secret)
             except SecretStoreError as error:
                 log.warning(
                     "skipping the %s broker: %s is unreadable (%s)",
                     slug,
-                    service.password_secret_name,
+                    secret,
                     error,
                 )
                 continue
@@ -168,9 +197,9 @@ def load_broker_coordinates(
                 BrokerCoordinates(
                     deployment_id=service.deployment_id,
                     slug=slug,
-                    host=service.host,
-                    port=service.port,
-                    username=service.username,
+                    host=host,
+                    port=port,
+                    username=username,
                     password=password,
                     tls_enabled=service.tls_enabled,
                     ca_cert_pem=service.ca_cert_pem,
