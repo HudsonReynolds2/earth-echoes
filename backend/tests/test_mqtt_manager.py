@@ -513,6 +513,31 @@ async def test_a_broker_that_never_answers_is_retried_rather_than_abandoned(live
             await manager.publish(deployment_id, f"{deployment_root(RC)}/x", b"{}")
 
 
+async def _tasks_outliving(before: set[asyncio.Task], settle: float = 5.0) -> set[asyncio.Task]:
+    """Tasks still alive after `stop()`, allowing cancellation already in
+    flight to land (D97).
+
+    The wait is not a fudge factor, it is the only honest way to ask the
+    question. aiomqtt cancels its own `_misc_loop` with
+    `call_soon_threadsafe(self._misc_task.cancel)` (client.py) — paho calls
+    back on its own thread, so the cancel is SCHEDULED on the event loop, and
+    `__aexit__` never awaits that task. No amount of correctness in `stop()`
+    can make a third party's `call_soon_threadsafe` synchronous, short of
+    reaching into private attributes of the library.
+
+    So "leaves no running tasks" means what it says: not there afterwards. A
+    genuinely leaked task — a connection loop that survived, the leak D94 was
+    written for — is still running when the deadline expires and still fails
+    this. A cancellation mid-flight clears within a loop turn or two.
+    """
+    deadline = asyncio.get_running_loop().time() + settle
+    while True:
+        leaked = {t for t in asyncio.all_tasks() if not t.done()} - before
+        if not leaked or asyncio.get_running_loop().time() > deadline:
+            return leaked
+        await asyncio.sleep(0.05)
+
+
 @pytest.mark.integration
 async def test_shutdown_leaves_no_running_tasks(live_broker):
     """Clean shutdown, asserted rather than assumed: a leaked connection task
@@ -527,7 +552,7 @@ async def test_shutdown_leaves_no_running_tasks(live_broker):
     await manager.wait_connected(_rc_deployment_id(coords))
     await manager.stop()
 
-    leaked = {t for t in asyncio.all_tasks() if not t.done()} - before
+    leaked = await _tasks_outliving(before)
     assert not leaked, f"tasks outlived stop(): {[t.get_name() for t in leaked]}"
     assert manager.deployment_ids == ()
     assert not manager.is_connected(_rc_deployment_id(coords))

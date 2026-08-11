@@ -41,6 +41,7 @@ def _http_json(url: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+@pytest.mark.timeout(1200)
 def test_stack_lifecycle_up_probe_teardown():
     env = compose_env()
     bootstrap_broker_material()
@@ -97,6 +98,7 @@ def test_stack_lifecycle_up_probe_teardown():
     assert volumes.stdout.strip() == "", f"orphan volumes: {volumes.stdout}"
 
 
+@pytest.mark.timeout(1200)
 def test_frontend_prod_image_builds():
     # Check 12 remainder: compose up already built the api image and the
     # frontend dev target; the nginx prod target must build too (D2).

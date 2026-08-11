@@ -467,6 +467,7 @@ def test_migrations_reverse_with_real_data_present():
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(1200)
 def test_prod_frontend_image_actually_serves_the_app():
     """The nginx prod target has only ever been BUILT; production poise means
     it serves the shell (D2: CDN-shaped static delivery for E8)."""
@@ -511,6 +512,7 @@ def test_prod_frontend_image_actually_serves_the_app():
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(1200)
 def test_api_image_runs_as_non_root():
     """Production posture (D19): UID 10001, never root."""
     env = docker_env()

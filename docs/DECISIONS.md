@@ -4,6 +4,57 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D98 (2026-08-11): The suite carries a 300-second per-test deadman switch (SIM.0)
+
+- **Decision:** `addopts` gains `--timeout=300 --durations=10` (pytest-timeout, a dev
+  dependency). Any single test still running after five minutes is killed and NAMED. The five
+  tests that legitimately build container images carry `@pytest.mark.timeout(1200)`, because a
+  cold `docker build` of three images is honest work, not a hang.
+- **Why, on the owner's instruction:** a wedged Docker socket, a broker container that never
+  accepts, or a lost port forward used to hold the entire gate hostage with no output — you
+  learn nothing for ten minutes and then learn nothing at all. A timeout converts that into a
+  named failure at a bounded cost, which is the difference between a slow gate and an
+  unusable one.
+- **What this does NOT do, stated plainly:** it does not make the gate faster. The backend
+  suite takes ~8.5 minutes because it is 766 tests, most of the wall clock being real
+  Postgres and Mosquitto containers starting for integration tests — not because anything
+  hangs. A cap below that would fail the gate by construction rather than speed it up.
+  `--durations=10` prints the ten slowest tests every run, so the cost is visible and
+  attackable with evidence rather than guesswork.
+- **R0 is untouched.** A timeout kill is a FAILURE, not a skip, so the gate guard's
+  skipped/xfailed/deselected counts are unaffected and no test can quietly opt out by being
+  slow.
+
+## D97 (2026-08-11): "No tasks outlived stop()" is asserted with a settle window, not an
+instantaneous snapshot (SIM.0, fixing an E3.2 test)
+
+- **The failure.** SIM.0's gate went red on
+  `test_mqtt_manager.py::test_shutdown_leaves_no_running_tasks` —
+  `tasks outlived stop(): ['Task-1395']`, the task being aiomqtt's own
+  `Client._misc_loop()`. The same test passed in a standalone `sh gate.sh backend-tests` run
+  twenty minutes earlier. A test that passes and fails on identical code is a flake, and a
+  flake in a gate is worse than a red: it makes rule R0 a coin toss.
+- **The cause, at the library boundary.** aiomqtt cancels `_misc_loop` from paho's socket-close
+  callback with `self._loop.call_soon_threadsafe(self._misc_task.cancel)` (client.py:716-717),
+  and its `__aexit__` (client.py:798) never awaits that task. The cancel is therefore SCHEDULED
+  on the event loop, not performed, by the time `stack.aclose()` returns. A task cancelled but
+  not yet reaped reads as `not done()`. Under full-gate load — other stages' containers
+  competing for the host — that window widens, which is precisely why it was invisible in the
+  quiet standalone run.
+- **The test was wrong, not the manager.** `stop()` cannot make a third party's
+  `call_soon_threadsafe` synchronous without reaching into private attributes of aiomqtt, which
+  would be a worse defect than the flake. What `stop()` can honestly promise is that nothing
+  survives it — and that is what is now asserted, by `_tasks_outliving()` polling for up to 5
+  seconds.
+- **The assertion keeps its teeth.** The leak D94 was written for — a `_connection_loop` task
+  that survived cancellation with a live socket under it — is still running when the deadline
+  expires, and still fails. Only cancellation already in flight is tolerated, and only for as
+  long as it takes the loop to run one scheduled callback. This is not a retry-until-green
+  loop: the failure mode it was built to catch is permanent by nature.
+- **Fixed under R0 rather than re-rolled.** The rule's escape hatch for a wrong test is to fix
+  it and record why, not to run the gate again and take the green. `_close_client` and D94's
+  shielded-teardown machinery are unchanged; the production path was already correct.
+
 ## D96 (2026-08-11): Apply publishes AFTER it commits, and one broker's outage does not
 fail the rest (E3.13)
 

@@ -5,6 +5,34 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #23 (2026-08-11): The SIM phase document, and the simulation scale it fixes
+
+- **What changed:** epic SIM gains its phase document,
+  `project_planning/phase-sim-simulation-harness.md`, written to the project plan §5 structure
+  and now the binding scope for the epic. Three things in it are choices the planning documents
+  left open or contradictory, and are fixed here rather than per session.
+- **The scale target, which was ambiguous.** Spec 14.2 says "around 30 listeners across at least
+  a few concurrent aggregators, plus up to around 20 or more mock aggregators"; the project plan
+  §3 reads the same target as "20 or more mock aggregators, around 30 listeners each". Those are
+  600 Listeners and roughly 30. **The project plan's reading is binding: 20 × 30 = 600.** It is
+  the demanding reading, spec 14.2 says the target MUST run comfortably on one host, and a
+  harness built for the smaller number could not be stretched to the larger one later without a
+  redesign. CI runs 2 × 3; every count is a parameter.
+- **Two additions the plan's task list does not name.** SIM.4 ships a `sim` compose service
+  behind an optional profile (off by default), which extends the `COMPOSE_SERVICES` pin in
+  `test_repo_layout.py` — deliberately and with its INTERFACES entry, exactly as E3.7 did for
+  `worker`. SIM.5 adds **two** gate stages rather than one, `sim-quality` and `sim-protocol`,
+  mirroring the backend's quality/tests split; `sim-protocol` is the name INTERFACES.md already
+  reserved for this epic.
+- **What did NOT change:** the five tasks, their order, or the epic's definition of done. SIM
+  remains a client of the platform with no privileged access, and E8.6 still owns the full-scale
+  run against the complete platform — this epic ships the runner and the written procedure.
+- **Who approved:** the owner, on 2026-08-11, at plan approval, choosing the 20 × 30 reading,
+  the standalone `/sim` uv project over a workspace, REST-based provisioning over direct
+  database seeding, TOML scenario files, both CI stages, and the compose profile.
+- **Affects:** project_planning/echoes-of-earth-project-plan.md §3 (epic SIM)
+- **Addendum:** PLAN-3-02
+
 ## #22 (2026-08-10): E3.7 ships the operator publish route and the worker container
 
 - **What changed:** three additions inside task E3.7 that the phase document's task text

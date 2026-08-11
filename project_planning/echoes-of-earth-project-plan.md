@@ -131,6 +131,8 @@ Definition of done: one command launches a configurable fleet (target: 20 or mor
 4. **SIM.4 Fleet runner.** Parameterized launch at the spec 14.2 simulation scale on a single host.
 5. **SIM.5 CI integration.** A small simulated fleet in integration tests; the full-scale run documented as a manual load check (feeds E8.6).
 
+> **Addendum PLAN-3-02 (2026-08-11, ref project-changes #23):** SIM's phase document is `project_planning/phase-sim-simulation-harness.md` and is binding for the epic. It fixes the scale target this document and spec 14.2 state differently: **20 mock Aggregators × 30 Listeners each (600 Listeners)**, this document's reading, parameterized so CI runs a small fleet. Two additions to the task list above: SIM.4 ships a `sim` compose service behind an optional profile, and SIM.5 adds two gate stages (`sim-quality`, `sim-protocol`) rather than one. The five tasks and their order are unchanged.
+
 ### E4: Provisioning tool
 
 Goal: bundle generation in both modes, the device-facing encryption scheme, the bootstrap block, and provisioning tracking.

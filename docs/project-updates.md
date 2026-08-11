@@ -1,5 +1,36 @@
 # Project Updates
 
+## 2026-08-11: SIM.0 — the SIM phase document, and two gate repairs (Gate 52 GREEN)
+
+- **Task closed:** SIM.0 (phase document and records) on branch `sim-batch-1`. DECISIONS
+  D97-D98, project-changes #23, addendum PLAN-3-02.
+- **Gate 52 GREEN:** `make gate`, 766 backend / 114 vitest / 4 Playwright, 0 failed / 0 skipped
+  / 0 xfailed / 0 deselected.
+- **What shipped.** `project_planning/phase-sim-simulation-harness.md` — epic SIM's binding
+  scope, written to the project plan §5 structure — plus `project_planning/sim-progress-ledger.md`
+  as the per-task record for the epic. Fixed choices settled at plan approval: `/sim` as its own
+  uv project reaching the backend by path, the contracts module as the exclusive wire surface,
+  aiomqtt, TOML scenario files over a typed behaviour registry, REST provisioning, a `sim`
+  compose profile, and two gate stages (`sim-quality`, `sim-protocol`).
+- **The scale ambiguity is resolved, not inherited.** Spec 14.2 and project plan §3 read the
+  simulation target differently (roughly 30 Listeners, versus 30 each across 20 Aggregators).
+  The plan's reading is binding: **20 × 30 = 600**, parameterized so CI runs 2 × 3. It is the
+  demanding reading, and spec 14.2 says the target MUST run comfortably on one host.
+- **Two gate repairs this task did not plan on, both honest.** D97: 
+  `test_shutdown_leaves_no_running_tasks` was a flake — aiomqtt cancels its own `_misc_loop`
+  through `call_soon_threadsafe`, so a task cancelled but not yet reaped reads as alive the
+  instant `stop()` returns. Under full-gate load that window widens, which is why it passed
+  standalone and failed in the gate. The assertion now polls for up to 5 seconds; a genuinely
+  leaked connection task still fails it. Fixed under R0's wrong-test clause rather than re-run
+  until green. D98: the suite gains `--timeout=300` and `--durations=10`, on the owner's
+  instruction, so a wedged Docker socket dies named instead of holding the gate hostage; the
+  five image-building tests carry `@pytest.mark.timeout(1200)`.
+- **Environment note.** Two earlier gate attempts went red on the host rather than the code: a
+  running `eoe-qa-*` stack held the `FIXED_PORTS` pins, and Docker Desktop's port forwarder
+  returned `/forwards/expose ... 500` for one run. Both were resolved before the green gate;
+  neither touched the tree.
+- **Next:** SIM.1 (mock Aggregator), gate 53.
+
 ## 2026-08-11: E3.8-E3.13 — epic E3 complete (Gates 46-51 GREEN)
 
 - **Tasks closed:** E3.8, E3.9, E3.10, E3.11, E3.12, E3.13 — **and with them every E3 task**
