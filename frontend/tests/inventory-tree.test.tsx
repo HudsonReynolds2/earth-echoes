@@ -64,21 +64,39 @@ describe("hierarchy tree", () => {
     expect(selected.closest("a")?.getAttribute("aria-current")).toBe("page");
   });
 
-  it("HONESTY GUARD: no [data-status] renders on any inventory route", async () => {
+  it("HONESTY GUARD (rewritten by E3.12/D60): status renders only where it is real", async () => {
+    // D40 forbade every [data-status] because E1 and E2 had nothing real to
+    // put in one. E3 supplies the real signals, so the guard is REPLACED
+    // rather than deleted (D60): a chip may render only for a device whose
+    // status the API actually reported, and a device that has never spoken
+    // must render no chip at all.
     actAsOwner();
-    for (const path of [
-      "/inventory",
-      `/inventory/deployments/${FIXTURE_IDS.redwoodCoast}`,
-      `/inventory/pods/${FIXTURE_IDS.alderCreekPod}`,
-      `/inventory/listeners/${FIXTURE_IDS.firstListenerMac}`,
-    ]) {
-      const { container } = renderAt(path);
-      await screen.findByTestId("tree-rail");
-      expect(
-        container.querySelectorAll("[data-status]"),
-        `fabricated status on ${path}`,
-      ).toHaveLength(0);
-      cleanup();
-    }
+    const { container } = renderAt(`/inventory/pods/${FIXTURE_IDS.alderCreekPod}`);
+    // Wait for the LISTENER ROWS, not just the rail: the rail resolves before
+    // the table has data, and a guard that passed on an empty page would be
+    // asserting nothing at all.
+    await screen.findByText("alder-creek-01");
+
+    const chips = Array.from(container.querySelectorAll("[data-status]"));
+    // The fixture gives exactly one listener a real status; the rest are
+    // "unknown" and the aggregator has never reported.
+    expect(chips).toHaveLength(1);
+    expect(chips[0].getAttribute("data-status")).toBe("sleeping");
+    // And "unknown" is never dressed as one of the six real states.
+    expect(
+      chips.some((chip) => chip.getAttribute("data-status") === "unknown"),
+      "unknown must not render as a status chip",
+    ).toBe(false);
+    cleanup();
+  });
+
+  it("HONESTY GUARD: the config routes still show no status at all", async () => {
+    // The part of D40 that still applies: E2's surfaces describe configuration,
+    // not devices, and a status dot there would be decoration.
+    actAsOwner();
+    const { container } = renderAt(`/configuration/pods/${FIXTURE_IDS.alderCreekPod}`);
+    await screen.findByRole("heading", { level: 1 });
+    expect(container.querySelectorAll("[data-status]")).toHaveLength(0);
+    cleanup();
   });
 });

@@ -109,7 +109,7 @@ def list_listeners(
     windowed = PageParams(limit=query.limit, offset=query.offset, sort=query.sort or "name")
     rows = list(db.scalars(apply_page(statement, windowed, SORTABLE)).all())
     return ListResponse(
-        items=listener_out(rows), total=total, limit=query.limit, offset=query.offset
+        items=listener_out(db, rows), total=total, limit=query.limit, offset=query.offset
     )
 
 
@@ -119,7 +119,7 @@ def get_listener(
     db: DbDep,
     session: Annotated[UserSession, Depends(require_any_assignment)],
 ) -> ListenerOut:
-    return listener_out([_resolve(db, session, mac, Permission.VIEW_STATUS)])[0]
+    return listener_out(db, [_resolve(db, session, mac, Permission.VIEW_STATUS)])[0]
 
 
 @router.post("", response_model=ListenerOut, status_code=201)
@@ -203,7 +203,7 @@ def create_listener(
     )
     db.commit()
     db.refresh(row)
-    return listener_out([row])[0]
+    return listener_out(db, [row])[0]
 
 
 @router.patch("/{mac}", response_model=ListenerOut)
@@ -237,7 +237,7 @@ def patch_listener(
         )
     db.commit()
     db.refresh(row)
-    return listener_out([row])[0]
+    return listener_out(db, [row])[0]
 
 
 @router.delete("/{mac}", status_code=204)

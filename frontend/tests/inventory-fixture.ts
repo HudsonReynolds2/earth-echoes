@@ -109,6 +109,9 @@ export const listeners = PODS.flatMap((pod) =>
     gps_lat: i % 2 === 0 ? 47.6 + i / 100 : null,
     gps_lon: i % 2 === 0 ? -121.88 - i / 100 : null,
     tags: i === 0 ? pod.tags : [],
+    // E3.12/D60: real status, and most fixture devices have never spoken —
+    // which is the honest default and the one the guard test leans on.
+    status: i === 0 ? "sleeping" : "unknown",
     ...STAMP,
   })),
 );
@@ -121,6 +124,7 @@ export const aggregators = PODS.map((pod) => ({
   name: null,
   tags: [] as string[],
   listener_count: pod.listeners,
+  status: "unknown" as const,
   ...STAMP,
 }));
 
@@ -131,6 +135,7 @@ export const pods = PODS.map((pod) => ({
   tags: pod.tags,
   aggregator: aggregators.find((agg) => agg.pod_id === pod.id) ?? null,
   listener_count: pod.listeners,
+  status: "unknown" as const,
   ...STAMP,
 }));
 

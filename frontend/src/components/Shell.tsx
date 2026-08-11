@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { logout } from "../lib/auth";
+import { useLiveUpdates } from "../lib/useLiveUpdates";
 import { useMe } from "../lib/useMe";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -37,6 +38,10 @@ export function Shell() {
   const { data: me } = useMe();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  // One socket per tab, mounted here because every screen below wants the
+  // same events (E3.12). Enabled only once there is a session to scope it:
+  // an unauthenticated socket is closed by the server with 1008 anyway.
+  useLiveUpdates(Boolean(me));
 
   async function onSignOut() {
     await logout();

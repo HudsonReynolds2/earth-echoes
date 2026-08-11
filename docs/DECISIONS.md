@@ -4,6 +4,37 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D95 (2026-08-10): Live updates are invalidation signals, and `unknown` is a status
+(E3.12)
+
+- **Decision (the bus):** `publish()` issues `pg_notify` INSIDE the caller's transaction.
+  Postgres delivers it only on commit, so a browser cannot be told about a transition that
+  was rolled back — no outbox, no ordering to arrange, no window of a UI showing something
+  that did not happen. `test_an_event_reaches_a_listener_only_after_the_transaction_commits`
+  pins both halves.
+- **Decision (the client):** events are INVALIDATION SIGNALS and never data. The hook
+  refetches; it never patches a cache from an event body, and on every (re)connect it
+  invalidates everything. `NOTIFY` is best-effort — a browser that reconnects has missed
+  whatever happened while it was away — so a patched cache would be a confidently stale
+  screen, which is worse than a slightly late one.
+- **Decision (scoping):** applied on the server, per event, per connection. A websocket is a
+  long-lived read of everything happening in the platform; filtering in the browser would be
+  no filtering at all. A client may narrow its channels and can never widen its scope, which
+  is why the inbound reader needs no authorization of its own.
+- **Decision (D40 lifted, and rewritten):** status is real now, derived in ONE place
+  (`device_status.py`) from LWT, spec 6.5 liveness and revision state. The guard test is not
+  deleted: it now asserts that a chip renders only where the API reported a status, that
+  `unknown` never renders as one of the six, and that config routes still show none.
+- **`unknown` is a first-class status**, and this is the part most likely to be "simplified"
+  later. A device entered in inventory but never heard from has no status; defaulting it to
+  healthy would report a deployment that has never come online as working. It renders as a
+  muted dash, visibly not a chip.
+- **Reachability outranks reconciliation** in the roll-up: an offline device shows `offline`
+  even when its revision has drifted, because the drift cannot be repaired until the device
+  is back and `drifted` would send an operator to fix a config on an unplugged box.
+- **A slow browser is dropped from, not waited on.** The hub's per-subscriber queue drops
+  when full: losing live updates for one stalled client beats stalling the bus for everyone.
+
 ## D94 (2026-08-10): The broker client is closed OUTSIDE its own cancellation (E3.2 defect,
 found by a gate flake)
 

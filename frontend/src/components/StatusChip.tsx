@@ -49,3 +49,24 @@ export function StatusLegend() {
     </div>
   );
 }
+
+/**
+ * A device's spec 9.3 status in a table cell (task E3.12; D60).
+ *
+ * **`unknown` is not a chip, deliberately.** A device that has been entered in
+ * inventory but has never spoken has no status, and giving it a coloured dot —
+ * any colour — would be the invented status D40 forbade. It renders as a
+ * muted dash with the reason available to screen readers, which is honest and
+ * visibly different from the six real states.
+ */
+export function StatusCell({ status }: { status: DeviceStatus | "unknown" }) {
+  if (status === "unknown") {
+    return (
+      <span className="muted" title="This device has not reported yet">
+        <span aria-hidden="true">—</span>
+        <span className="visually-hidden">No status reported yet</span>
+      </span>
+    );
+  }
+  return <StatusChip status={status} />;
+}

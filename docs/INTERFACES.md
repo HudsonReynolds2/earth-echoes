@@ -1256,3 +1256,35 @@ reimplement their logic.** Signatures, verbatim:
 - **Suites:** `backend/tests/test_timeline.py` (gate 49), including a parametrized sweep over
   the whole spec 6.2 table proving no transition can happen without a row, and
   `frontend/tests/timeline.test.tsx`.
+
+### `WS /ws`, the live-update bus, and real device status (E3.12; spec 13, 9.3; D59, D60)
+
+- **`WS /ws`** — session-cookie authenticated, **no CSRF** (the handshake is a GET a page
+  cannot forge headers on, and the socket is read-only). Sends `Event` JSON:
+  `{channel, deployment_id, entity_type, entity_id, data, at}`. A client may send
+  `{"subscribe": [...]}` to NARROW its channels; it can never widen its scope. An
+  unauthenticated socket is accepted then closed with **1008**, so a browser can tell "you
+  may not" from "the API is down" and stop retrying.
+- **Scoping is server-side, per event, per connection** —
+  `visible_deployments(..., VIEW_STATUS)`, resolved once at connect. A filter applied in the
+  browser would be no filter: the bytes would already have crossed.
+- **The bus is Postgres `LISTEN`/`NOTIFY`** (`controlplane/events.py`, D59), not Redis, which
+  spec 3.2 calls optional and spec 15.1's simplest deploy omits. **`publish(db, event)` rides
+  the caller's transaction**: `pg_notify` is delivered only on COMMIT, so a browser can never
+  be shown a change that rolled back. Delivery is best-effort by construction — clients treat
+  events as invalidation signals and refetch, never as data.
+- **Channel registry:** `device_status`, `reconciliation`. **E7 adds `alerts`** by adding a
+  member and an emitter; the filtering is channel-agnostic and needs no change.
+- **`controlplane/device_status.py` is THE spec 9.3 derivation** — `aggregator_status`,
+  `listener_status`, `rollup`. Reachability outranks reconciliation (an offline device shows
+  `offline`, not `drifted` — the drift cannot be repaired until it is back). `failed` is
+  `degraded`, not offline. `pending`/`draft` are healthy: a change in flight is not a fault.
+  **`unknown` is a first-class value** for a device that has never spoken and must never be
+  rendered as healthy.
+- **D40 IS LIFTED HERE, and rewritten rather than deleted (D60).** `AggregatorOut.status` and
+  `ListenerOut.status` are new fields; the frontend renders `StatusCell`, which draws a chip
+  for the six real states and a muted dash for `unknown`. The honesty guard now asserts that
+  status renders only where the API reported one, and that config routes still show none.
+- **Frontend:** `lib/useLiveUpdates.ts`, mounted once in `Shell`. One socket per tab.
+- **Suites:** `backend/tests/test_websockets.py` (gate 50, including the two-scope
+  acceptance and the commit-only bus property), `frontend/tests/live-updates.test.ts`.

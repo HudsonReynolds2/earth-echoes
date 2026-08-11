@@ -17,6 +17,7 @@ OFF unless asked for:
   the single-process deployment mode. Compose runs it as its own container.
 """
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator
@@ -40,7 +41,9 @@ from app.api.selections import router as selections_router
 from app.api.timeline import router as timeline_router
 from app.api.totp import router as totp_router
 from app.api.users import router as users_router
+from app.api.ws import router as ws_router
 from app.controlplane.broker import MqttClientManager, load_broker_coordinates
+from app.controlplane.events import Hub, listen
 from app.controlplane.runner import ReconciliationWorker
 from app.db import create_session_factory
 from app.errors import install_error_handlers
@@ -73,6 +76,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     app.state.mqtt = None
     app.state.worker = None
+    # E3.12: the live-update fan-out. Always on — it needs no configuration
+    # beyond the database the API already has (D59), and a websocket surface
+    # that silently does nothing would be worse than one that is absent.
+    app.state.hub = Hub()
+    bus_stopping = asyncio.Event()
+    bus = asyncio.create_task(
+        listen(settings.database_url, app.state.hub.dispatch, stopping=bus_stopping),
+        name="live-update-bus",
+    )
     if settings.publish_enabled:
         manager = MqttClientManager(
             lambda: load_broker_coordinates(app.state.session_factory, app.state.secret_store)
@@ -92,6 +104,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        bus_stopping.set()
+        bus.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await bus
         if app.state.worker is not None:
             await app.state.worker.stop()
         if app.state.mqtt is not None:
@@ -154,6 +170,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(selections_router)
     api_router.include_router(revisions_router)
     api_router.include_router(timeline_router)
+    api_router.include_router(ws_router)
     app.include_router(api_router)
 
     return app

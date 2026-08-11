@@ -42,6 +42,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.controlplane.events import Channel, Event, publish
 from app.models import ConfigRevision, ReconciliationEvent, utcnow
 
 
@@ -316,6 +317,23 @@ def transition(
             diff=_diff_against_previous(db, revision) if target is RevisionState.PENDING else None,
             detail=detail,
         )
+    )
+    # E3.12: announced on the same transaction, so a browser can never be
+    # told about a transition that was rolled back (see events.publish).
+    publish(
+        db,
+        Event(
+            channel=Channel.RECONCILIATION,
+            deployment_id=revision.deployment_id,
+            entity_type=revision.target_type,
+            entity_id=revision.target_id,
+            data={
+                "revision_id": str(revision.id),
+                "from_state": source.value,
+                "to_state": target.value,
+                "trigger": trigger.value,
+            },
+        ),
     )
     return TransitionRecord(
         revision_id=revision.id,

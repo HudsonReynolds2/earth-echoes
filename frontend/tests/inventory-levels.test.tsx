@@ -80,7 +80,10 @@ describe("level pages", () => {
     renderAt(`/inventory/listeners/${FIXTURE_IDS.firstListenerMac}`);
     expect(await screen.findByRole("heading", { name: "alder-creek-01" })).toBeInTheDocument();
     expect(screen.getByTestId("listener-mac")).toHaveTextContent("02:EE:0E:01:01:01");
-    expect(screen.getByTestId("listener-facts")).toHaveTextContent("Live status arrives with E3");
+    // E3.12 (D60) replaced the "status arrives with E3" placeholder with a
+    // real spec 9.3 status; telemetry is still E5's.
+    expect(screen.getByTestId("listener-facts")).toHaveTextContent("Telemetry arrives with E5");
+    expect(screen.getByTestId("listener-facts")).toHaveTextContent("Sleeping");
   });
 
   it("listener detail carries the E2.7 effective-config card with an Edit deep-link", async () => {

@@ -1199,3 +1199,62 @@ curl -s "http://localhost:18000/api/v1/aggregators/AGGREGATOR_ID/timeline" -b co
       still there.** Every reference out of `reconciliation_event` is deliberately un-FK'd
       (D33): a timeline exists to answer questions about things that are gone, and a cascade
       would erase exactly the history somebody is looking for.
+
+## 12. Live, and finally honest about status (E3.12)
+
+Two things land together here, and they belong together: the platform can now push changes to
+a browser as they happen, and the status dots that E1 deliberately refused to draw finally
+have something real behind them.
+
+**D40 is lifted here.** E1 forbade every status indicator in the UI because it had nothing
+true to put in one, and an invented status is worse than none — an operator who learns the
+dots are decorative stops reading them, including on the day one is telling the truth. E3
+supplies the real signals: LWT (§8), Listener liveness (§9), revision state (§4). The guard
+was rewritten rather than deleted, and this section is where you check that it was earned.
+
+### Status is real, and `unknown` is an answer
+
+- [ ] Open the pod page for a deployment whose devices have never reported. The Status column
+      shows a muted **—**, not a chip. That is a device the platform has never heard from, and
+      saying so is the whole point.
+- [ ] Now publish an `online` status for `demo-agg-rc-01` as in §8. Reload: the aggregator
+      card reads **Streaming**.
+- [ ] Publish `offline`: it reads **Offline**.
+- [ ] Report a Listener as `sleeping` (§9). It reads **Sleeping** — its own status, its own
+      glyph, and healthy. A duty-cycled fleet at night must not look like an outage.
+- [ ] Drive a revision to `drifted` (§7) on a device that is ONLINE. It reads **Drifted**. Now
+      take the same device offline: it reads **Offline**, not Drifted. Reachability outranks
+      reconciliation — the drift cannot be repaired until the device is back, and showing
+      Drifted would send you to fix a config on an unplugged box.
+
+### Live, without reloading
+
+Keep the pod page open in one window and drive a change from a terminal.
+
+- [ ] Publish an `offline` status for that aggregator. **The card changes without a reload**,
+      within a second.
+- [ ] Open the browser devtools network tab, filter to WS. There is exactly ONE socket for the
+      tab, to `/api/v1/ws`. Each event is followed by ordinary API requests — the socket says
+      *what changed*, and the app refetches. It never trusts the event body as data, because a
+      browser that reconnects has missed whatever happened while it was away.
+- [ ] Stop the API (`docker compose ... stop api`) and watch the socket close and retry with
+      backoff. Start it again: the socket reconnects and the page refetches everything at
+      once, so nothing missed during the outage stays stale on screen.
+
+### Two scopes, one change (the acceptance)
+
+- [ ] Sign in as an operator scoped to **Redwood Coast** in one browser, and one scoped to
+      **High Desert** in a private window. Put both on an inventory page.
+- [ ] Drive a status change on a Redwood Coast device. **Only the Redwood Coast window
+      reacts.** The other receives nothing — not "receives and hides", receives nothing: the
+      filter is applied on the server, per event, per connection, because a socket is a
+      long-lived read of everything happening in the platform.
+- [ ] Sign out in one window. Its socket closes with code **1008** and does not retry in a
+      loop; the other window is unaffected.
+
+### Where status still does not appear
+
+- [ ] The **Configuration** pages show no status chips. That part of D40 still applies: those
+      screens describe configuration, not devices, and a dot there would be decoration.
+- [ ] The Map is still E6's and alerts are still E7's. The `alerting` status exists in the
+      vocabulary and nothing can produce it yet.

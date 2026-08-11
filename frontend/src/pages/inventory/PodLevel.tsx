@@ -22,6 +22,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { EntityTable } from "../../components/EntityTable";
 import { NameConflictDialog } from "../../components/NameConflictDialog";
 import { PageHeader } from "../../components/PageHeader";
+import { StatusCell } from "../../components/StatusChip";
 import { TagEditor } from "../../components/TagEditor";
 import { getCatalog } from "../../lib/config";
 import { ApiError, createListener, getPod, Listener, listListeners } from "../../lib/inventory";
@@ -48,6 +49,11 @@ function buildColumns(
       ),
     }),
     helper.accessor("mac", { header: "MAC", meta: { mono: true } }),
+    helper.accessor("status", {
+      header: "Status",
+      enableSorting: false,
+      cell: (info) => <StatusCell status={info.getValue()} />,
+    }),
     helper.accessor(
       (row) =>
         row.gps_lat !== null && row.gps_lon !== null ? `${row.gps_lat}, ${row.gps_lon}` : "—",
@@ -248,6 +254,10 @@ export function PodLevel() {
         <h2>Aggregator</h2>
         {row.aggregator ? (
           <dl className="import-summary">
+            <dt>status</dt>
+            <dd>
+              <StatusCell status={row.aggregator.status} />
+            </dd>
             <dt>aggregator_uuid</dt>
             <dd>{row.aggregator.aggregator_uuid}</dd>
             <dt>balena_uuid</dt>

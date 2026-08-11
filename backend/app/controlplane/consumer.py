@@ -88,6 +88,7 @@ from app.contracts.mqtt import (
     DeviceEvent as DeviceEventPayload,
 )
 from app.controlplane.broker import InboundMessage
+from app.controlplane.events import Channel, Event, publish
 from app.controlplane.revision_state import (
     RevisionState,
     TransitionRecord,
@@ -427,6 +428,22 @@ class ReportedConsumer:
                     stored.online = online
                     stored.changed_at = now
                     log.info("aggregator %s is now %s", topic.agg, payload.state)
+                else:
+                    # A retained replay of an unchanged verdict is not news.
+                    # Emitting it would wake every browser on every platform
+                    # reconnect to redraw a dot that did not move.
+                    db.commit()
+                    return ReportOutcome.ONLINE if online else ReportOutcome.OFFLINE
+            publish(
+                db,
+                Event(
+                    channel=Channel.DEVICE_STATUS,
+                    deployment_id=deployment_id,
+                    entity_type="aggregator",
+                    entity_id=str(aggregator.id),
+                    data={"online": online, "aggregator_uuid": topic.agg},
+                ),
+            )
             db.commit()
             return ReportOutcome.ONLINE if online else ReportOutcome.OFFLINE
 
@@ -518,6 +535,16 @@ class ReportedConsumer:
         stored.liveness_state = "offline"
         stored.expected_wake_at = None  # meaningless once the window is missed
         stored.liveness_changed_at = at
+        publish(
+            db,
+            Event(
+                channel=Channel.DEVICE_STATUS,
+                deployment_id=deployment_id,
+                entity_type="listener",
+                entity_id=mac,
+                data={"liveness_state": "offline", "cause": "missed_wake_window"},
+            ),
+        )
         log.info("listener %s missed its wake window and is offline (spec 6.5)", mac)
 
     # -- the shared reported-state path --------------------------------------
@@ -583,6 +610,17 @@ class ReportedConsumer:
             # asleep — the same rule `aggregator_status.changed_at` follows.
             if stored.liveness_state != liveness.state:
                 stored.liveness_changed_at = reported_at
+                # E3.12: only on a real change, for the same reason.
+                publish(
+                    db,
+                    Event(
+                        channel=Channel.DEVICE_STATUS,
+                        deployment_id=device.deployment_id,
+                        entity_type="listener",
+                        entity_id=device.entity_id,
+                        data={"liveness_state": liveness.state},
+                    ),
+                )
             stored.liveness_state = liveness.state
             stored.last_audio_at = liveness.last_audio_at
             # Absent unless sleeping, which the wire contract and the

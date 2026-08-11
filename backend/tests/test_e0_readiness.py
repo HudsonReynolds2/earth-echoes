@@ -138,6 +138,10 @@ E0_ROUTES = {
     # would drift apart.
     ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/timeline"),
     ("GET", f"{API_PREFIX}/listeners/{{mac}}/timeline"),
+    # E3.12 (gate 50): live updates. `WS /ws` is a websocket route and does
+    # not appear in the OpenAPI paths this set is built from, which is why
+    # it is absent here rather than forgotten - `test_websockets.py` is its
+    # contract.
 }
 
 E0_TABLES = {
