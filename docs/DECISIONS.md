@@ -4,6 +4,41 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D113 (2026-08-11): D112's fix is adopted from the SIM branch rather than written again, and
+D112's interim rule is retired
+
+- **What changed.** `backend/tests/conftest.py` and `backend/tests/test_mqtt_manager.py` are
+  taken verbatim from the SIM branch's gate-56 commit (`959ff23`, "Let several gate runs share
+  one machine, and make one assertion decisive"). That commit implements two of the three
+  candidate fixes D112 listed as owed: a machine-wide cross-process lock and port-claim
+  registry (`gate_lock`, `free_port`, `GATE_STATE_DIR`), and host-side TCP readiness probes
+  (`wait_for_host_port`) replacing the `docker exec` probes that asserted the wrong thing.
+- **Why it had to be done here and now.** `e5-batch-1` was cut at `2875063` (SIM.1), which is
+  *before* that commit, so the E5 worktree was still running the pre-fix harness while the SIM
+  worktree was not. Two sessions were expected to work side by side from here, and only one of
+  them was equipped to. E5 has never touched either file — verified with
+  `git diff 2875063 HEAD -- backend/tests/conftest.py backend/tests/test_mqtt_manager.py`,
+  which is empty — so this is a clean adoption and not a merge, and the two branches now carry
+  byte-identical copies.
+- **This is E0-owned test infrastructure, exactly as D112 said.** E5 neither designed nor
+  modified it; E5 imported it. The rationale for every part of it lives in the SIM branch's own
+  decision entries (the ones titled "The suite is safe to run from several processes at once…"
+  and "The shutdown assertion classifies the survivor instead of timing it out…"), which arrive
+  on `main` with the SIM pull request.
+- **D112's interim rule is retired by this.** "Confirm no other session is running tests before
+  you start" was a habit standing in for a fix; the fix is now present in this tree. What
+  survives from D112 is its other half, which is still binding: a run that comes back with
+  container-startup errors is an **invalid measurement** to re-run, never a red gate to record,
+  and `docker_retry` is still not to be widened.
+- **Numbering hazard for whoever merges.** Both branches appended to this file independently, so
+  `D110` and `D111` name different decisions on each: on `e5-batch-1` they are the services PUT
+  and the four tester outcomes; on `sim-batch-1` they are the concurrency fix and the shutdown
+  assertion. Cross-references above are therefore by TITLE, not by number. Renumbering is the
+  merge's job and must not be done inside either branch, because every commit message, ledger
+  row and `project-updates.md` entry already written points at the local numbers.
+- **Reference:** `docs/DECISIONS.md` D99, D112; `backend/tests/conftest.py`;
+  `project_planning/e5-progress-ledger.md`.
+
 ## D112 (2026-08-11): The test harness is not safe to run twice at once, and that is a defect
 to fix rather than a habit to work around
 

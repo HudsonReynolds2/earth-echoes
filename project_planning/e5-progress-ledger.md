@@ -27,6 +27,7 @@ SIM sessions keep the primary tree.
 | E5.2 Write-only secrets API | **done (gate-54)** | C1 | D110 | `app/services/schemas.py` (five `extra="forbid"` models, `KeepSecret`, pure `plan_write`, `redacted_settings`) and `app/api/services.py`. `MANAGE_SERVICES`/`VIEW_SERVICES` added to `rbac.py`, `rbac.ts`, `test_rbac.py` and `rbac.test.tsx` — additions only, the test-critical matrix is not weakened. D110: the PUT is a partial collection of wholesale members and has no delete. `E0_ROUTES` in `test_e0_readiness.py` extended by the two routes. Targeted: `test_services_api.py` 24 passed, plus `test_rbac`/`test_api_skeleton`/`test_audit`/`test_scoping`/`test_e0_readiness`/`test_services_model` green; ruff, `mypy app`, `tsc --noEmit` clean. |
 | **C1 full gate** | **GREEN, gate-54** | — | — | 839 backend / 115 vitest / 4 Playwright, 0 failed / 0 skipped / 0 xfailed / 0 deselected. Backend stage 262.7s. Carried E5.3 as well. Manual verification ran against a real uvicorn (see project-updates). |
 | E5.3 Connection test framework | **done (gate-54)** | C2 | D111 | `app/services/testers/{__init__,base}.py`: `ServiceTester` protocol, `TestResult`/`CheckResult` with a required remedy, `ServiceCredentials` (secrets `repr=False`, the D66 precedent), the concurrent runner with per-tester **and** whole-call budgets, `resolve_credentials` (candidate beats stored, sentinel reaches back), and `POST .../services/test`. D111: four outcomes, two of which are not failures. `REGISTRY` ships EMPTY — E5.4a-e fill it. `E0_ROUTES` extended by the one route. Targeted: `test_service_testers.py` 25 passed; ruff, `mypy app` clean. |
+| Concurrency-safe harness adopted (not an E5 unit) | **done (local)** | C2 | D113 | `conftest.py` and `test_mqtt_manager.py` taken verbatim from the SIM branch's `959ff23`. This worktree was cut before that commit and was still running the pre-fix harness. Retires D112's interim rule. E0-owned infrastructure, imported not authored. Targeted: `test_dev_broker.py` + `test_mqtt_manager.py`, 40 passed. |
 | E5.4a MQTT tester + dynsec probe | not started | C2 | — | Three-valued probe: `available`/`denied`/`absent`. Under fixed choice 4 a non-`available` verdict fails the tester. |
 | E5.4b InfluxDB 3 tester | not started | C2 | — | HTTP query API, not FlightSQL — no `pyarrow`. First unit to need the container rig. |
 | E5.4c Prometheus tester | not started | C2 | — | Must distinguish receiver-disabled from credentials-rejected from accepted. |
@@ -57,22 +58,18 @@ SIM sessions keep the primary tree.
 
 ## Notes for whoever picks this up next
 
-- **Check that no other session is running tests BEFORE you start a gate.** This is the
-  interim rule of **D112**, which also records the harness fix that would make the check
-  unnecessary (stop publishing host ports where a stable one is not needed; failing that, a
-  cross-process lock around container starts). It is E0-owned test infrastructure, not E5 work.
-- **Do not run a checkpoint gate while the SIM session is running Docker.** Measured, not
-  guessed: two broad backend sweeps taken from this worktree on 2026-08-11 while the SIM
-  session was live returned 829 passed / 7 errors and 831 passed / 5 errors. **Every error was
-  a container fixture failing to start, none was a test-logic failure, and the errored modules
-  were different in each run** — `test_e0_readiness` in the first, `test_publish_revision` and
-  `test_end_to_end_loop` in the second, each of which passed on its own immediately after. The
-  quoted fault is D99's: `/forwards/expose returned unexpected status: 500`. `conftest.docker_retry`
-  already retries exactly that string five times with a backoff, and it still exhausts under two
-  sessions publishing ports at once. **Do not widen the retry to make this go away** — it is
-  narrow on purpose (D99), and the real fix is not overlapping the two sessions. A checkpoint
-  gate run under this contention is not a red gate and must not be recorded as one; it is an
-  invalid measurement, so re-run it with the other session idle.
+- **Concurrent runs are safe now, and were not when D112 was written.** The fix arrived from
+  the SIM branch on 2026-08-11 (**D113**): `conftest.py` gained a machine-wide cross-process
+  lock and port-claim registry plus host-side TCP readiness probes, and this worktree was
+  running the pre-fix harness until then because it was cut before that commit. Two full
+  backend suites now run at once. **D112's "check that nothing else is running first" is
+  retired**; what survives it is the half that still binds — a run that comes back with
+  container-startup errors (`/forwards/expose returned unexpected status: 500`) is an
+  **invalid measurement** to re-run, never a red gate to record, and `docker_retry` is narrow
+  on purpose (D99) and is not to be widened. The measurement that produced D112 is preserved
+  in that entry: two sweeps, 829 passed / 7 errors and 831 passed / 5 errors, every error a
+  container fixture and none a test-logic failure, with the errored modules moving between
+  runs.
 - **The nine fixed choices in phase document section 2 were decided at plan approval.** They
   resolve spec 17 item 14 (dynsec required) and reverse the E4/E5 `BrokerCredentialProvider`
   ordering. Do not relitigate them mid-epic; a unit that seems to need one reopened is a

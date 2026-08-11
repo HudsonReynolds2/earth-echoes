@@ -12,11 +12,14 @@ forbidden as a way to clear a gate.
 import base64
 import contextlib
 import dataclasses
+import errno
+import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -72,6 +75,30 @@ def pytest_collection_modifyitems(config, items) -> None:
         item.add_marker(pytest.mark.xdist_group(group))
 
 
+@pytest.fixture(autouse=True)
+def _serialise_fixed_port_modules(request):
+    """Hold the machine-wide lock for the duration of any fixed-port test.
+
+    `FIXED_PORT_GROUP` keeps these two modules off each other inside ONE pytest
+    session. It can do nothing about a second session — another agent, another
+    terminal, another worktree — and everything these tests touch is singular
+    per machine: host ports 18000/15173/15432/16379/18883, and the generated
+    `deploy/dev-certs` that mosquitto bind-mounts. Two runs overlapping here do
+    not merely collide on a port; one regenerates the CA and passwd files while
+    the other's broker is serving from them.
+
+    Wrapping the whole test rather than the compose calls is deliberate: the
+    fixtures that publish those ports run in setup and tear down after the body,
+    so a lock taken inside the test would leave both ends unprotected.
+    """
+    module = request.module.__name__.rsplit(".", 1)[-1] if request.module else ""
+    if module not in FIXED_PORT_MODULES:
+        yield
+        return
+    with gate_lock("compose-stack"):
+        yield
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     """Async tests (E3.2 onward) run on anyio's pytest plugin, which ships
@@ -107,51 +134,84 @@ def docker_env() -> dict[str, str]:
     return env
 
 
+def _start_ephemeral_postgres(env: dict[str, str], attempts: int = 3) -> tuple[str, str, str]:
+    """Start one Postgres and return it only once the HOST can reach it.
+
+    Retries the whole container, not just the `docker run`, because the fault
+    being retried is a published port that never materialised: the container is
+    up and healthy, so there is nothing to retry at the command level and
+    nothing that will improve if we wait longer on this one. Returns
+    `(name, host_port, secret)`; the caller owns removal.
+    """
+    last = ""
+    for attempt in range(1, attempts + 1):
+        name = f"eoe-pg-{uuid.uuid4().hex[:10]}"
+        secret = uuid.uuid4().hex
+        run = docker_retry(
+            [
+                docker_cli(),
+                "run",
+                "-d",
+                "--name",
+                name,
+                "-p",
+                "127.0.0.1:0:5432",
+                "-e",
+                f"POSTGRES_PASSWORD={secret}",
+                "postgres:16-alpine",
+            ],
+            env,
+            what="ephemeral postgres",
+            cleanup_name=name,
+        )
+        assert run.returncode == 0, f"could not start ephemeral postgres: {run.stderr}"
+        try:
+            streak = 0
+            for _ in range(90):
+                probe = subprocess.run(
+                    [docker_cli(), "exec", name, "pg_isready", "-U", "postgres"],
+                    capture_output=True,
+                    env=env,
+                )
+                streak = streak + 1 if probe.returncode == 0 else 0
+                if streak >= 2:  # survives the init-time restart
+                    break
+                time.sleep(1)
+            else:
+                raise AssertionError("ephemeral postgres never became ready")
+            ports = subprocess.run(
+                [docker_cli(), "port", name, "5432/tcp"], capture_output=True, text=True, env=env
+            )
+            assert ports.returncode == 0, ports.stderr
+            host_port = ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1]
+            if wait_for_host_port(int(host_port)):
+                return name, host_port, secret
+            last = (
+                f"postgres {name} was ready inside the container but its published port "
+                f"{host_port} never accepted a connection from the host"
+            )
+        except BaseException:
+            subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
+            raise
+        subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
+        print(f"ephemeral postgres: retrying past a dropped port forward ({attempt}/{attempts})")
+    raise AssertionError(f"{last} — {attempts} attempts (D99: Docker's forwarder under load)")
+
+
 @contextlib.contextmanager
 def ephemeral_postgres(migrate: bool = True):
     """Disposable Postgres on a unique container name and a Docker-assigned
-    free host port, so any number of test modules can hold one without
-    colliding with each other or with orphans from interrupted runs."""
-    name = f"eoe-pg-{uuid.uuid4().hex[:10]}"
-    secret = uuid.uuid4().hex
+    free host port, so any number of test modules — in this run or in another
+    agent's — can hold one without colliding with each other or with orphans
+    from interrupted runs.
+
+    Readiness is asserted twice on purpose: `pg_isready` inside the container
+    for the server, and a real TCP connect from the host for the FORWARD. Only
+    the second one is what alembic and every test client actually depend on.
+    """
     env = docker_env()
-    run = docker_retry(
-        [
-            docker_cli(),
-            "run",
-            "-d",
-            "--name",
-            name,
-            "-p",
-            "127.0.0.1:0:5432",
-            "-e",
-            f"POSTGRES_PASSWORD={secret}",
-            "postgres:16-alpine",
-        ],
-        env,
-        what="ephemeral postgres",
-        cleanup_name=name,
-    )
-    assert run.returncode == 0, f"could not start ephemeral postgres: {run.stderr}"
+    name, host_port, secret = _start_ephemeral_postgres(env)
     try:
-        streak = 0
-        for _ in range(90):
-            probe = subprocess.run(
-                [docker_cli(), "exec", name, "pg_isready", "-U", "postgres"],
-                capture_output=True,
-                env=env,
-            )
-            streak = streak + 1 if probe.returncode == 0 else 0
-            if streak >= 2:  # survives the init-time restart
-                break
-            time.sleep(1)
-        else:
-            raise AssertionError("ephemeral postgres never became ready")
-        ports = subprocess.run(
-            [docker_cli(), "port", name, "5432/tcp"], capture_output=True, text=True, env=env
-        )
-        assert ports.returncode == 0, ports.stderr
-        host_port = ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1]
         url = f"postgresql+psycopg://postgres:{secret}@127.0.0.1:{host_port}/postgres"
         if migrate:
             upgraded = subprocess.run(
@@ -234,16 +294,181 @@ def docker_retry(
     return result
 
 
+#: Where cross-run coordination state lives. One fixed directory per machine,
+#: NOT per checkout: the whole point is that two agents in two worktrees, or two
+#: terminals in one, see each other's claims. It is deliberately in the system
+#: temp dir rather than the repo, so a `git clean` cannot desynchronise two runs
+#: mid-flight and nothing here is ever committed.
+GATE_STATE_DIR = Path(tempfile.gettempdir()) / "eoe-gate-state"
+
+#: How long a port claim or a lock is honoured before another run may take it.
+#: A claim only has to outlive the seconds between choosing a port and Docker
+#: binding it; a lock has to outlive a whole compose stack lifecycle, which is
+#: why they are not the same number.
+PORT_CLAIM_TTL = 600.0
+LOCK_STALE_AFTER = 2400.0
+
+
+def _gate_state_dir() -> Path:
+    GATE_STATE_DIR.mkdir(parents=True, exist_ok=True)
+    return GATE_STATE_DIR
+
+
+def _process_alive(pid: int) -> bool:
+    """Whether a PID is still running, so a lock held by a killed run can be
+    broken immediately instead of waiting out its TTL. POSIX-only in practice;
+    anywhere `os.kill` cannot answer, the caller falls back to the TTL."""
+    try:
+        os.kill(pid, 0)
+    except OSError as exc:
+        return exc.errno != errno.ESRCH
+    except AttributeError:  # pragma: no cover - non-POSIX
+        return True
+    return True
+
+
+@contextlib.contextmanager
+def gate_lock(name: str, *, timeout: float = 1800.0, poll: float = 0.5):
+    """A lock held across PROCESSES, so concurrent gate runs take turns.
+
+    xdist's `xdist_group` only serialises tests inside ONE pytest session. Two
+    agents, two terminals, or two worktrees on one machine are separate
+    sessions, and there is nothing in pytest that can know about them. Anything
+    backed by a genuinely singular host resource — a fixed published port, a
+    shared generated directory — therefore needs a lock the operating system
+    arbitrates rather than a test-runner convention.
+
+    Implemented as an exclusive-create lockfile rather than `fcntl.flock`
+    because the gate runs on Windows too (`gate.ps1`), and `O_CREAT | O_EXCL`
+    is atomic on every filesystem the gate is supported on. The holder's PID and
+    a timestamp go in the file: a lock whose owner has died is broken at once,
+    and one whose owner is alive but wedged is broken after `LOCK_STALE_AFTER`
+    so a crashed machine cannot block every future run forever.
+    """
+    path = _gate_state_dir() / f"{name}.lock"
+    deadline = time.monotonic() + timeout
+    handle = None
+    while handle is None:
+        try:
+            handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if _lock_is_stale(path):
+                # Best effort: if another run breaks it first, the next
+                # exclusive create simply fails again and we keep waiting.
+                with contextlib.suppress(OSError):
+                    path.unlink()
+                continue
+            if time.monotonic() > deadline:
+                raise AssertionError(
+                    f"waited {timeout:.0f}s for the {name!r} gate lock at {path}. "
+                    "Another gate run is holding it; if nothing is running, delete that file."
+                ) from None
+            time.sleep(poll)
+    try:
+        os.write(handle, json.dumps({"pid": os.getpid(), "at": time.time()}).encode())
+        os.close(handle)
+        handle = None
+        yield
+    finally:
+        if handle is not None:  # pragma: no cover - only on a write failure
+            os.close(handle)
+        with contextlib.suppress(OSError):
+            path.unlink()
+
+
+def _lock_is_stale(path: Path) -> bool:
+    try:
+        held = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except (OSError, ValueError):
+        # Unreadable or half-written: judge it by age alone, since a lock whose
+        # holder never finished writing it is exactly the crashed case.
+        try:
+            return time.time() - path.stat().st_mtime > LOCK_STALE_AFTER
+        except OSError:
+            return False
+    pid, at = held.get("pid"), held.get("at", 0)
+    if isinstance(pid, int) and not _process_alive(pid):
+        return True
+    return time.time() - float(at) > LOCK_STALE_AFTER
+
+
+def _claimed_ports(registry: Path) -> dict[str, float]:
+    try:
+        claims = json.loads(registry.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    now = time.time()
+    return {
+        port: claimed
+        for port, claimed in claims.items()
+        if isinstance(claimed, int | float) and now - claimed < PORT_CLAIM_TTL
+    }
+
+
 def free_port() -> int:
     """A currently-free localhost port, for the cases that need a STABLE host
     port. Docker's `-p 127.0.0.1:0:8883` picks a fresh port on every container
     start, so a test that stops and restarts a broker (E3.2's reconnect
     acceptance) has to name the port itself or the client would be dialling
-    the old one after the restart."""
+    the old one after the restart.
+
+    **Binding port 0 is not enough when more than one run is on the machine.**
+    The socket is closed before the caller returns, and callers then write the
+    number into a database row and only later ask Docker to publish it. In that
+    window the kernel is free to hand the same port to another gate run's
+    `bind(0)`, and the loser fails with "port is already allocated" — or, worse,
+    connects to the winner's container. Re-picking inside `ephemeral_broker`
+    cannot fix it either, because by then the port is already committed to the
+    `deployment_service` row the test seeded.
+
+    So a claim is recorded in a machine-wide registry, under the same lock every
+    run uses, and ports claimed by a live run are skipped. Claims expire after
+    `PORT_CLAIM_TTL` so an interrupted run leaks nothing permanently.
+    """
+    registry = _gate_state_dir() / "ports.json"
+    with gate_lock("ports", timeout=60.0, poll=0.05):
+        claims = _claimed_ports(registry)
+        for _ in range(64):
+            with contextlib.closing(socket.socket()) as probe:
+                probe.bind(("127.0.0.1", 0))
+                port: int = probe.getsockname()[1]
+            if str(port) in claims:
+                continue
+            claims[str(port)] = time.time()
+            registry.write_text(json.dumps(claims), encoding="utf-8")
+            return port
+        raise AssertionError(
+            f"could not find an unclaimed free port in 64 tries ({len(claims)} claims held); "
+            f"if no gate run is active, delete {registry}"
+        )
+
+
+def _host_port_accepting(port: int, connect_timeout: float = 1.0) -> bool:
+    """Whether THIS process can open a TCP connection to a published port."""
     with contextlib.closing(socket.socket()) as probe:
-        probe.bind(("127.0.0.1", 0))
-        port: int = probe.getsockname()[1]
-        return port
+        probe.settimeout(connect_timeout)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def wait_for_host_port(port: int, *, timeout: float = 30.0) -> bool:
+    """Wait until a published port answers ON THE HOST, not inside the container.
+
+    Every readiness probe in this file used to run through `docker exec` —
+    `pg_isready`, `nc -z` — which proves the SERVER is up and proves nothing at
+    all about the port forward that the test client will actually dial. Docker
+    Desktop's forwarder drops publishes under concurrent load (D99), and when it
+    does, the container is healthy, `docker port` cheerfully reports a mapping,
+    and the connection is refused. That surfaced as seven `test_audit` errors
+    reporting a *migration* failure, which is three layers from the cause.
+
+    So the forward is now asserted where it is used: from the host, over TCP.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _host_port_accepting(port):
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def _wait_until_accepting(name: str, env: dict[str, str], attempts: int = 60) -> None:
@@ -305,6 +530,12 @@ class Broker:
         started = docker_retry([docker_cli(), "start", self.name], env, what="broker restart")
         assert started.returncode == 0, f"could not restart the broker: {started.stderr}"
         _wait_until_accepting(self.name, env)
+        # The forward is re-established on every start, and E3.2's reconnect
+        # acceptance dials this port from the host the instant we return.
+        assert wait_for_host_port(self.port), (
+            f"broker {self.name} restarted and accepts inside the container, but its "
+            f"published port {self.port} never answered from the host"
+        )
 
 
 @contextlib.contextmanager
@@ -366,6 +597,10 @@ def ephemeral_broker(dev_dir: Path, host_port: int | None = None):
             raise AssertionError(f"broker exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}")
         published = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
         _wait_until_accepting(name, env)
+        assert wait_for_host_port(published), (
+            f"broker {name} is accepting inside the container but its published port "
+            f"{published} never answered from the host (D99: Docker's forwarder under load)"
+        )
         yield Broker(name=name, port=published, dev_dir=dev_dir)
     finally:
         subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
