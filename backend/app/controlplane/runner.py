@@ -53,11 +53,13 @@ import contextlib
 import logging
 import os
 import signal
+import time
 import uuid
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -448,10 +450,14 @@ class ReconciliationWorker:
         drift_interval: float = 300.0,
         manager: MqttClientManager | None = None,
         consumer: ReportedConsumer | None = None,
+        heartbeat_path: Path | None = None,
+        heartbeat_interval: float = 5.0,
     ) -> None:
         self._sessions = session_factory
         self._timeout_interval = timeout_interval
         self._drift_interval = drift_interval
+        self._heartbeat_path = heartbeat_path
+        self._heartbeat_interval = heartbeat_interval
         self._consumer = consumer if consumer is not None else ReportedConsumer(session_factory)
         self._manager = (
             manager
@@ -459,6 +465,7 @@ class ReconciliationWorker:
             else MqttClientManager(lambda: load_broker_coordinates(session_factory, secret_store))
         )
         self._tasks: list[asyncio.Task[None]] = []
+        self._sweeps: list[asyncio.Task[None]] = []
         self._stopping = asyncio.Event()
         self._running = False
         self.counters = WorkerCounters()
@@ -485,6 +492,14 @@ class ReconciliationWorker:
                 name="reconcile-drift-sweep",
             ),
         ]
+        #: The sweeps alone — what the heartbeat vouches for. Kept apart from
+        #: `_tasks` so that adding a task here never silently widens or
+        #: narrows what "healthy" means.
+        self._sweeps = list(self._tasks)
+        if self._heartbeat_path is not None:
+            self._tasks.append(
+                asyncio.create_task(self._heartbeat_loop(), name="reconcile-heartbeat")
+            )
         # The FIRST attempt is awaited so a healthy start is fully started when
         # this returns and a caller may `wait_connected` immediately. A failed
         # one retries inside the manager (E3.2) rather than killing the
@@ -573,6 +588,34 @@ class ReconciliationWorker:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), interval)
 
+    async def _heartbeat_loop(self) -> None:
+        """Touch the liveness file, but ONLY while the sweeps are still alive.
+
+        This is a real check, not a tick that proves the process has not
+        segfaulted. The failure this worker can actually suffer is a sweep
+        task dying while the process stays up holding its broker connection —
+        from the outside indistinguishable from a healthy fleet, which is the
+        whole reason `_sweep_loop` swallows exceptions. If that ever stops
+        being enough and a task does die, the file goes stale and the
+        container goes unhealthy.
+
+        Why a file rather than a port: the worker serves nothing. Opening an
+        HTTP port purely to answer a healthcheck would add a listening socket,
+        a framework and a route to a process whose entire job is to talk to
+        Postgres and a broker.
+        """
+        assert self._heartbeat_path is not None
+        while not self._stopping.is_set():
+            if all(not task.done() for task in self._sweeps):
+                try:
+                    self._heartbeat_path.write_text(str(int(time.time())), encoding="utf-8")
+                except OSError:
+                    log.exception("could not write the heartbeat file; the loop continues")
+            else:
+                log.error("a sweep task has died; letting the heartbeat go stale")
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), self._heartbeat_interval)
+
 
 async def run_worker(settings: Settings | None = None) -> None:
     """The standalone entrypoint's body: build everything, run until signalled.
@@ -588,6 +631,10 @@ async def run_worker(settings: Settings | None = None) -> None:
         SecretStore(session_factory, resolved.kek),
         timeout_interval=float(resolved.timeout_sweep_seconds),
         drift_interval=float(resolved.drift_sweep_seconds),
+        # Only the standalone process writes one: it is the container the
+        # compose healthcheck probes. Under EOE_WORKER_IN_API the API's own
+        # HTTP healthcheck already covers the process.
+        heartbeat_path=Path(resolved.worker_heartbeat_path),
     )
     loop = asyncio.get_running_loop()
     stop = asyncio.Event()

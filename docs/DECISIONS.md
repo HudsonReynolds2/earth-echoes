@@ -4,6 +4,38 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D92 (2026-08-10): The worker gets a REAL healthcheck, because `disable: true` is red in
+CI and green locally (E3.7 defect, found in CI)
+
+- **What went wrong:** CI failed the two container tests with
+  `container eoe-verify-test-worker-1 has no healthcheck configured`. E3.7 gave the `worker`
+  service `healthcheck: disable: true` — deliberately, with a good argument: the shared image
+  probes the API's HTTP port, which the worker does not have, and "a green tick that proves
+  nothing is worse than no tick". The local Compose (v5.3.1) accepts a disabled healthcheck
+  under `compose up --wait`; the runner's rejects it. **Green here, red there**, on already
+  pushed and tagged commits.
+- **Decision:** the worker writes a liveness stamp and the compose healthcheck reads its age.
+  `EOE_WORKER_HEARTBEAT_PATH`, default `/tmp/eoe-worker.heartbeat`, written every 5s by a
+  loop that **only writes while both sweep tasks are alive**.
+- **Why this keeps E3.7's argument rather than abandoning it:** the check is real. The
+  failure a worker can actually suffer is a sweep task dying while the process stays up
+  holding its broker connection — from outside indistinguishable from a healthy fleet, which
+  is exactly why `_sweep_loop` swallows exceptions in the first place. A tick that only
+  proved the process had not segfaulted would report that as healthy forever.
+  `test_a_dead_sweep_lets_the_heartbeat_go_stale` is the guard.
+- **Why a file and not a port:** the worker serves nothing. An HTTP port opened purely to
+  answer a probe means a socket, a framework and a route added to a process whose entire job
+  is to talk to Postgres and a broker.
+- **Only the standalone process writes one.** Under `EOE_WORKER_IN_API` the API's own
+  healthcheck already covers the process, and the suite runs the worker hundreds of times
+  without wanting a file each — `test_no_heartbeat_file_is_written_unless_one_is_asked_for`.
+- **Guarded against recurrence:** `test_no_compose_service_disables_its_healthcheck` bans
+  `disable: true` outright, since that is precisely what CI rejects and the only part
+  decidable from the compose file. This is the third defect this batch that was invisible to
+  one side of the CI/local split (D87, D90, D92); the pattern is that the gate and CI do not
+  run in identical environments, and each such difference is worth a guard rather than a
+  memory.
+
 ## D91 (2026-08-10): A missed-wake EVENT flips liveness immediately, and the platform
 still computes nothing (E3.9)
 

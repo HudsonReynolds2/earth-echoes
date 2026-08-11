@@ -1226,3 +1226,81 @@ async def test_a_manager_built_from_the_same_rows_publishes_and_the_worker_consu
     with factory() as db:
         db.execute(delete(ConfigRevision))
         db.commit()
+
+
+# =========================================================================
+# The container healthcheck (D92)
+# =========================================================================
+
+
+async def test_the_heartbeat_is_written_while_the_sweeps_are_alive(sessions, tmp_path):
+    """The compose `worker` has no port to probe, so the healthcheck reads the
+    age of this file. It must exist and stay fresh while the worker works."""
+    stamp = tmp_path / "beat"
+    worker = ReconciliationWorker(
+        sessions,
+        SecretStore(sessions, make_kek()),
+        manager=StubManager(),
+        timeout_interval=3600,
+        drift_interval=3600,
+        heartbeat_path=stamp,
+        heartbeat_interval=0.05,
+    )
+    async with worker:
+        for _ in range(100):
+            if stamp.exists():
+                break
+            await asyncio.sleep(0.05)
+        assert stamp.exists(), "the container would never become healthy"
+        first = stamp.read_text()
+        await asyncio.sleep(0.2)
+        assert stamp.read_text() >= first
+
+
+async def test_a_dead_sweep_lets_the_heartbeat_go_stale(sessions, tmp_path):
+    """THE reason this is a real check rather than a tick (D92).
+
+    The failure a worker can actually suffer is a sweep task dying while the
+    process stays up holding its broker connection — from outside
+    indistinguishable from a healthy fleet. A heartbeat that only proved the
+    process had not segfaulted would report that as healthy forever.
+    """
+    stamp = tmp_path / "beat"
+    worker = ReconciliationWorker(
+        sessions,
+        SecretStore(sessions, make_kek()),
+        manager=StubManager(),
+        timeout_interval=3600,
+        drift_interval=3600,
+        heartbeat_path=stamp,
+        heartbeat_interval=0.05,
+    )
+    async with worker:
+        for _ in range(100):
+            if stamp.exists():
+                break
+            await asyncio.sleep(0.05)
+        assert stamp.exists()
+
+        # Kill a sweep the way an unhandled error would.
+        worker._sweeps[0].cancel()
+        await asyncio.sleep(0.2)
+        frozen = stamp.read_text()
+        await asyncio.sleep(0.3)
+
+        assert stamp.read_text() == frozen, (
+            "the heartbeat kept ticking with a dead sweep, so the container "
+            "would stay green while nothing was being reconciled"
+        )
+
+
+async def test_no_heartbeat_file_is_written_unless_one_is_asked_for(sessions, tmp_path):
+    """`EOE_WORKER_IN_API` runs the worker inside a process that already has an
+    HTTP healthcheck, and the suite runs it hundreds of times. Neither should
+    litter the filesystem."""
+    worker = ReconciliationWorker(
+        sessions, SecretStore(sessions, make_kek()), manager=StubManager(), timeout_interval=3600
+    )
+    async with worker:
+        await asyncio.sleep(0.1)
+    assert list(tmp_path.iterdir()) == []

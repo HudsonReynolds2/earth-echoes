@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     # per applied device, and a device that diverges tells us so on its next
     # report anyway - this sweep is the backstop for the one that does not.
     drift_sweep_seconds: int = Field(default=300, validation_alias="EOE_DRIFT_SWEEP_SECONDS")
+    # Where the standalone worker writes its liveness stamp. The compose
+    # healthcheck reads the file's age; the worker serves no port, and
+    # opening one purely to answer a probe would add a socket, a framework
+    # and a route to a process that only talks to Postgres and a broker.
+    worker_heartbeat_path: str = Field(
+        default="/tmp/eoe-worker.heartbeat", validation_alias="EOE_WORKER_HEARTBEAT_PATH"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:

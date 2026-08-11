@@ -45,12 +45,28 @@ services:
       EOE_TIMEOUT_SWEEP_SECONDS: ${EOE_TIMEOUT_SWEEP_SECONDS:-30}
       EOE_DRIFT_SWEEP_SECONDS: ${EOE_DRIFT_SWEEP_SECONDS:-300}
     # The shared image's HEALTHCHECK probes the API's HTTP port, which this
-    # process does not have. Disabled rather than faked with a command that
-    # always succeeds: `compose up --wait` would otherwise wait out a check
-    # that can never pass, and a green tick that proves nothing is worse than
-    # no tick. The worker's liveness is its log and the state it advances.
+    # process does not have, so this replaces it rather than inheriting it.
+    # It was `disable: true` until CI refused: `compose up --wait` errors with
+    # "has no healthcheck configured" on the runner's Compose, while the local
+    # one tolerated it — so the gate was green here and red there (D92).
+    #
+    # This is a REAL check, and the original comment's point stands: a green
+    # tick that proves nothing is worse than no tick. The worker writes the
+    # stamp only while BOTH sweep tasks are alive, so the failure it actually
+    # catches is the one that matters — a sweep dying while the process stays
+    # up holding its broker connection, which from outside is indistinguishable
+    # from a healthy fleet.
     healthcheck:
-      disable: true
+      test:
+        - CMD-SHELL
+        - test $$(( $$(date +%s) - $$(stat -c %Y /tmp/eoe-worker.heartbeat) )) -lt 30
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      # The stamp appears once the sweeps are running; until then the file does
+      # not exist and `stat` fails, which is correct and must not be counted
+      # against the container while it is still starting.
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy

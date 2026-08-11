@@ -164,6 +164,28 @@ def test_compose_env_pins_every_variable_the_compose_file_interpolates():
     assert not unpinned, f"compose interpolates these but compose_env does not pin them: {unpinned}"
 
 
+def test_no_compose_service_disables_its_healthcheck():
+    """`compose up --wait` is what the container tests gate on, and on the CI
+    runner's Compose a service with `healthcheck: disable: true` ERRORS with
+    "has no healthcheck configured" — while the local Compose tolerated it.
+    That version split made the gate green here and red in CI (D92).
+
+    Only `disable: true` is banned, because that is exactly what CI rejects and
+    the only part decidable from this file. A service with no `healthcheck` key
+    inherits its image's HEALTHCHECK (`api` and `frontend` both do, and both
+    report healthy); whether an inherited one probes the right thing is a
+    question about the Dockerfile, which is why `worker` — sharing the API
+    image but serving no HTTP port — has to override rather than inherit.
+    """
+    compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))
+    disabled = [
+        name
+        for name, service in compose["services"].items()
+        if (service.get("healthcheck") or {}).get("disable")
+    ]
+    assert not disabled, f"`compose up --wait` fails in CI for these: {disabled}"
+
+
 def test_compose_publishes_the_fixed_ports():
     compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))
     for service, mapping in FIXED_PORTS.items():
