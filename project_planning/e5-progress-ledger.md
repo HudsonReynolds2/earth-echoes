@@ -22,11 +22,11 @@ SIM sessions keep the primary tree.
 
 | Unit | Status | Checkpoint | Decisions | Notes |
 |---|---|---|---|---|
-| E5.0 Phase document and records | built, awaiting C1 | C1 | D104-D108 | Phase doc, this ledger, project-changes entries, plan §3 / phase-4 §2 / spec item 14 addenda. Docs only. |
-| E5.1 Services data model | built, targeted tests green | C1 | D109 | Migration `a31287354e23`. Widened `service_key` to five, conditional `mqtt` CHECK, `config`/`secret_names` JSONB, five status columns, `deployment.services_status`, `app/services/store.py`. Fixed the `DELETE /deployments/{id}` 500. One additive E3-owned edit in `controlplane/broker.py`: a row missing its connection columns is skipped, not fatal. Targeted: `test_services_model.py`, 13 passed. |
-| E5.2 Write-only secrets API | built, targeted tests green | C1 | D110 | `app/services/schemas.py` (five `extra="forbid"` models, `KeepSecret`, pure `plan_write`, `redacted_settings`) and `app/api/services.py`. `MANAGE_SERVICES`/`VIEW_SERVICES` added to `rbac.py`, `rbac.ts`, `test_rbac.py` and `rbac.test.tsx` — additions only, the test-critical matrix is not weakened. D110: the PUT is a partial collection of wholesale members and has no delete. `E0_ROUTES` in `test_e0_readiness.py` extended by the two routes. Targeted: `test_services_api.py` 24 passed, plus `test_rbac`/`test_api_skeleton`/`test_audit`/`test_scoping`/`test_e0_readiness`/`test_services_model` green; ruff, `mypy app`, `tsc --noEmit` clean. |
-| **C1 full gate** | — | — | — | Baseline and post-C1 warm gate durations recorded below. |
-| E5.3 Connection test framework | built, targeted tests green | C2 | D111 | `app/services/testers/{__init__,base}.py`: `ServiceTester` protocol, `TestResult`/`CheckResult` with a required remedy, `ServiceCredentials` (secrets `repr=False`, the D66 precedent), the concurrent runner with per-tester **and** whole-call budgets, `resolve_credentials` (candidate beats stored, sentinel reaches back), and `POST .../services/test`. D111: four outcomes, two of which are not failures. `REGISTRY` ships EMPTY — E5.4a-e fill it. `E0_ROUTES` extended by the one route. Targeted: `test_service_testers.py` 25 passed; ruff, `mypy app` clean. |
+| E5.0 Phase document and records | **done (gate-54)** | C1 | D104-D108 | Phase doc, this ledger, project-changes entries, plan §3 / phase-4 §2 / spec item 14 addenda. Docs only. |
+| E5.1 Services data model | **done (gate-54)** | C1 | D109 | Migration `a31287354e23`. Widened `service_key` to five, conditional `mqtt` CHECK, `config`/`secret_names` JSONB, five status columns, `deployment.services_status`, `app/services/store.py`. Fixed the `DELETE /deployments/{id}` 500. One additive E3-owned edit in `controlplane/broker.py`: a row missing its connection columns is skipped, not fatal. Targeted: `test_services_model.py`, 13 passed. |
+| E5.2 Write-only secrets API | **done (gate-54)** | C1 | D110 | `app/services/schemas.py` (five `extra="forbid"` models, `KeepSecret`, pure `plan_write`, `redacted_settings`) and `app/api/services.py`. `MANAGE_SERVICES`/`VIEW_SERVICES` added to `rbac.py`, `rbac.ts`, `test_rbac.py` and `rbac.test.tsx` — additions only, the test-critical matrix is not weakened. D110: the PUT is a partial collection of wholesale members and has no delete. `E0_ROUTES` in `test_e0_readiness.py` extended by the two routes. Targeted: `test_services_api.py` 24 passed, plus `test_rbac`/`test_api_skeleton`/`test_audit`/`test_scoping`/`test_e0_readiness`/`test_services_model` green; ruff, `mypy app`, `tsc --noEmit` clean. |
+| **C1 full gate** | **GREEN, gate-54** | — | — | 839 backend / 115 vitest / 4 Playwright, 0 failed / 0 skipped / 0 xfailed / 0 deselected. Backend stage 262.7s. Carried E5.3 as well. Manual verification ran against a real uvicorn (see project-updates). |
+| E5.3 Connection test framework | **done (gate-54)** | C2 | D111 | `app/services/testers/{__init__,base}.py`: `ServiceTester` protocol, `TestResult`/`CheckResult` with a required remedy, `ServiceCredentials` (secrets `repr=False`, the D66 precedent), the concurrent runner with per-tester **and** whole-call budgets, `resolve_credentials` (candidate beats stored, sentinel reaches back), and `POST .../services/test`. D111: four outcomes, two of which are not failures. `REGISTRY` ships EMPTY — E5.4a-e fill it. `E0_ROUTES` extended by the one route. Targeted: `test_service_testers.py` 25 passed; ruff, `mypy app` clean. |
 | E5.4a MQTT tester + dynsec probe | not started | C2 | — | Three-valued probe: `available`/`denied`/`absent`. Under fixed choice 4 a non-`available` verdict fails the tester. |
 | E5.4b InfluxDB 3 tester | not started | C2 | — | HTTP query API, not FlightSQL — no `pyarrow`. First unit to need the container rig. |
 | E5.4c Prometheus tester | not started | C2 | — | Must distinguish receiver-disabled from credentials-rejected from accepted. |
@@ -52,10 +52,15 @@ SIM sessions keep the primary tree.
 
 | Point | Warm duration | Note |
 |---|---|---|
-| Baseline (pre-E5) | to be measured at C1 | `sim-batch-1` tip; ~260s reported at gate-53 before SIM.1 landed. |
+| Baseline (pre-E5) | ~260s | Reported at gate-53, before SIM.1 landed. |
+| **C1 (E5.0-E5.3)** | **262.7s backend stage** | gate-54. Essentially flat against the baseline: this batch added 73 backend tests and no container fixture. The rig arrives with E5.4b, and the ~300s ceiling in phase-5 §5 is measured from here. |
 
 ## Notes for whoever picks this up next
 
+- **Check that no other session is running tests BEFORE you start a gate.** This is the
+  interim rule of **D112**, which also records the harness fix that would make the check
+  unnecessary (stop publishing host ports where a stable one is not needed; failing that, a
+  cross-process lock around container starts). It is E0-owned test infrastructure, not E5 work.
 - **Do not run a checkpoint gate while the SIM session is running Docker.** Measured, not
   guessed: two broad backend sweeps taken from this worktree on 2026-08-11 while the SIM
   session was live returned 829 passed / 7 errors and 831 passed / 5 errors. **Every error was

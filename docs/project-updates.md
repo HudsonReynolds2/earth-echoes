@@ -1,5 +1,67 @@
 # Project Updates
 
+## 2026-08-11: E5.1-E5.3 — services onboarding gets a data model, a write-only API, and a test framework (Gate 54 GREEN)
+
+- **Tasks closed:** E5.0, E5.1, E5.2, E5.3 on branch `e5-batch-1`, worked in a separate git
+  worktree so the parallel SIM sessions keep the primary tree. This is checkpoint **C1** of the
+  epic's five, and it carries E5.3 (a C2 unit) as well, because the unit was finished before the
+  gate ran and gating it separately would have bought nothing.
+- **Gate 54 GREEN:** `make gate`, **839 backend / 115 vitest / 4 Playwright, 0 failed / 0
+  skipped / 0 xfailed / 0 deselected**. Backend stage 262.7s; `ruff check`, `ruff format
+  --check`, `mypy app` (strict) and `tsc --noEmit` all clean.
+- **E5.1 (built in the prior session, verified in this one).** `deployment_service` widens
+  rather than forks (phase-5 fixed choice 1): five spec 16.2 `service_key`s, the four
+  MQTT-shaped connection columns nullable behind a conditional CHECK that still makes them
+  mandatory for an `mqtt` row, `config`/`secret_names` JSONB, the per-service status block, and
+  `deployment.services_status`. Migration `a31287354e23`. It also fixed a live 500:
+  `DELETE /deployments/{id}` hit `deployment_service`'s hard FK for any deployment `devbroker`
+  had touched. D109.
+- **E5.2 — the write-only secrets API.** `GET/PUT /deployments/{id}/services`, with one
+  `extra="forbid"` Pydantic model per service in `app/services/schemas.py` — which is where the
+  typing E5.1 promised when it chose JSONB actually happens. Secret fields take a plaintext, the
+  D51 keep sentinel, or nothing; the GET renders a set secret as the sentinel and is redacted by
+  construction, because it reads the row and never SecretStore. **D110:** the PUT is a partial
+  collection of wholesale members — within a service a merge would silently keep a field the
+  operator cleared, and across services wholesale replacement would force the wizard to
+  resubmit four credentials it does not hold. No delete: removing the `mqtt` row would strand
+  the control plane.
+- **E5.3 — the connection test framework.** `ServiceTester`, `TestResult`/`CheckResult` with a
+  required remedy, the concurrent runner with per-tester **and** whole-call budgets,
+  `resolve_credentials`, and `POST .../services/test`. **D111:** a tester says four things and
+  two of them are not failures (`not_required`, `not_configured`) — red an operator is meant to
+  ignore destroys the meaning of the red that matters. `REGISTRY` ships **empty**; E5.4a-e fill
+  it, and until then the endpoint honestly reports no results rather than inventing verdicts.
+- **Two new permissions** (fixed choice 9): `MANAGE_SERVICES` (Owner and Deployment Operator
+  only) and `VIEW_SERVICES` (all four roles). The RBAC suite is test-critical: these are rows
+  **added** to its matrix and every existing assertion is untouched.
+- **Manual verification** (outside the test harness, against a real Postgres container, real
+  `alembic upgrade head`, a real uvicorn process and real HTTP): seeded the demo hierarchy, PUT
+  Influx and S3 credentials as plaintext, and confirmed by `grep` over the raw response bodies
+  that **none of the three submitted plaintexts appears in the PUT or GET response**; the GET
+  rendered every set secret as `{"$secret_set": true}` and the five services in spec 16.2 order.
+  `SecretStore.get` round-tripped both values, and a `LIKE` over `secret.ciphertext` matched
+  zero rows — the values are stored encrypted, not merely hidden. `POST .../services/test`
+  returned 200 with `results: []` (no tester registered yet). The audit rows read
+  `{"services": {...field names...}}` and `{"outcomes": {}}`, and a `LIKE` over `audit_log.detail`
+  for the plaintexts matched zero rows. A field tech got 200 on GET and **403** on both PUT and
+  test. No plaintext in the uvicorn log. A deployment with pods still refuses with **409**; a
+  childless deployment carrying two service rows and three secrets deleted with **204**, leaving
+  zero rows and zero secrets — the E5.1 500, gone.
+- **One honest note on the road to this gate.** Two earlier broad sweeps taken while the SIM
+  session was live returned 829/7 errors and 831/5 errors. Every error was a container fixture
+  failing to start, none was a test-logic failure, and the errored modules moved between runs.
+  The fault is D99's `/forwards/expose ... 500`, which `docker_retry` already retries and which
+  still exhausts under two sessions. **Neither run was recorded as a gate result**; the gate
+  above was run with the other session idle. **D112** records the defect, the interim rule
+  (check before gating) and the harness fix that is owed — and says explicitly not to widen
+  `docker_retry`, which is narrow on purpose.
+- **Artifacts:** `backend/app/services/schemas.py`, `backend/app/services/testers/{__init__,base}.py`,
+  `backend/app/api/services.py`; `app/auth/rbac.py` and `frontend/src/lib/rbac.ts` (two
+  permissions); suites `backend/tests/test_services_api.py` (24) and
+  `backend/tests/test_service_testers.py` (25), plus additions to `test_rbac.py` and the two new
+  routes in `test_e0_readiness.py::E0_ROUTES`; `docs/INTERFACES.md` gains its **Owned by E5**
+  section; DECISIONS D110, D111, D112; `project_planning/e5-progress-ledger.md` current per unit.
+
 ## 2026-08-11: The gate runs in parallel — 541s to 260s (Gate 53 GREEN)
 
 - **Not a SIM task.** Taken between SIM.0 and SIM.1, on the owner's instruction, because five

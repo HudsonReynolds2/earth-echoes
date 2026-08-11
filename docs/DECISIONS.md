@@ -4,6 +4,52 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D112 (2026-08-11): The test harness is not safe to run twice at once, and that is a defect
+to fix rather than a habit to work around
+
+- **The defect.** Container fixtures publish Docker host ports, and two concurrent runs of the
+  suite — two agent sessions, two worktrees, a gate beside a targeted run — make Docker
+  Desktop's port forwarder return `/forwards/expose returned unexpected status: 500`.
+  `conftest.docker_retry` already retries that exact string five times with a backoff (D99) and
+  still exhausts under two sessions, because the retry was tuned for one gate's INTERNAL xdist
+  concurrency and not for two gates at once.
+- **Why it is worth a decision entry rather than a shrug: the failure is indistinguishable from
+  a red gate at a glance, and it is not one.** Measured twice on 2026-08-11 from the E5
+  worktree while the SIM session was live: 829 passed / 7 errors, then 831 passed / 5 errors.
+  Every error was a container fixture failing to start, **none was a test-logic failure**, and
+  the errored modules moved between runs (`test_e0_readiness`; then `test_publish_revision` and
+  `test_end_to_end_loop`), each passing on its own immediately afterwards. Under rule R0 a
+  session that reports this as a red gate is wrong, and a session that reports it as a pass is
+  worse. It is an **invalid measurement** — the run has to be repeated, not interpreted.
+- **The interim rule, binding until the fix lands.** Before `make gate` or any Docker-backed
+  suite, confirm no other session is running tests in this repository. A run that comes back
+  with container-startup errors is re-run with the other session idle; it is neither recorded
+  as a gate result nor written into `project-updates.md`.
+- **What NOT to do.** Do not widen `docker_retry` to swallow this. It is narrow on purpose
+  (D99): a retry loop around every Docker failure turns a genuinely broken image or a bad flag
+  into a slow, silent timeout, which is a far more expensive failure than this one. Widening it
+  hides the contention instead of removing it.
+- **The fix, owed and not yet scheduled.** Make the harness safe to run concurrently rather
+  than asking every session to remember not to. The candidate approaches, in the order they
+  look worth trying:
+  1. **Stop publishing host ports at all** for the container fixtures that do not need a
+     stable one — talk to containers on the Docker network by container IP, or run the tests
+     themselves in a container on that network. The forwarder is the thing that fails; not
+     using it removes the whole class. `free_port()` exists precisely because a few tests need
+     a STABLE host port across a restart, so those are the only ones that would still need
+     publishing.
+  2. **A cross-process lock** around port-publishing container starts (an OS file lock under
+     the repo root), so two sessions serialize at the one operation that cannot take
+     concurrency, rather than serializing whole gates.
+  3. **Name the ports deterministically per worktree** from a hash of the checkout path, so two
+     worktrees cannot contend for the same number even when they publish at once.
+  Option 1 is the real fix; option 2 is the cheap one that would have prevented both invalid
+  runs above. This is E0-owned test infrastructure and does not belong to E5 — E5 recorded it
+  because E5 is where it cost two five-minute sweeps to diagnose.
+- **Reference:** D99 and the gate-53 commit (which first identified the forwarder fault and
+  added the narrow retry); `backend/tests/conftest.py::docker_retry`,
+  `ephemeral_postgres`, `ephemeral_broker`; `project_planning/e5-progress-ledger.md`.
+
 ## D111 (2026-08-11): A tester says four things, not three, and two of them are not failures
 (E5.3)
 
