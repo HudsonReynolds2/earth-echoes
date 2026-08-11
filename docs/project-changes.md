@@ -5,6 +5,29 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #25 (2026-08-11): The gate suite becomes safe to run concurrently, on the SIM branch
+
+- **What changed:** `backend/tests/conftest.py` gains cross-process coordination — a machine-wide
+  lock, a port-claim registry, and host-side reachability probes — so several gate runs can share
+  one machine without corrupting each other. DECISIONS D110.
+- **Why it is here and not in an E0 or E3 batch.** It is E0/E3-owned test infrastructure and
+  nothing in epic SIM needs it; under rule R2 it would ordinarily be a stop-and-ask. The owner
+  asked for it directly on 2026-08-11, after the gate-55 batch lost two gate runs to a concurrent
+  suite in the `e5-batch-1` worktree, and chose to land it on `sim-batch-1` rather than a separate
+  branch.
+- **No test's meaning changes.** No assertion is weakened, no test is skipped, no timeout is
+  loosened to paper over a race. The four test-critical suites (spec 14.5) are untouched. What
+  changes is that fixtures now assert the port forward they actually depend on, and that two runs
+  take turns over the resources that are singular per machine.
+- **Scope deliberately NOT taken:** parameterising the compose file's published host ports. That
+  would let the two fixed-port tests run concurrently too, but it changes a documented operator
+  contract and `test_repo_layout`'s `FIXED_PORTS` pin. Recorded in D110 as the option to take if
+  the ~45s of queueing ever matters.
+- **Who approved:** the owner, on 2026-08-11, choosing the lock over dynamic ports and
+  `sim-batch-1` over a new branch.
+- **Affects:** project_planning/phase-0-foundations.md §4 (E0.1 compose stack checks)
+- **Addendum:** PHASE0-4-07
+
 ## #24 (2026-08-11): SIM.1, SIM.2 and SIM.3 share one gate
 
 - **What changed:** the three tasks are gated together, once, after SIM.3, rather than each

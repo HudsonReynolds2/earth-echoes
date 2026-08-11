@@ -4,8 +4,107 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D111 (2026-08-11): The shutdown assertion classifies the survivor instead of timing it out —
+and the underlying cause is NOT yet known (owner request)
+
+- **What is actually established, and what is not.** `test_shutdown_leaves_no_running_tasks` fails
+  intermittently — twice in about ten full-suite runs — with an aiomqtt `Client._misc_loop()`
+  outliving `stop()`. It has done so since gate 49 (D94), was addressed twice (D97's settle
+  window, D109's widening of it) and **still fails**: a gate on an IDLE host sat the full 30.10s
+  and went red. **Whether that survivor was holding a live socket is unknown**, because nothing
+  ever recorded it. D109 asserted the widening was the fix; it was not, and that entry is marked
+  superseded rather than rewritten. This entry does not claim a fix either.
+- **Decision, and it is about the assertion rather than the cause.** The check now classifies what
+  survived instead of waiting out a fixed deadline:
+  * a survivor **holding a live socket** fails IMMEDIATELY — it is D94's leak, `loop_misc()` will
+    return success under it forever, and every second waited reaches the same verdict later. A
+    failure used to cost 30s to say this;
+  * a survivor **with no socket** gets a short window, because `loop_misc()` returns
+    `MQTT_ERR_NO_CONN` as soon as `_sock is None` and the loop ends within one of its own
+    1-second iterations — and it **still fails** at the deadline. The wait proves the exit; it
+    does not excuse the absence of one;
+  * a survivor whose shape cannot be read is assumed to be NEITHER, and waits with the rest.
+- **That last clause is a correction to this session's own first attempt**, which treated an
+  unreadable task as a leak and failed at once "because strictness is the point". It is not
+  strictness, it is a false positive: an unrelated task passing through the event loop for a
+  moment would fail the test on shape alone, where watching it disappear is both stricter and
+  fairer. The first version of this change produced exactly one such failure before it was caught.
+- **Nothing is excused.** Not by name (D109's rejected filter), not by category, not by shape. The
+  only thing that changed is how quickly the answer is reached, and that the failure message now
+  reports `socket=LIVE` or `socket=gone` and paho's connection state — so the NEXT occurrence
+  identifies the cause instead of restarting this investigation.
+- **The settle window comes back down, 30s → 10s,** because the case it was widened for now fails
+  fast on its own merits. If a socketless loop ever does need longer, the message will say
+  `socket=gone` and that is real information about the mechanism rather than another guess.
+- **Still open for E3:** why a `_misc_loop` outlives `stop()` at all. `_connection_loop` builds a
+  fresh client per attempt and its `finally` closes the stack, so the obvious orphaned-task race
+  in aiomqtt's `_on_socket_open`/`_on_socket_close` pair does not explain it. It did not reproduce
+  in roughly 30 targeted attempts (standalone, whole-module, under CPU saturation, and full
+  parallel stages), which is why this entry ships a diagnosis-ready assertion rather than a fix.
+- **Reference:** D94, D97, D109; backend/tests/test_mqtt_manager.py (`_tasks_outliving`,
+  `_paho_socket_is_live`, `describe_leaked_task`).
+
+## D110 (2026-08-11): The suite is safe to run from several processes at once, arbitrated by the
+OS rather than by pytest (owner request, after the gate-55 contention)
+
+- **The problem, measured rather than assumed.** Two gate runs on one machine — two agents, two
+  terminals, two worktrees — corrupt each other in five distinct ways, and `xdist_group` cannot
+  help with any of them: it serialises tests inside ONE pytest session and knows nothing about a
+  second. The gate-55 batch hit two of the five for real (a red gate with seven `test_audit`
+  errors, and a shutdown flake), which is what prompted this.
+- **Decision, in four parts.**
+  1. **Host reachability is asserted where it is used.** Every readiness probe in the suite ran
+     through `docker exec` — `pg_isready`, `nc -z` — proving the SERVER was up and proving nothing
+     about the port forward the test client dials. Docker's forwarder drops publishes under
+     concurrent load (D99); when it does, the container is healthy, `docker port` reports a
+     mapping, and the connection is refused. `wait_for_host_port()` now does a real TCP connect
+     from the host, and `ephemeral_postgres` retries the WHOLE container when the forward never
+     appears — there is nothing to retry at the command level, because the command succeeded.
+  2. **`free_port()` claims are registered machine-wide.** Binding port 0 and closing the socket
+     is not an allocation: callers write the number into a `deployment_service` row and only later
+     ask Docker to publish it, and in that window the kernel may hand the same port to another
+     run's `bind(0)`. **Measured: four concurrent processes taking 150 ports each were handed 18
+     duplicate ports out of 600 (3%). With a lock-protected registry and a TTL, 0 out of 600.**
+     Re-picking inside `ephemeral_broker` could not have fixed this — by then the port is already
+     committed to the seeded row.
+  3. **A machine-wide lock serialises the fixed-port modules.** `test_compose_stack` and
+     `test_verify_tool` publish 18000/15173/15432/16379/18883 and share the generated
+     `deploy/dev-certs` that mosquitto bind-mounts. Two runs overlapping there do not merely
+     collide on a port: one regenerates the CA and passwd files while the other's broker is
+     serving from them. An autouse fixture keyed on the existing `FIXED_PORT_MODULES` holds
+     `gate_lock("compose-stack")` around the whole test, setup and teardown included, because the
+     fixtures that publish those ports run outside the body.
+  4. **The lock is an exclusive-create file, not `fcntl.flock`,** because the gate runs on Windows
+     too (`gate.ps1`) and `O_CREAT | O_EXCL` is atomic on every filesystem the gate supports. The
+     holder's PID and timestamp go in it: a lock whose owner has died is broken immediately, one
+     whose owner is wedged after `LOCK_STALE_AFTER`, so a crashed machine cannot block every
+     future run forever. State lives in one directory per MACHINE (system temp), not per checkout
+     — two worktrees have to see each other's claims, and a `git clean` must not desynchronise
+     two runs mid-flight.
+- **Why a lock rather than dynamic compose ports.** Parameterising the published ports would give
+  true parallelism for those two tests as well, but it changes an E0-owned documented port
+  contract, moves `test_repo_layout`'s `FIXED_PORTS` pin, needs a per-run `dev-certs` directory
+  too, and puts twelve stack containers and two image builds on one laptop at once. The two tests
+  cost ~45s; 764 of 766 go fully parallel either way. Owner chose the lock; the port
+  parameterisation is written down here as the option if queueing ever hurts.
+- **Deliberately NOT changed:** the fixed project names `eoe-gate-test` / `eoe-verify-test`. Under
+  the lock they are exclusive, and keeping them means a run that died mid-stack leaves containers
+  the NEXT run's `compose up` adopts and cleans, which unique per-run names would strand as
+  orphans.
+- **Reference:** D12, D13, D99; backend/tests/conftest.py (`gate_lock`, `free_port`,
+  `wait_for_host_port`, `_start_ephemeral_postgres`, `_serialise_fixed_port_modules`).
+
 ## D109 (2026-08-11): The shutdown settle window goes to 30 seconds, and stays name-blind
 (SIM.2/SIM.3 gate, fixing the same E3.2 test as D97)
+
+> **SUPERSEDED IN PART, 2026-08-11 (same day, same batch):** the widened window did NOT fix this.
+> A later gate on an idle host failed again after sitting the full 30.10 seconds. By this entry's
+> own structural argument that can only mean the socket was still live, which makes it a real
+> leak rather than a slow teardown — so the premise below ("D97's flake again, at a wider load")
+> is wrong. The window stays at 30s because nothing about it is harmful and the reasoning about
+> what a deadline can and cannot buy still holds, but it is not the fix. See D111 for the
+> evidence and the actual cause. Recorded rather than rewritten, because a wrong diagnosis that
+> looked convincing is worth leaving visible.
 
 - **The failure.** The folded SIM.1-3 gate went red on
   `test_mqtt_manager.py::test_shutdown_leaves_no_running_tasks` —

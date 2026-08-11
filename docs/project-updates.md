@@ -1,5 +1,51 @@
 # Project Updates
 
+## 2026-08-11: Several gate runs can now share one machine (Gate 56 GREEN)
+
+- **Not a SIM task.** Taken on the owner's instruction after the gate-55 batch lost two runs to a
+  concurrent suite in the `e5-batch-1` worktree. DECISIONS D110-D111, project-changes #25,
+  addendum PHASE0-4-07.
+- **Gate 56 GREEN:** `make gate`, 766 backend / 114 vitest / 4 Playwright, 0 failed / 0 skipped /
+  0 xfailed / 0 deselected; backend stage 257.7s. `/sim` by hand: quality clean, 54 passed.
+- **The acceptance test is the thing it was asked for.** Two full backend suites, started
+  simultaneously from one checkout: **766 passed each, both green, 298s wall-clock** against 260s
+  for a single run alone. Before this change that scenario is what produced a red gate with seven
+  `test_audit` errors.
+- **Four faults, none of which pytest could have arbitrated.** `xdist_group` serialises tests
+  inside ONE session and knows nothing about a second one, so everything singular per MACHINE was
+  unprotected. (1) Every readiness probe ran through `docker exec` — proving the server was up and
+  proving nothing about the port forward the client dials; `wait_for_host_port()` now connects
+  from the host, and `ephemeral_postgres` retries the whole container when a forward never
+  appears. (2) `free_port()` bound port 0 and closed the socket, which is not an allocation:
+  **measured, four concurrent processes taking 150 ports each were handed 18 duplicates out of
+  600; with a lock-protected machine-wide registry, 0 out of 600.** (3) The two fixed-port modules
+  publish 18000/15173/15432/16379/18883 and share the generated `deploy/dev-certs` that mosquitto
+  bind-mounts — one run regenerating the CA while another's broker serves from it — now serialised
+  by a machine-wide lock around the whole test, setup and teardown included. (4) The lock is an
+  exclusive-create file rather than `fcntl.flock`, because the gate runs on Windows too; it breaks
+  immediately when its holder has died and after a TTL when its holder is wedged.
+- **A long-standing intermittent failure was made decisive, and is NOT fixed.**
+  `test_shutdown_leaves_no_running_tasks` has failed on and off since gate 49 (D94), was addressed
+  twice (D97, D109) and still fails about twice in ten full-suite runs. It now classifies what
+  survived rather than timing it out: a survivor holding a live socket fails IMMEDIATELY, because
+  waiting reaches the same verdict slower; one with no socket gets a short window and still fails
+  at the end of it; one whose shape cannot be read waits with the rest rather than being assumed
+  guilty. Nothing is excused — not by name, not by category, not by shape. **Why a `_misc_loop`
+  outlives `stop()` at all is still unknown**, and the assertion now reports `socket=LIVE` or
+  `socket=gone` with paho's connection state so the next occurrence identifies the cause instead
+  of restarting the investigation. It did not reproduce in ~30 targeted attempts today.
+- **Two corrections to this session's own work, both recorded rather than quietly patched.** D109
+  claimed the widened settle window fixed that test; a later gate on an idle host sat the full
+  30.10s and went red, so D109 is marked superseded in part. And the first version of the new
+  classifier treated an unreadable task as a leak and failed at once — which is a false positive,
+  not strictness, since an unrelated task passing through the loop would fail the test on shape
+  alone. It produced exactly one such failure before it was caught.
+- **Manual verification** ran outside the suite: four concurrent processes claiming 150 ports each
+  with zero collisions (and the same measurement against the old implementation, which collided 18
+  times); four processes contending for one lock, serialised correctly with no overlap; a lock
+  whose holder had been killed broken in 0.00s; and a recent half-written lock correctly NOT
+  stolen.
+
 ## 2026-08-11: SIM.1-SIM.3 — a mock fleet that misbehaves on demand (Gate 55 GREEN)
 
 - **Tasks closed:** SIM.1 (mock Aggregator), SIM.2 (mock Listener behaviour) and SIM.3 (scenario

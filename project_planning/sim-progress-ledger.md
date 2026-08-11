@@ -16,8 +16,9 @@ only after the commit and tag exist.
 | SIM.1 Mock Aggregator | gate green | 55 | `gate-55` | D100, D101, D102, D103 | `/sim` uv project (own venv, ruff/mypy matching the backend), `sim/checksum.py`, `sim/device.py` (`BrokerLogin`, `MockAggregator`), `sim/tests/` bridging to the backend fixtures. All four acceptance claims asserted against a real broker and a real platform. **Gated with SIM.2 and SIM.3** (project-changes #24, addendum PHASESIM-4-01). |
 | SIM.2 Mock Listener behaviour | gate green | 55 | `gate-55` | D104, D105 | `MockListener` with no session of its own, the local link as an in-process call that refuses what a Listener cannot mean (D104), and the spec 6.5 sweep running in the device on its own configured grace (D105). All four acceptance claims asserted. |
 | SIM.3 Scenario scripting | gate green | 55 | `gate-55` | D106, D107, D108 | Typed behaviour registry + six TOML scenario files, each with a test asserting the PLATFORM's reaction (`failed`, `drifted`, LWT offline, Listener offline, `duplicate_identity` quarantine with inventory unchanged, `provisioning_required`). Load-time validation naming file and key (D107). Found and fixed D108 — an in-process kill took the event loop down. |
-| SIM.4 Fleet runner | not started | 56 | — | — | CLI, REST provisioning, `sim` compose profile, 20 × 30 default. |
-| SIM.5 CI integration | not started | 57 | — | — | `sim-quality` + `sim-protocol` stages, `guide/sim-verification.md`, INTERFACES section. |
+| Concurrency-safe test infrastructure (not a SIM task) | gate green | 56 | `gate-56` | D110 | Cross-process lock, machine-wide port-claim registry, host-side forward probes. Taken on the owner's instruction after two gate-55 runs were lost to a concurrent suite in another worktree. Two full backend suites now run at once, 766 passed each. project-changes #25, addendum PHASE0-4-07. |
+| SIM.4 Fleet runner | not started | 57 | — | — | CLI, REST provisioning, `sim` compose profile, 20 × 30 default. |
+| SIM.5 CI integration | not started | 58 | — | — | `sim-quality` + `sim-protocol` stages, `guide/sim-verification.md`, INTERFACES section. |
 
 ## Notes for whoever picks this up next
 
