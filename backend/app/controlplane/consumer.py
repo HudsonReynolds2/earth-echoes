@@ -69,9 +69,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.audit import record_audit
 from app.config.canonical import config_checksum
 from app.contracts.mqtt import (
-    DeviceEvent as DeviceEventPayload,
-)
-from app.contracts.mqtt import (
+    EVENT_LISTENER_MISSED_WAKE_WINDOW,
+    ListenerLiveness,
     MqttPayload,
     ParsedTopic,
     PayloadError,
@@ -84,6 +83,9 @@ from app.contracts.mqtt import (
     deployment_subscriptions,
     describe,
     parse_topic,
+)
+from app.contracts.mqtt import (
+    DeviceEvent as DeviceEventPayload,
 )
 from app.controlplane.broker import InboundMessage
 from app.controlplane.revision_state import (
@@ -359,8 +361,8 @@ class ReportedConsumer:
                 applied_revision_id=payload.applied_revision_id,
                 config=payload.config,
                 checksum=payload.checksum,
-                # Spec 6.5 liveness is stored by E3.9, which adds the columns.
                 health=None,
+                liveness=payload.liveness,
             )
             db.commit()
             return outcome
@@ -474,9 +476,49 @@ class ReportedConsumer:
                     detail=payload.detail,
                 )
             )
+            if payload.code == EVENT_LISTENER_MISSED_WAKE_WINDOW and payload.listener_mac:
+                self._missed_wake(db, deployment_id, payload.listener_mac, payload.at)
             db.commit()
             log.info("device event %s from %s (%s)", payload.code, topic.agg, payload.level)
             return ReportOutcome.EVENT
+
+    def _missed_wake(self, db: Session, deployment_id: uuid.UUID, mac: str, at: datetime) -> None:
+        """Spec 6.5: a sleeping Listener that did not come back is offline.
+
+        The AGGREGATOR decided this. It knows the wake time the Listener
+        declared over the local link and it applied `wake_grace_seconds`
+        itself; raising the event IS the decision. The platform is recording
+        an announcement, not evaluating a deadline — nothing here reads a
+        wake time or a grace period, and nothing here may ever start to.
+
+        Why this happens on the event rather than waiting for the report that
+        spec 6.5 says will follow: the event is the first news, and a Listener
+        that reads `sleeping` until the next reported publish is a device the
+        operator is told is fine while its own Aggregator has already said it
+        is not. Both arrive from the same Aggregator over the same ordered
+        session, so the report that follows confirms rather than contradicts.
+
+        Stages; the caller commits with the event row, so the announcement and
+        its consequence seal together or not at all.
+        """
+        stored = db.scalars(
+            select(DeviceState)
+            .where(DeviceState.entity_type == "listener", DeviceState.entity_id == mac)
+            .with_for_update()
+        ).first()
+        if stored is None:
+            # No report has ever arrived for this Listener, so there is no row
+            # to flip. The event itself is still persisted — that is the
+            # evidence, and inventing a state row from an event would put a
+            # device in the reported table that has never reported.
+            log.info("missed-wake event for %s, which has never reported", mac)
+            return
+        if stored.liveness_state == "offline":
+            return
+        stored.liveness_state = "offline"
+        stored.expected_wake_at = None  # meaningless once the window is missed
+        stored.liveness_changed_at = at
+        log.info("listener %s missed its wake window and is offline (spec 6.5)", mac)
 
     # -- the shared reported-state path --------------------------------------
 
@@ -490,6 +532,7 @@ class ReportedConsumer:
         config: dict[str, Any],
         checksum: str,
         health: dict[str, Any] | None,
+        liveness: ListenerLiveness | None = None,
     ) -> ReportOutcome:
         """Store one report and advance its revision. Stages; caller commits."""
         stored = db.scalars(
@@ -533,6 +576,20 @@ class ReportedConsumer:
         stored.checksum = checksum
         stored.config = config
         stored.health = health
+        if liveness is not None:
+            # Spec 6.5, recorded verbatim (E3.9). `liveness_changed_at` moves
+            # only on a real change, so a Listener re-reporting `sleeping`
+            # every minute does not keep resetting how long it has been
+            # asleep — the same rule `aggregator_status.changed_at` follows.
+            if stored.liveness_state != liveness.state:
+                stored.liveness_changed_at = reported_at
+            stored.liveness_state = liveness.state
+            stored.last_audio_at = liveness.last_audio_at
+            # Absent unless sleeping, which the wire contract and the
+            # `wake_time_belongs_to_sleeping` CHECK both insist on. Assigning
+            # it unconditionally is what keeps a stale wake time from
+            # surviving the Listener waking up.
+            stored.expected_wake_at = liveness.expected_wake_at
         return outcome
 
     def _advance_revision(

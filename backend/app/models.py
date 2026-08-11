@@ -590,6 +590,28 @@ class DeviceState(Base):
     __table_args__ = (
         UniqueConstraint("entity_type", "entity_id"),
         CheckConstraint("entity_type IN ('aggregator','listener')", name="entity_type_vocab"),
+        # E3.9. The spec 6.5 vocabulary, and the two shape rules the wire
+        # contract already enforces (`contracts.mqtt.ListenerLiveness`),
+        # repeated here because a constraint in Pydantic protects the boundary
+        # and a constraint in Postgres protects the table. A `sleeping` row
+        # with no wake time cannot be told from silence, and a wake time on a
+        # streaming row is a stale value something will eventually act on.
+        CheckConstraint(
+            "liveness_state IS NULL OR liveness_state IN ('streaming','sleeping','offline')",
+            name="liveness_state_vocab",
+        ),
+        CheckConstraint(
+            "(liveness_state = 'sleeping') = (expected_wake_at IS NOT NULL)",
+            name="wake_time_belongs_to_sleeping",
+        ),
+        # Aggregators have no spec 6.5 liveness at all — theirs is the LWT
+        # verdict in `aggregator_status` (E3.8). A liveness value on an
+        # aggregator row would be a second, quieter answer to a question that
+        # already has an authoritative one.
+        CheckConstraint(
+            "entity_type = 'listener' OR liveness_state IS NULL",
+            name="liveness_is_listener_only",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -614,6 +636,33 @@ class DeviceState(Base):
     #: broker's queueing, which is the gap that makes a late report late.
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+    # -- spec 6.5 Listener liveness (E3.9), NULL on every aggregator row -----
+    #
+    # The AGGREGATOR tracks all of this and the platform only records it. The
+    # Listener declares its own wake time over the local HaLow link, the
+    # Aggregator trusts that declaration rather than recomputing the schedule
+    # (the Listener's own clock is what governs when it actually wakes), and
+    # the platform is a further step removed still: it must never compute a
+    # wake window, apply a grace period, or decide on its own that a Listener
+    # has missed one. `listener.wake_grace_seconds` is a DEVICE setting that
+    # rides the config down; nothing up here reads it.
+    #: `streaming` | `sleeping` | `offline`, verbatim from the report. NULL
+    #: means no Listener report has arrived yet, which is not the same as
+    #: offline — see `liveness.py`.
+    liveness_state: Mapped[str | None] = mapped_column(String(20), default=None)
+    #: Last audio the Aggregator saw. Diagnostic; drives no verdict.
+    last_audio_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    #: Present exactly while sleeping (spec 7.3), enforced both at the wire
+    #: boundary and by `wake_time_belongs_to_sleeping` above. The moment the
+    #: Listener PROMISED to be back, not a deadline the platform enforces.
+    expected_wake_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    #: When `liveness_state` last actually changed, which is what "offline
+    #: since" reads. A re-report of the same state must not move it, the same
+    #: rule `aggregator_status.changed_at` follows for the LWT verdict.
+    liveness_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
     )
 
 

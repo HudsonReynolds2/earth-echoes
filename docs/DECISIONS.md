@@ -4,6 +4,33 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D91 (2026-08-10): A missed-wake EVENT flips liveness immediately, and the platform
+still computes nothing (E3.9)
+
+- **Decision:** `listener_missed_wake_window` sets `device_state.liveness_state = 'offline'`
+  for the named MAC when the event arrives, rather than waiting for the `lst/{mac}/reported`
+  publish that spec 6.5 says will follow. `expected_wake_at` is cleared with it: the promise
+  is spent once it has been missed.
+- **Why not wait for the report:** spec 6.5 has the Aggregator do both — raise the event AND
+  report the Listener offline next time it publishes — and the event is the first news. A
+  Listener that keeps reading `sleeping` until the next reported publish is a device the
+  operator is being told is fine while its own Aggregator has already said it is not.
+- **Why this is not the platform computing liveness,** which the phase document forbids in
+  as many words: the Aggregator knows the wake time the Listener declared over the local
+  link, applies `listener.wake_grace_seconds` itself, and raising the event IS the decision.
+  The platform records an announcement. **Nothing up here reads a wake time or a grace
+  period**, and `test_the_platform_never_computes_a_wake_window` is the guard: an
+  `expected_wake_at` an hour in the past with no event behind it changes nothing at all.
+  `wake_grace_seconds` remains a device setting that rides the config down.
+- **Ordering:** the event and the reports come from the same Aggregator over the same
+  ordered session, so the report that follows confirms rather than contradicts. Reports stay
+  authoritative for liveness and keep E3.5's staleness rule; the event only supplies the
+  immediate flip.
+- **A missed-wake for a Listener that has never reported stores the event and no state
+  row.** Inventing a `device_state` row from an event would put a device in the reported
+  table that has never reported.
+- **Verified by mutation:** removing the flip turns two tests red, including the acceptance.
+
 ## D90 (2026-08-10): The QA stack's compose project name is pinned in every document
 (E3.8, found by the gate)
 

@@ -993,3 +993,92 @@ docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto pkill -9 -f
 - [ ] Listeners have no status topic and never will: they hold no MQTT session (spec 6.4), so
       their half of the spec 9.3 verdict comes from the Aggregator-reported liveness block —
       E3.9, the next section.
+
+## 9. The Listener that sleeps on purpose (E3.9)
+
+Listeners are the one device class the platform cannot ask a question. They hold no MQTT
+session (spec 6.4) — no LWT, nothing to ping — and under `capture.mode=duty_cycle` they are
+deliberately silent for most of their lives. **A platform that treated silence as failure
+would report a perfectly healthy deployment as a fleet-wide outage every night**, which is
+exactly what spec 6.5 exists to prevent.
+
+The answer is a promise. Before sleeping, a Listener tells its Aggregator over the local
+HaLow link when it will be back. The Aggregator trusts that time rather than recomputing the
+schedule — the Listener's own clock governs when it actually wakes — and the platform is one
+step further removed still: it records what the Aggregator says and never evaluates a
+deadline itself. This section is mostly about proving that last part.
+
+You need the §0 stack and the device password from `deploy/dev-certs/accounts.json`.
+
+### A sleeping Listener is healthy
+
+Publish a Listener report with a `sleeping` liveness block, as the Aggregator (Listeners
+never publish — the Aggregator publishes on their behalf, spec 6.5):
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_pub \
+  -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt \
+  -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -q 1 \
+  -t eoe/redwood-coast/agg/demo-agg-rc-01/lst/02:EE:0E:01:01:01/reported \
+  -m '{"schema_version":1,"reported_at":"2026-08-10T12:00:00Z","applied_revision_id":null,"config":{},"checksum":"sha256:REPLACE","liveness":{"state":"sleeping","expected_wake_at":"2026-08-10T12:05:00Z"}}'
+```
+
+(The checksum must be that config's own — the platform recomputes it, §6.)
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec postgres psql -U eoe -d eoe \
+  -c "SELECT entity_id, liveness_state, expected_wake_at, liveness_changed_at FROM device_state WHERE entity_type='listener'"
+```
+
+- [ ] `liveness_state` is `sleeping` and `expected_wake_at` holds the time the Listener
+      promised. **This reads as HEALTHY** (spec 9.3), the same as `streaming`. If you take one
+      thing from this section, take that.
+- [ ] Publish the identical report again. `liveness_changed_at` does **not** move — it means
+      "how long it has been asleep", not "when we last heard about it".
+
+### The platform will not do the Aggregator's job
+
+Now the property worth testing on purpose. Send a `sleeping` report whose `expected_wake_at`
+is an hour in the **past**, and raise no event:
+
+- [ ] Wait. Watch the drift and timeout sweeps run. **Nothing happens** — the Listener still
+      reads `sleeping`, still healthy.
+- [ ] That is correct, and it is not laziness. The platform holds a clock and a promise and
+      still has no standing to conclude anything: it does not know the grace period (that is
+      `listener.wake_grace_seconds`, a **device** setting that rides the config down), and it
+      does not know whether the Listener already came back with the report still in flight.
+      Only the Aggregator, on the same local link the Listener declared over, can decide. A
+      future phase that adds a sweep to "fix" this would be contradicting spec 6.5.
+
+### The Aggregator decides, and says so
+
+Raise the event the Aggregator would raise:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_pub \
+  -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt \
+  -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -q 1 \
+  -t eoe/redwood-coast/agg/demo-agg-rc-01/event \
+  -m '{"schema_version":1,"at":"2026-08-10T12:05:31Z","level":"warn","code":"listener_missed_wake_window","detail":"expected 12:05:00Z, grace 30s elapsed","listener_mac":"02:EE:0E:01:01:01"}'
+```
+
+- [ ] The worker log says `listener 02:EE:0E:01:01:01 missed its wake window and is offline`.
+- [ ] `liveness_state` is now `offline`, and `expected_wake_at` is **NULL** — the promise is
+      spent once it has been missed.
+- [ ] One `device_event` row holds the Aggregator's own `detail` text verbatim. That is the
+      timeline entry E3.11 will render; the platform never paraphrases the device's account
+      of what happened.
+- [ ] Publish the same event bytes again: `duplicate_event`, one row, and
+      `liveness_changed_at` unmoved. One outage, not two (QoS 1 is at-least-once).
+
+### Coming back
+
+- [ ] Send a `streaming` report. The Listener reads healthy again and `expected_wake_at`
+      stays NULL. `offline` is not a terminal state — a Listener that wakes late still wakes.
+
+### What is deliberately not here yet
+
+- [ ] No liveness appears in the UI. E3.11 puts these transitions on the device timeline,
+      E3.12 pushes them live, and E6 colours the map from
+      `controlplane/liveness.listener_verdict` — the single function all three share, so that
+      none of them can independently decide a sleeping Listener looks broken.

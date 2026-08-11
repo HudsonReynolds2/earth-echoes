@@ -1166,3 +1166,31 @@ reimplement their logic.** Signatures, verbatim:
 - **Suite:** `backend/tests/test_lwt_status.py` (gate 46), including the phase acceptance
   against a real Mosquitto: a real client registers a real will and is SIGKILLed, so the
   broker — not the test — composes and publishes the `offline` message.
+
+### Listener liveness on `device_state` (E3.9; spec 6.5, 9.3; D91)
+
+- **Columns** (migration `e7c4a02f19bd`), all nullable and all NULL on an aggregator row:
+  `liveness_state` (`streaming` | `sleeping` | `offline`), `last_audio_at`,
+  `expected_wake_at`, `liveness_changed_at`. This is the extension E3.5's docstring
+  promised — unlike the E3.8 LWT verdict, liveness arrives INSIDE a `lst/{mac}/reported`
+  payload, so it belongs on the row that holds what the device said.
+- **Three CHECK constraints**, duplicating rules `contracts.mqtt.ListenerLiveness` already
+  enforces: the state vocabulary, `(liveness_state = 'sleeping') = (expected_wake_at IS NOT
+  NULL)`, and `liveness_is_listener_only`. Pydantic protects the boundary; Postgres protects
+  the table against the next writer that is not the MQTT consumer.
+- **`liveness_changed_at` moves only on a real change** — a Listener re-reporting `sleeping`
+  every minute must not keep resetting how long it has been asleep (the
+  `aggregator_status.changed_at` rule).
+- **`app/controlplane/liveness.py` — `listener_verdict(state) -> "healthy" | "offline" |
+  "unknown"`.** THE spec 9.3 rule, in one place because **E3.11, E3.12 and E6 all need it**:
+  `streaming` and `sleeping` are BOTH healthy, and `None` is `unknown`, never offline. A
+  duty-cycled Listener is silent by design, and a copy of this rule that forgot so would
+  report a working deployment as a fleet-wide outage every night. Also exports
+  `LIVENESS_STATES` and `HEALTHY_LIVENESS`.
+- **`listener_missed_wake_window` flips the verdict on arrival** (D91), clearing
+  `expected_wake_at`. **The platform computes nothing**: it never reads a wake time or
+  `listener.wake_grace_seconds`, which stays a device setting. An expired `expected_wake_at`
+  with no event behind it changes nothing, and a later phase that adds such a sweep would be
+  contradicting spec 6.5.
+- **Suite:** `backend/tests/test_listener_liveness.py` (gate 47), carrying all three of the
+  task's acceptance criteria by name.
