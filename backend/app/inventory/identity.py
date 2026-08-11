@@ -12,7 +12,9 @@ Contract highlights (all suite-proven in test_identity_service.py):
 - Unprovisioned detection is a MEMBERSHIP check against inventory, never
   equality to a sentinel value (spec 4.3 item 3).
 - Quarantine rows append (every report is evidence); alerts dedupe on the
-  open alert per (type, entity) via a partial unique index.
+  open alert per (type, entity) via a partial unique index. `quarantine_report`
+  is public so a channel can quarantine an outcome this module deliberately
+  has no opinion on, using the same row shape (E3.5, D76).
 - `duplicate_identity` / `provisioning_required` are ALERT TYPES, not wire
   error codes: the closed D8 vocabulary is not extended.
 - Functions stage rows and never commit (the record_audit convention); the
@@ -141,7 +143,19 @@ def _open_alert(
     return alert
 
 
-def _quarantine(db: Session, report: ReportedIdentity, mac: str, reason: str) -> QuarantinedReport:
+def quarantine_report(db: Session, report: ReportedIdentity, reason: str) -> QuarantinedReport:
+    """Stage one quarantine row plus its audit row. Public since E3.5.
+
+    `handle_reported_identity` uses this for the two conflict outcomes it
+    detects; it is exported so the channels that decide what a NON-conflict
+    means can reuse the same row shape instead of assembling their own. E3.5's
+    reported channel quarantines UNKNOWN_MAC that way (D76) - a Listener
+    reporting before anyone entered it in inventory is not a conflict, so
+    E1.5 correctly has no opinion, but it is worth an operator seeing.
+
+    Stages only; the caller commits.
+    """
+    mac = normalize_mac(report.mac)
     row = QuarantinedReport(
         mac=mac,
         reported_name=report.name,
@@ -197,7 +211,7 @@ def handle_reported_identity(db: Session, report: ReportedIdentity) -> IdentityR
         return IdentityResolution(IdentityOutcome.UNKNOWN_MAC)
 
     if listener.aggregator_id != reporting.id:
-        quarantined = _quarantine(db, report, mac, "mac_conflict")
+        quarantined = quarantine_report(db, report, "mac_conflict")
         alert = _open_alert(
             db,
             alert_type=ALERT_DUPLICATE_IDENTITY,
@@ -211,7 +225,7 @@ def handle_reported_identity(db: Session, report: ReportedIdentity) -> IdentityR
         )
 
     if report.name is not None and report.name != listener.name:
-        quarantined = _quarantine(db, report, mac, "name_conflict")
+        quarantined = quarantine_report(db, report, "name_conflict")
         alert = _open_alert(
             db,
             alert_type=ALERT_DUPLICATE_IDENTITY,

@@ -16,19 +16,22 @@ holds the specification).
 | [Bulk import](bulk-import.md) | Register many listeners or aggregators at once from CSV or JSON, with per-row results |
 | [E1 verification walkthrough](e1-verification.md) | Hand-verify the hierarchy and inventory release feature by feature against a seeded local stack |
 | [E2 verification walkthrough](e2-verification.md) | Hand-verify the configuration release: the inheritance editor, secrets, bulk preview/commit, and saved selections |
+| [E3 verification walkthrough](e3-verification.md) | Hand-verify the control plane: the MQTT broker and its isolation, publication, reconciliation, and device status |
 
 ## The five-minute path
 
 ```
 git clone <this repository> && cd earth-echoes
 cp deploy/.env.example deploy/.env        # fill in every value
-docker compose -f deploy/docker-compose.yml up -d --build
+cd backend
+uv run python -m app.devbroker --certs-only   # the broker needs its TLS files first
+cd .. && docker compose -f deploy/docker-compose.yml up -d --build
 cd backend
 uv run python -m app.seed                 # prints the owner credentials ONCE
 uv run python -m app.verify               # proves the whole platform works
 ```
 
-Then open `http://localhost:5173` and sign in with the seeded credentials.
+Then open `http://localhost:15173` and sign in with the seeded credentials.
 
 On Windows, `.\qa-stack.ps1` from the repo root does all of the above in one command
 (with the demo inventory seeded) — see the E1 verification walkthrough.

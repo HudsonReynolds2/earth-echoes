@@ -1,5 +1,455 @@
 # Project Updates
 
+## 2026-08-11: E3.8-E3.13 — epic E3 complete (Gates 46-51 GREEN)
+
+- **Tasks closed:** E3.8, E3.9, E3.10, E3.11, E3.12, E3.13 — **and with them every E3 task**
+  (E3.1-E3.13), on branch `e3-batch-1`. DECISIONS D88-D96.
+- **One entry for six tasks, on the owner's instruction (D89).** Each task still ended in its
+  own FULL green gate, commit, push and `gate-{N}` tag; only the per-task entry was batched
+  here. Recorded as a deviation from R1 rather than quietly done.
+- **Gates:** 46 (E3.8), 47 (E3.9), 48 (E3.10), 49 (E3.11), 50 (E3.12), 51 (E3.13) — all GREEN,
+  each `make gate`, 0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Tests at close:** backend 766, vitest 114, Playwright 4 (from 661 / 96 / 4 at gate 45).
+- **What shipped.** E3.8 LWT status in `aggregator_status`; E3.9 spec 6.5 Listener liveness on
+  `device_state` plus the one shared `listener_verdict`; E3.10 `POST /aggregators/{id}/commands`;
+  E3.11 `reconciliation_event` and the per-device timeline with a UI panel; E3.12 `WS /ws`,
+  the Postgres LISTEN/NOTIFY bus, and real device status (lifting D40); E3.13 apply wired to
+  publication, `EOE_PUBLISH_ENABLED` defaulted on, and the end-to-end loop in CI.
+- **THE definition of done, as one test.** `test_a_config_edit_reaches_a_device_and_comes_back_applied`
+  runs preview → apply → retained desired message read by a mock device on its OWN broker
+  credential → ack → `applied` → timeline → websocket, against a real Mosquitto and a real
+  worker. Deliberately the only test spanning every task: a red there with green elsewhere
+  means the pieces do not fit rather than that a piece is broken.
+- **Two design calls worth re-reading before E4.** (1) LWT status went to its own table rather
+  than the `device_state` columns E3.5 anticipated, because a will is published by the BROKER
+  and `device_state` means "what the device said" (D88); the rule now is that reported facts
+  live on the report row and broker-authored ones do not. (2) Status is ordered by RECEIPT,
+  not by the payload clock — a device composes its will at connect time, so ordering it the
+  way spec 7.4 orders reports would reject every LWT as stale and leave dead devices reading
+  online forever.
+- **D40 lifted and rewritten, not deleted (D60).** Status renders only where the API reported
+  one; `unknown` is a first-class value that renders as a muted dash, never a chip; config
+  routes still show none. The guard test now asserts all three.
+- **Four defects found and fixed during the batch, three of them invisible to CI.**
+  D87: with publishing on, the API lifespan died (`exit 3`) when it beat the migrations to
+  the `deployment_service` table — it would have broken every `compose up` once E3.13 flipped
+  the flag. D90: the guide's POSIX path omitted `-p eoe-qa`, so a walkthrough stack held the
+  gate's ports under a name no documented teardown named. D92: the worker's disabled
+  healthcheck was accepted by the local Compose and rejected by CI's. D94: the connection loop
+  re-raised `CancelledError` inside `async with aiomqtt.Client(...)`, stranding `_misc_loop`
+  with a live socket on **every reconnect** — surfaced as a gate flake, fixed as the leak it
+  was rather than re-run until green.
+- **The pattern behind three of those:** the local gate and CI do not run in identical
+  environments, and each difference that bit us now has a guard rather than a memory
+  (`compose_env` pins every interpolated variable; `disable: true` is banned).
+- **Manual verification:** the owner drove `guide/e3-verification.md` §7 against the live QA
+  stack (worker startup, gated publish, timeout, drift, restart), corroborated by the worker
+  log. §§8-13 ship as written walkthroughs and are covered by named tests; they have not been
+  driven by hand yet, which is stated plainly here rather than implied. The walkthrough is the
+  next thing to run against the stack.
+- **Still deliberately absent:** the Map (E6), alerts and the `alerting` status (E7),
+  provisioning bundles (E4), service onboarding (E5), the fleet-scale simulator (SIM).
+
+## 2026-08-10: E3.7 reconciliation worker — the loop runs itself (Gate 45 GREEN)
+
+- **Tasks closed:** E3.7 (branch `e3-batch-1`; DECISIONS D80-D87). Plan change project-changes
+  #22 / addendum PHASE3-4-02: the task additionally ships `POST /revisions/{id}/publish`, a
+  `worker` compose service, and an outbound publish connection in the API. No task moves;
+  E3.13 still owns wiring E2's bulk apply and flipping the flag on.
+- **Gate:** 45, GREEN — on the third attempt. The first two were red and both are recorded
+  below verbatim, because one of them was a real defect in this task.
+- **Tests:** backend 661 (+5 over the 656 this task first collected: 4 new here, 1 from
+  splitting the compose-env guard out), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/runner.py` (`ReconciliationWorker`,
+  `pending_timeout_sweep`, `drift_sweep`), migration `c41e9b7d3a58`
+  (`deployment.pending_timeout_seconds`, `deployment.auto_reconcile`,
+  `config_revision.published_at`), `POST /revisions/{revision_id}/publish`,
+  `MqttClientManager.start_or_retry`, the `worker` compose service, the API lifespan,
+  `service_unavailable` in the D8 vocabulary, `backend/tests/test_reconciliation_worker.py`,
+  `guide/e3-verification.md` §7, and the INTERFACES worker / policy / publish-route sections.
+- **Both halves of the phase acceptance are in the suite**, against a real broker:
+  `test_the_full_journey_publish_ack_drift_republish_and_timeout` walks publish → ack → drift
+  injection → operator re-publish → timeout in order, and
+  `test_a_restarted_worker_resumes_the_windows_it_did_not_start` has one worker publish a
+  revision and a DIFFERENT one time it out, with the retained desired message still readable
+  by a device that connects after both. Nothing is handed between them: the window is
+  `config_revision.published_at` and the config is a retained message (spec 14.3).
+- **RED GATE 1, verbatim: `3 failed, 653 passed`.** `test_compose_stack` and `test_verify_tool`
+  failed on `Bind for 0.0.0.0:18883 failed: port is already allocated` — the QA stack from the
+  manual walkthrough was still up, which the guide's own D44 warning predicts.
+  `test_mqtt_manager::test_shutdown_leaves_no_running_tasks` failed on
+  `tasks outlived stop(): ['Task-1072']`, a leaked aiomqtt `_misc_loop`; it passed 21/21 in
+  isolation immediately after and in both later full runs, so it was contention from the QA
+  stack plus parallel image builds. **Recorded rather than dismissed:** a test that fails only
+  under load is a latent gate flake, and the next session that sees it should read this entry
+  before assuming its own change caused it.
+- **RED GATE 2, verbatim: `2 failed, 654 passed`, and this one was a defect (D87).**
+  `container eoe-gate-test-api-1 exited (3)` — uvicorn's code for a lifespan that raised. With
+  `EOE_PUBLISH_ENABLED` on, the D86 lifespan awaited a bare `MqttClientManager.start()`, which
+  reads the `deployment_service` rows once; the API comes up beside Postgres in compose, beat
+  the migrations to that table, and died of `UndefinedTable` — taking every route unrelated to
+  publishing with it. **This would have broken every `compose up` at E3.13**, where the flag
+  defaults on. Fixed by moving the retry INTO the manager as `start_or_retry()`, which also
+  deletes the worker's private `_connect_with_retry`: the worker having that guard while the
+  API did not is exactly what shipped the bug. Verified by mutation — restoring the bare
+  `start()` turns `test_the_api_starts_even_when_the_broker_rows_cannot_be_read` red.
+- **Why CI could not have caught it, and the second fix.** Compose interpolates `${VAR}` from
+  the process environment first and `deploy/.env` second, and `compose_env()` left five
+  variables unpinned — so the container tests read them from a developer's scratch `.env`,
+  which §7 instructs you to fill with `EOE_PUBLISH_ENABLED=true`. The gate tested a different
+  stack on a walkthrough machine than in CI, where no `.env` exists. Every interpolated
+  variable is now pinned and guarded by
+  `test_compose_env_pins_every_variable_the_compose_file_interpolates`, which found three more
+  on its first run — including `EOE_CORS_ORIGINS`, whose walkthrough value still names the
+  pre-PHASE0-2-02 port.
+- **RED GATE 3 was self-inflicted and is noted for honesty:** `5 failed` on the worker suite
+  because `StubManager` did not model the new `start_or_retry` contract. Test-double gap, not
+  production code; fixed by giving the double the contract.
+- **Manual verification:** the owner drove `guide/e3-verification.md` §7 against the live QA
+  stack through the worker-startup, gated-publish, timeout, drift and restart blocks, and the
+  worker log corroborates all of them — `drifted from revision ... (1 differing key(s))`,
+  `timed out after 12s with no device report`, and a restart at 00:17:50 whose new process
+  failed out a window it never opened. §7's last two blocks (the inert `auto_reconcile` flag
+  and the 403/404/503 refusals) were NOT driven by hand: each is covered by a named,
+  substantive test, and re-deriving them through hand-made accounts would have added no
+  information the suite does not already carry. Recorded plainly rather than implied.
+
+## 2026-08-10: E3.5 reported consumer — the loop closes on real device reports (Gate 44 GREEN)
+
+- **Tasks closed:** E3.5 (branch `e3-batch-1`; DECISIONS D76-D79). No plan change: batch 2 runs
+  E3.6, E3.4, E3.5 exactly as project-changes #20 said it would, and this task consumed both
+  the state machine and the publish path that ordering existed to provide.
+- **Gate:** 44, GREEN. `make gate`, run again after the walkthrough corrections below.
+- **Tests:** backend 611 (+53: 33 in `test_reported_consumer.py`, 20 added to
+  `test_mqtt_contracts.py` for the topic parser), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/consumer.py` (`ReportedConsumer`, the second half of
+  the spec 6.4 loop), `contracts/mqtt.parse_topic` + `TopicKind`/`ParsedTopic`, migration
+  `a2cf00fc037f` (`device_state`, `device_event`), `quarantine_report` made public in
+  `inventory/identity.py`, `delete_device_state_for` wired into the E1 aggregator and listener
+  DELETE endpoints, `backend/tests/test_reported_consumer.py`, `guide/e3-verification.md` §6,
+  the INTERFACES "reported consumer" and "device_state / device_event" sections.
+- **The three acceptance criteria, all three named in the suite.** The conflicting-MAC test
+  captures the Listener row before the report and compares it to itself afterwards, field for
+  field — spec 4.3 item 2 is a claim about a row that does NOT change, and asserting no write
+  was attempted would not be the same claim. The replay test sends byte-identical messages
+  twice; the reordering test lands a report from `t` after one from `t+10`.
+- **Verified by mutation, not by assertion alone.** Flipping the staleness test from `<` to
+  `<=` turns the replay test red, which is the point: idempotency has to come from
+  `applied_revision_id` plus checksum as spec 7.4 words it, not from a timestamp shortcut that
+  would hide a broken comparison behind an early return. Removing the checksum-recompute makes
+  the self-contradiction test report `rejected` instead of `malformed` — i.e. the platform
+  would fail the revision, blaming the config, for what is a firmware defect (D70).
+- **A report the platform does not believe is not stored either (D79).** Spec 4.3 item 2 stops
+  the platform overwriting inventory; a quarantined or misrouted report also writes no
+  `device_state` row and moves no revision, because storing it would launder a rejected claim
+  into the record E3.7's drift sweep reads. Identity comes from the TOPIC in every path — the
+  spec 7.1 ACL authenticated those segments, and no inbound spec 7.3 payload carries an
+  identity field.
+- **Manual verification:** full QA stack (compose, seed, dev broker), driving the walkthrough's
+  own `check-consumer.py` against a real Mosquitto with real revisions from E2's `POST
+  /config/apply`. Observed, in order: `pending -> applied` on a matching report published as
+  `dev-demo-agg-rc-01`; `unchanged` on a byte-identical replay with no second audit row;
+  `stale` on the same message dated a minute earlier, with the stored report untouched;
+  `malformed` on a device whose checksum was not its own config's, revision unmoved; and
+  `rejected` -> `failed` immediately on a coherently wrong report, whose audit detail listed
+  `differing_keys: [analysis.confidence_threshold, logging.verbosity]` and no values. Then the
+  identity walk: two `mac_conflict` quarantine rows against ONE open `duplicate_identity`
+  alert (append vs. dedupe, D37), the contested Listener row unchanged including `updated_at`,
+  a third quarantine row `reason=unknown_mac` with no alert at all (D76), a
+  `provisioning_required` alert for a ghost `aggregator_uuid`, and exactly one `device_state`
+  row in the database — the Aggregator's, none for either quarantined MAC. Events: one row,
+  then `duplicate_event` on redelivery, then two rows for the same code a minute apart, then
+  the `NULLS NOT DISTINCT` case (an Aggregator-level event with no `listener_mac`, published
+  twice, one row). Finally a status message returned `not_mine`, which is E3.8's seam.
+- **Two walkthrough defects found by running it, and corrected against observed behaviour.**
+  §5's publish script waited on `coordinates[0].deployment_id`; coordinates are ordered by
+  slug, so that is high-desert, and the redwood-coast publish raced its own connection and
+  raised `BrokerUnavailable`. It now waits on the deployment by name. §6's first draft pinned
+  one revision id at startup, so the step that tells you to publish a fresh revision would
+  report the OLD one as `superseded` rather than the new one as `failed`; the probe now
+  re-reads the newest revision on every message. Both were caught the same way gate 43's three
+  corrections were — by doing what the guide says and reading what actually happened.
+- **Scope notes.** `device_state` ships now with owner approval (D78) because spec 7.4's
+  ordering rule needs a per-device memory that revision timestamps alone cannot supply, and it
+  is explicitly E3.8's and E3.9's to extend with LWT online state and spec 6.5 liveness — E3.5
+  stores neither. `E0_TABLES` in `test_e0_readiness.py` gained both table names through that
+  guard's documented extension mechanism.
+
+## 2026-08-10: E3.4 desired publish path — config reaches a device (Gate 43 GREEN)
+
+- **Tasks closed:** E3.4 (branch `e3-batch-1`; DECISIONS D71-D75). No plan change: batch 2 runs
+  E3.6 before E3.4 exactly as project-changes #20 said it would, and this task consumed the
+  state machine that ordering existed to provide.
+- **Gate:** 43, GREEN. `make gate`, then the backend stage again to read the counts cleanly.
+- **Tests:** backend 558 (+21, all in `test_publish_revision.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/publisher.py` (`publish_revision`, the only way a
+  revision reaches a device), `backend/tests/test_publish_revision.py`,
+  `guide/e3-verification.md` §5, the INTERFACES "desired publish path" section (and the E2
+  `config_revision` bullet that claimed `publish_revision` did not exist yet).
+- **The acceptance criteria, both of them.**
+  `test_a_device_connecting_afterwards_still_receives_its_desired_config` publishes through the
+  real client manager to a real broker and only THEN connects a subscriber — as the
+  Aggregator's own dev credential, so the spec 7.1 ACL is on trial with it. That is the spec
+  6.4 reconnect property, and an unretained publish passes every other test in the file and
+  fails this one. Proven by deliberately flipping `retain=True` to `False`: the subscriber
+  timed out against a live Mosquitto container. `test_republishing_the_same_revision_is_idempotent`
+  is the second.
+- **A silent-failure bug the tests could not have caught, found by the manual pass (D75).** The
+  first implementation resolved the desired topic by `Aggregator.aggregator_uuid ==
+  revision.target_id`. E2 actually writes the PLATFORM UUID (`aggregator.id`) there — spec 4.2
+  keeps the three identifiers distinct — and the suite's own fixtures had invented the same
+  wrong shape, so the tests agreed with the bug and passed. The first real revision from E2's
+  apply endpoint showed `target_id: "8ebd3c87-…"` and the mistake was immediate. The failure
+  mode is the dangerous kind: a well-formed topic no device subscribes to and no ACL grants,
+  the revision going `pending`, and the device timing out to `failed` five minutes later
+  looking like a hardware fault. Fixtures now derive the id from live inventory
+  (`platform_uuid_of`), and a new test pins the refusal.
+- **The publish happens inside the database transaction (D74).** State change staged, bytes
+  sent, commit only on success. Verified by hand: with Mosquitto stopped, the publish raised
+  `BrokerUnavailable` and the revision was still `draft` with no audit row. The alternative —
+  commit `pending`, then fail to publish — would report a spec 6.2 timeout, which under D70
+  means "the device never answered", so the platform would be blaming a device for its own
+  broker outage.
+- **The pair rule from D69 is now closed on both sides (D73).** `supersede_open_revisions`
+  supersedes unconditionally; this task supplies the guard that makes it safe. Verified live:
+  publishing an older revision raised `StaleRevision` naming the newer one and left both rows
+  untouched, and a later publish superseded two open revisions at once.
+- **Idempotent republish re-sends rather than no-ops (D72).** Two publishes of one revision
+  produced two identical retained messages, one `pending` state and exactly one
+  `revision.publish` audit row. The re-send is the operator's repair for a broker that lost its
+  retained store.
+- **Manual verification:** full QA stack (compose, seed, dev broker). Created draft revisions
+  through E2's real `POST /config/apply` (response `state: draft`, `publish_enabled: false` —
+  unchanged), published with the walkthrough's own script, and read the retained payload off
+  the broker with `mosquitto_sub` as `dev-demo-agg-rc-01` **after** the publish: `revision_id`
+  and `checksum` matched the apply response byte for byte, `target.id` was `demo-agg-rc-01`.
+  Set `network.wifi_password` and confirmed the wire carries
+  `{"$secret": "config:pod:…:network.wifi_password"}` and never the passphrase. Three
+  walkthrough assertions were wrong on first writing and were corrected against observed
+  behaviour rather than the other way round: the broker-outage step needs the
+  `wait_connected` line removed (otherwise E3.2's `TimeoutError` fires first and E3.4 is never
+  reached), unset secrets read `null` rather than showing a marker, and the guide's script had
+  inherited the same identifier bug as the implementation.
+
+## 2026-08-10: E3.6 revision state machine — TEST-CRITICAL suite locked (Gate 42 GREEN)
+
+- **Tasks closed:** E3.6 (branch `e3-batch-1`; DECISIONS D69-D70). No plan change: batch 2 runs
+  E3.6 before E3.4 and E3.5 exactly as project-changes #20 said it would, because both the
+  publisher and the reported consumer transition revision state and the authoritative module
+  has to exist before either calls it.
+- **Gate:** 42, GREEN. `make gate`, run twice (the second to read the counts cleanly).
+- **Tests:** backend 537 (+52, all in `test_revision_state.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/revision_state.py` (the machine),
+  `backend/tests/test_revision_state.py` (**the third of the four test-critical suites**,
+  alongside RBAC and the merge engine), `guide/e3-verification.md` §4.
+- **The acceptance criterion, stated as one assertion.**
+  `test_the_transition_table_matches_spec_6_2_line_for_line` compares the module's table
+  against `SPEC_6_2_TABLE`, a verbatim transcription of the spec's table with its Trigger
+  column text included, so the two can be held side by side and diffed by eye. The legal set in
+  the test is rebuilt from that transcription and nothing else — adding a transition means
+  editing the transcription, which means reading spec 6.2 again.
+- **Illegal transitions are proven by enumeration, not by example.** All 288
+  `(source, target, trigger)` triples are generated and the 276 outside the legal set must
+  raise; a hand-picked list of illegal cases cannot prove absence. One test rather than 276
+  parametrized ones, reporting every offender at once, because a table widened wrongly is
+  usually widened by more than a single triple.
+- **A transition is a TRIPLE, not a pair.** `pending -> failed` is legal as an apply error and
+  as a timeout, and illegal as "operator retries" — which is `failed -> pending` read
+  backwards. Validating the pair alone would have accepted it.
+- **The spec contradicts itself once, and the owner ruled (D69).** Spec 6.2's table lists only
+  `pending` and `applied` as sources for `superseded`; its diagram four lines below reads
+  `(any non-terminal) --new revision--> superseded`. The diagram wins: under the table alone a
+  `failed` revision can never be closed out, so an operator who fixes their config and
+  publishes a new revision leaves the old row at `failed` forever beside an `applied` one, with
+  nothing saying which is live. The suite keeps both statements attributable —
+  `SPEC_6_2_TABLE` and `SPEC_6_2_DIAGRAM_EXTRA` are separate constants — and the three rows
+  should be fed back into the next spec revision.
+- **One design changed by the owner's push-back, and it is the better one (D70).** The first
+  proposal for "device acks revision R but reports config that is not R" was to leave the
+  revision pending and let the 300-second window resolve it. That reports a *timeout* for a
+  device that answered in two seconds. Instead the ambiguity is removed: a report whose own
+  `checksum` disagrees with its own `config` is internally inconsistent and is rejected at the
+  boundary as malformed with no state change, while a coherent report that disagrees with the
+  revision is a definite negative answer and fails immediately under `report_error`. That
+  leaves `Trigger.TIMEOUT` attached to exactly one transition and meaning exactly one thing —
+  no valid report arrived — which a suite test pins. E3.5 implements the consumer half.
+- **Two properties that only real rows can prove.** `load_for_transition` takes
+  `SELECT ... FOR UPDATE`, demonstrated by holding the lock in one transaction and watching a
+  second `FOR UPDATE NOWAIT` fail rather than read through it; and when an ack and a timeout
+  race for one pending revision the lock serializes them and the guard refuses the loser, so a
+  true `applied` is never overwritten by a `failed` that did not happen.
+- **The sweep and E3.4's guard are a pair, on purpose.** `supersede_open_revisions` closes every
+  other open revision for a device unconditionally, with no timestamp comparison, which is only
+  safe because E3.4 will refuse to publish a revision that is not the newest for its device.
+  Both docstrings say so; removing either alone is a data-loss bug that discards drafts.
+- **Manual verification:** the walkthrough's new §4 run line by line in a REPL — the six states,
+  `superseded` as the only dead end, the same pair legal under `timeout` and illegal under
+  `retry`, all four `check` messages distinguishing their three different mistakes, the single
+  `timeout` pair, `parse_state` refusing `"apllied"` while naming the six legal values, and
+  `failed -> superseded` legal under D69. The twelve `spec_trigger` strings printed and read
+  back against spec 6.2's Trigger column. No stack needed; this task is a library.
+
+## 2026-08-10: E3.3 spec 7.3 payload models — the wire contract is now complete (Gate 41 GREEN)
+
+- **Tasks closed:** E3.3 (branch `e3-batch-1`; DECISIONS D67-D68). No plan change; the topic
+  half had already landed at E3.1 under D62, so this task added the payloads to the same
+  module as project-changes #20 said it would.
+- **Gate:** 41, GREEN.
+- **Tests:** backend 485 (+68, all in `test_mqtt_contracts.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/contracts/mqtt.py` gained the spec 7.3 half — `MqttPayload` and
+  its six bodies (`DesiredConfig`, `ReportedAggregatorState`, `ReportedListenerState`,
+  `StatusMessage`, `DeviceEvent`, `Command`) with the nested `DesiredTarget`, `HealthBlock`
+  and `ListenerLiveness`; the `UtcTimestamp` / `Checksum` / `MacAddress` / `EventCode` field
+  types; `encode` / `decode` / `describe`; and `ContractError` as the shared base
+  `TopicError` and the new `PayloadError` hang off. `guide/e3-verification.md` §3.
+- **The acceptance criteria, in order.** Round-trip tests per model: fourteen parametrized
+  payloads encode, decode and compare equal. Topic builders reject bad slugs and MACs: that
+  half shipped at E3.1 and is unchanged. The module docstring names SIM as a consumer: it did
+  already, and now says which half of the module each consumer reads.
+- **The spec's own examples are a test.** `test_the_spec_7_3_examples_parse_as_written` feeds
+  every JSON body printed in spec 7.3 through its model, so a later rename is caught as a
+  contradiction with a named document rather than as a mystery.
+- **Direction decides strictness (D67).** Payloads the platform publishes forbid unknown
+  fields; payloads it receives ignore them. Firmware adding a field must never be able to
+  stop the platform reading its reports, and an unexpected key on an outbound payload is a
+  bug about to reach every device in a deployment. The same split explains the smaller
+  rulings: `health.coarse` stays free text (inventing a vocabulary firmware has not agreed to
+  would reject real reports for a field the platform does not even chart), while
+  `expected_wake_at` is enforced present exactly while sleeping, both ways, because spec 6.5
+  has the platform storing a declared wake time and never recomputing one.
+- **One finding, found by writing the test rather than the code (D68).** `PayloadError` was
+  documented as never carrying payload content, and `str(ValidationError)` does exactly that:
+  for a missing-field error the "input" Pydantic echoes is the WHOLE body, config markers
+  included. `decode` now builds its message from
+  `errors(include_url=False, include_input=False, include_context=False)` — field names, no
+  values — and a test feeds it a body whose `config` holds a `secret:` marker to prove it.
+  E3.5 will log these, so the property had to be real rather than asserted.
+- **The checksum bridge is tested, not assumed.** A snapshot with a bool, an int, a float, a
+  null, a list and a nested object round-trips through `encode`/`decode` and produces
+  byte-identical `canonical_config_bytes` — the property that makes a device-echoed checksum
+  match by construction (D52, D55). `encode`'s null-omission deliberately stops at the model
+  boundary: a null inside `config` is data, and stripping it would change those bytes.
+- **Manual verification:** the walkthrough's new §3 run line by line in a REPL — the topic
+  builder, `TopicError` on `redwood+coast`, a `DesiredConfig` encoding with
+  `"schema_version":1` and a `...Z` timestamp, an equal round trip, both halves of the
+  sleeping-Listener rule raising with the spec section in the message, a naive timestamp
+  refused, an inbound extra field ignored while the same trick on `DesiredConfig` raised, a
+  decode failure naming `checksum` while containing no trace of the `secret:` marker in the
+  body, and three commands with three distinct `command_id`s. No stack needed; this task is a
+  library.
+
+## 2026-08-10: E3.2 MQTT client manager — reconnect, resubscribe, TLS from the row (Gate 40 GREEN)
+
+- **Tasks closed:** E3.2 (branch `e3-batch-1`; DECISIONS D64-D66). No plan change: the task
+  shipped as the phase document specifies it.
+- **Gate:** 40, GREEN. `make gate`, run twice (the second run to read the counts cleanly).
+- **Tests:** backend 417 (+21, `test_mqtt_manager.py`), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/` (new package — everything that talks to a broker;
+  the wire contract stays in `app/contracts/mqtt.py`, which is published outside this
+  codebase and this is not) with `broker.py`: `BrokerCoordinates`,
+  `load_broker_coordinates`, `tls_context`, `Backoff`, `InboundMessage` and
+  `MqttClientManager`. `conftest.ephemeral_broker` gained an optional fixed `host_port` plus
+  `Broker.stop()`/`start()` and a `free_port()` helper; `aiomqtt` added as the one new runtime
+  dependency (the phase-3 fixed client choice), async tests on anyio's pytest plugin (D66);
+  `guide/e3-verification.md` §2.
+- **The acceptance criterion is one test.**
+  `test_a_broker_restart_is_invisible_to_message_handling` kills a real broker under a
+  connected manager, restarts it, and asserts a message published afterwards reaches the
+  handler that was registered once, before any of it, and was never told the connection
+  dropped. It can only pass if the manager reconnected AND replayed its subscriptions, since
+  a clean session leaves Mosquitto remembering nothing.
+- **Docker re-assigns port 0 on every container start**, which the restart test found the
+  moment it was written: a broker created with `-p 127.0.0.1:0:8883` comes back on a
+  different host port, so the manager would have been dialling a dead socket and "failed to
+  reconnect" would have been the test's own fault. Hence `free_port()` and the explicit
+  `host_port` — the default stays Docker-assigned everywhere else, where nothing restarts.
+- **Two rulings worth their own record.** A stored broker CA now REPLACES the public trust
+  store rather than being added to it (D65): `create_default_context()` plus
+  `load_verify_locations` reads like hardening and is the opposite, since every public root
+  stays loaded and any public CA's certificate for the broker's hostname verifies too. And a
+  handler that raises is logged while the loop keeps reading (D64) — one device's malformed
+  payload must not cost a whole deployment its control plane, which is also why
+  `InboundMessage` carries raw bytes rather than parsed models.
+- **Nothing constructs the manager yet.** E3.2 ships the library; the worker (D59) wires it
+  into a lifespan at E3.7. Said plainly here so a later session does not go looking for the
+  call site.
+- **Manual verification:** the walkthrough's new §2 run end to end against a real `eoe-qa`
+  stack (five services up on 18000/15173/15432/16379/18883, seeded `--demo`, broker accounts
+  provisioned, mosquitto restarted). The probe printed both brokers as
+  `redwood-coast broker at localhost:18883` with no credential anywhere, connected to both
+  over TLS verified against the CA on the `deployment_service` row, and delivered a device
+  publish on `.../reported`. A retained platform publish to the same aggregator's `desired`
+  topic produced **nothing** — the platform does not read its own writes back. Then
+  `compose restart mosquitto`: `lost the ... broker`, `reconnecting ... in 0.9s (attempt 1)`
+  for high-desert and `1.2s` for redwood-coast — visibly jittered, not in lockstep — then
+  both reconnected and an `after` publish arrived on the same handler. One finding, fixed in
+  the same pass: the §2 snippet showed no log lines at all, because nothing configures
+  logging outside the API process; it now calls `logging.basicConfig` first. Stack torn down
+  with `down -v`; `git status` listed nothing from `deploy/dev-certs/`.
+
+## 2026-08-10: E3.1 development broker — TLS, per-device ACLs, `deployment_service` (Gate 39 GREEN)
+
+- **Tasks closed:** E3.1 (branch `e3-batch-1`; DECISIONS D59-D63, project-changes #19,
+  #20, #21). **First task of epic E3.** Preflight: this checkout was 20 gates stale — E1
+  and E2 had merged (gates 20-38) while it sat at gate-18 — so the batch began with a
+  fast-forward pull and `npm ci`.
+- **Gate:** 39, GREEN. Three genuine RED runs on the way, all worth recording:
+  (1) the ACL acceptance test asserted the broker would *reject* a denied subscription;
+  it does not — Mosquitto returns SUBACK 0 and then silently never delivers, filtering
+  wildcards per message. Every denial assertion was rewritten around message delivery
+  with a paired positive control, which is a stronger test than the one I set out to
+  write. (2) `docker cp` of a pytest tmp dir handed the container a 0700 directory that
+  uid 1883 could not traverse; fixed at the source in `write_artifacts`. (3) The
+  generator failed with a bare `PermissionError` because Docker had created
+  `deploy/dev-certs` as root when an earlier `compose up` preceded the first generation
+  — it now exits with an explanation and the exact removal command.
+- **Tests:** backend 396 (+22: `test_dev_broker.py` 16, `test_mqtt_contracts.py` 23,
+  minus reorganisation), vitest 96, Playwright 4; 0 failed / 0 skipped / 0 xfailed /
+  0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `deploy/mosquitto/mosquitto.conf` (TLS-only listener, no 1883 anywhere,
+  persistence on so retained desired survives a restart) and the `mosquitto` compose
+  service; `backend/app/devbroker.py` — private CA, server cert, per-deployment platform
+  accounts, per-Aggregator device accounts, the Mosquitto PBKDF2-SHA512 `passwd` file and
+  the ACL file, all into gitignored `deploy/dev-certs/`, plus the `deployment_service`
+  rows with passwords through `SecretStore`; migration `a41f9c7b2e05`;
+  `backend/app/contracts/mqtt.py` (topic builders, landed here rather than E3.3 so the
+  ACL generator builds grants from the namespace instead of repeating it — D62);
+  `conftest.ephemeral_broker` (ships files with `docker cp`, not a bind mount, so WSL,
+  Windows and Linux behave identically); `guide/e3-verification.md` §0-1.
+- **The ACL is the point.** Each aggregator gets exactly seven grants and they are spec
+  7.2's Direction column read literally, so a device can neither read a neighbour's
+  subtree nor write its own `desired` topic — the latter would let it manufacture
+  agreement and defeat drift detection before E3.7 ever runs.
+- **Ports moved (project-changes #21, PHASE0-2-02, owner instruction):** the published
+  HOST ports are now 18000/15173/15432/16379/18883. The standard numbers collided with
+  services already running on the dev machine, and under rule R0 that is not an
+  inconvenience but an unpassable gate — `test_compose_stack` and `test_verify_tool`
+  bind them for real. Container-side ports are unchanged, so no image, process argument,
+  broker listener or in-network URL moved.
+- **Manual verification:** the walkthrough's §0-1 run end to end against a real
+  `eoe-qa` stack — five services healthy on the new ports; `--certs-only` then seed
+  `--demo` then the full generator (2 platform + 6 device accounts, 2 service rows);
+  broker restarted. Then, in the container: the platform account published retained to
+  `demo-agg-rc-02/desired` and swept it back off `eoe/redwood-coast/#`; `dev-demo-agg-rc-01`
+  subscribing to that same topic received **nothing**; a client without `--cafile` got
+  `Protocol error` (TLS-only proven); a wrong password got `Connection Refused: not
+  authorised`. The `deployment_service` rows carried `mosquitto:8883` with `tls_enabled`
+  true and named — never held — their `deployment:{id}:mqtt_password` secrets. `git
+  status` listed nothing from `deploy/dev-certs/`. Stack torn down with `down -v`.
+
 ## 2026-08-04: E2.8 bulk edit UI + the E2 walkthrough — EPIC E2 COMPLETE (Gate 38 GREEN)
 
 - **Tasks closed:** E2.8 (branch `e2-batch-3`; DECISIONS D58). **This closes epic E2**

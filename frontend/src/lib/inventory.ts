@@ -38,6 +38,14 @@ export interface Deployment {
   updated_at: string;
 }
 
+/**
+ * The spec 9.3 vocabulary as the API sends it. `unknown` is NOT a chip — see
+ * `StatusCell`: a device that has never spoken has no status, and painting it
+ * healthy is exactly what D40 existed to prevent.
+ */
+export type DeviceStatusValue =
+  "healthy" | "sleeping" | "degraded" | "offline" | "alerting" | "drifted" | "unknown";
+
 export interface Aggregator {
   id: string;
   pod_id: string;
@@ -46,6 +54,8 @@ export interface Aggregator {
   name: string | null;
   tags: string[];
   listener_count: number;
+  /** Spec 9.3, real as of E3.12 (D60). */
+  status: DeviceStatusValue;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +79,8 @@ export interface Listener {
   gps_lat: number | null;
   gps_lon: number | null;
   tags: string[];
+  /** Spec 9.3, real as of E3.12 (D60). "unknown" until the device speaks. */
+  status: DeviceStatusValue;
   created_at: string;
   updated_at: string;
 }

@@ -121,6 +121,11 @@ export const server = setupServer(
       fixtureOverrides(String(params.entity), decodeURIComponent(String(params.id))),
     ),
   ),
+  // E3.11: every inventory device page mounts a timeline, so the default is
+  // an empty one. Tests that care supply their own with server.use.
+  http.get("http://api.test/api/v1/:entity/:id/timeline", () =>
+    HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+  ),
   http.get("http://api.test/api/v1/:entity/:id/revisions", () =>
     HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
   ),

@@ -2,7 +2,8 @@
  * Listener detail (task E1.8): inventory facts only — identity, plain GPS
  * fields (the guided fill-in flow is E4.11), tags, and the destructive
  * delete. The drawer's config/telemetry/timeline content belongs to
- * E2/E3/E5/E7 and is deliberately absent (no fabricated status).
+ * E5/E7 and is deliberately absent. Status is REAL as of E3.12 (D60):
+ * spec 6.5 liveness the Aggregator reported, or `unknown` if it never has.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -12,6 +13,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Can } from "../../components/Can";
 import { EmptyState } from "../../components/EmptyState";
 import { PageHeader } from "../../components/PageHeader";
+import { DeviceTimeline } from "../../components/DeviceTimeline";
+import { StatusCell } from "../../components/StatusChip";
 import { TagEditor } from "../../components/TagEditor";
 import { getEffectiveConfig } from "../../lib/config";
 import { deleteListener, getListener, patchListener } from "../../lib/inventory";
@@ -102,6 +105,10 @@ export function ListenerDetail() {
       <section className="card" data-testid="listener-facts">
         <h2>Placement</h2>
         <dl className="import-summary">
+          <dt>Status</dt>
+          <dd>
+            <StatusCell status={row.status} />
+          </dd>
           <dt>GPS</dt>
           <dd>
             {row.gps_lat !== null && row.gps_lon !== null
@@ -111,9 +118,10 @@ export function ListenerDetail() {
           <dt>Registered</dt>
           <dd>{row.created_at}</dd>
         </dl>
-        <p className="muted">Live status arrives with E3 · telemetry with E5.</p>
+        <p className="muted">Telemetry arrives with E5.</p>
       </section>
       <EffectiveConfigCard mac={row.mac} />
+      <DeviceTimeline target={{ kind: "listener", mac: row.mac }} />
       {editing && (
         <section className="card">
           <form

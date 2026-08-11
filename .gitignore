@@ -2,6 +2,11 @@
 .env
 *.env.local
 
+# Generated dev broker material (E3.1): a private CA, server key, generated
+# broker passwords and the Mosquitto passwd/acl files built from them.
+# Regenerate with `uv run python -m app.devbroker`; never commit any of it.
+deploy/dev-certs/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -23,6 +23,13 @@ ERROR_CODES = frozenset(
         "method_not_allowed",
         "conflict",
         "internal_error",
+        # E3.7: a dependency the platform needs to satisfy this request is
+        # down, the request is unchanged, and retrying is the right response.
+        # D8 fixed the vocabulary as extensible for exactly this: a broker
+        # outage is neither the caller's fault (4xx) nor a platform defect
+        # (internal_error), and reporting it as either would send an operator
+        # to the wrong place.
+        "service_unavailable",
     }
 )
 
@@ -33,6 +40,7 @@ _STATUS_TO_CODE = {
     405: "method_not_allowed",
     409: "conflict",
     422: "validation_error",
+    503: "service_unavailable",
 }
 
 

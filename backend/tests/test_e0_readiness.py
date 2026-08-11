@@ -121,6 +121,27 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/revisions"),
     ("GET", f"{API_PREFIX}/listeners/{{mac}}/revisions"),
     ("GET", f"{API_PREFIX}/revisions/{{revision_id}}"),
+    # E3.7 (gate 45): the operator publish action (D82, project-changes #22).
+    # The worker never republishes - `auto_reconcile` is stored and inert - so
+    # this route is how drift is repaired. E3.13 wires E2's bulk apply to the
+    # same `publish_revision` beside it.
+    ("POST", f"{API_PREFIX}/revisions/{{revision_id}}/publish"),
+    # E3.10 (gate 48): the spec 7.2 command channel. 202, not 200 - the
+    # platform published to an unretained topic, it did not watch the device
+    # restart. Every submission mints a fresh `command_id` (spec 7.4): the
+    # device dedupes its own retries, and two operator submissions are two
+    # decisions.
+    ("POST", f"{API_PREFIX}/aggregators/{{aggregator_id}}/commands"),
+    # E3.11 (gate 49): the spec 6.3 per-device timeline. The ORG-wide and
+    # per-deployment halves of spec 6.3 are E0.8's `GET /audit` filtered by
+    # scope, deliberately not rebuilt here - two answers to one question
+    # would drift apart.
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/timeline"),
+    ("GET", f"{API_PREFIX}/listeners/{{mac}}/timeline"),
+    # E3.12 (gate 50): live updates. `WS /ws` is a websocket route and does
+    # not appear in the OpenAPI paths this set is built from, which is why
+    # it is absent here rather than forgotten - `test_websockets.py` is its
+    # contract.
 }
 
 E0_TABLES = {
@@ -154,6 +175,29 @@ E0_TABLES = {
     # E2.6 (gate 36): immutable per-device desired-config snapshots (D55);
     # E2 writes draft ONLY, E3 owns every other state.
     "config_revision",
+    # E3.1 (gate 39): broker connection storage, 'mqtt' rows only. E5 EXTENDS
+    # this table with the remaining deployment services and their status
+    # lifecycle (spec 16); it does not add a second table.
+    "deployment_service",
+    # E3.5 (gate 44): what a device reports back. `device_state` is spec 6.1's
+    # "last state the device sent", one row per device replaced in place, and
+    # E3.9 EXTENDS it with the spec 6.5 Listener liveness block, which arrives
+    # inside a report. `device_event` is the spec 7.3 event stream as immutable
+    # evidence, deduped per (emitter, instant, code) against QoS 1 redelivery.
+    "device_state",
+    "device_event",
+    # E3.8 (gate 46): the spec 9.3 live online verdict, LWT-driven. A table of
+    # its own rather than the `device_state` columns E3.5 anticipated: that
+    # row is a REPORT (three NOT NULL columns a status message cannot fill),
+    # LWT is Aggregator-only, and an `offline` will is published by the broker
+    # rather than by the device. See D88.
+    "aggregator_status",
+    # E3.11 (gate 49): one row per spec 6.2 transition, written by
+    # `revision_state.transition` and nothing else - which is what makes a
+    # device timeline complete by construction. Append-only evidence, every
+    # reference out of it un-FK'd (D33) so history outlives the revision it
+    # describes and the device it happened to.
+    "reconciliation_event",
 }
 
 

@@ -3,7 +3,24 @@
 Everything rides the /api/v1 prefix; every error leaves through the envelope
 (app.errors); every response carries a request id and the security-header
 baseline. Serve with: uvicorn app.main:create_app --factory
+
+E3.7 adds the lifespan. Two things may live alongside the API and both are
+OFF unless asked for:
+
+* An `MqttClientManager` for OUTBOUND publishes only — no subscriptions, so
+  it never consumes anything the worker is also consuming. It exists because
+  publishing is an HTTP action (`POST /revisions/{id}/publish`, and E2's
+  apply at E3.13), and it is started only when `EOE_PUBLISH_ENABLED` is on:
+  with the flag off nothing may reach a device anyway (D61), so a connection
+  would be a socket held open to do something the platform has forbidden.
+* The reconciliation worker itself, when `EOE_WORKER_IN_API` is on (D59) —
+  the single-process deployment mode. Compose runs it as its own container.
 """
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,8 +38,13 @@ from app.api.organizations import router as organizations_router
 from app.api.pods import router as pods_router
 from app.api.revisions import router as revisions_router
 from app.api.selections import router as selections_router
+from app.api.timeline import router as timeline_router
 from app.api.totp import router as totp_router
 from app.api.users import router as users_router
+from app.api.ws import router as ws_router
+from app.controlplane.broker import MqttClientManager, load_broker_coordinates
+from app.controlplane.events import Hub, listen
+from app.controlplane.runner import ReconciliationWorker
 from app.db import create_session_factory
 from app.errors import install_error_handlers
 from app.middleware import RequestIdMiddleware, SecurityHeadersMiddleware, configure_logging
@@ -30,6 +52,66 @@ from app.secrets import SecretStore
 from app.settings import Settings
 
 API_PREFIX = "/api/v1"
+
+log = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Start what the settings asked for, and stop it cleanly.
+
+    `app.state.mqtt` is always SET, and is None when publishing is disabled —
+    the publish route reads it and refuses rather than discovering a missing
+    attribute. Startup never fails on a broker that is down: the manager's
+    connection loop retries forever in the background (the E3.2 contract), so
+    an unreachable broker degrades publishing, not the whole API.
+
+    Nor does it fail on a DATABASE that is not ready. `start_or_retry` is what
+    makes that true, and it is not a nicety: the API comes up beside Postgres
+    in compose, so with publishing on it can reach the `deployment_service`
+    query before the migrations have created the table. Awaiting a bare
+    `start()` there kills uvicorn at startup (exit 3) and takes every route
+    that has nothing to do with publishing down with it.
+    """
+    settings: Settings = app.state.settings
+    app.state.mqtt = None
+    app.state.worker = None
+    # E3.12: the live-update fan-out. Always on — it needs no configuration
+    # beyond the database the API already has (D59), and a websocket surface
+    # that silently does nothing would be worse than one that is absent.
+    app.state.hub = Hub()
+    bus_stopping = asyncio.Event()
+    bus = asyncio.create_task(
+        listen(settings.database_url, app.state.hub.dispatch, stopping=bus_stopping),
+        name="live-update-bus",
+    )
+    if settings.publish_enabled:
+        manager = MqttClientManager(
+            lambda: load_broker_coordinates(app.state.session_factory, app.state.secret_store)
+        )
+        await manager.start_or_retry()
+        app.state.mqtt = manager
+        log.info("outbound publish connections started (EOE_PUBLISH_ENABLED is on)")
+    if settings.worker_in_api:
+        worker = ReconciliationWorker(
+            app.state.session_factory,
+            app.state.secret_store,
+            timeout_interval=float(settings.timeout_sweep_seconds),
+            drift_interval=float(settings.drift_sweep_seconds),
+        )
+        await worker.start()
+        app.state.worker = worker
+    try:
+        yield
+    finally:
+        bus_stopping.set()
+        bus.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await bus
+        if app.state.worker is not None:
+            await app.state.worker.stop()
+        if app.state.mqtt is not None:
+            await app.state.mqtt.stop()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -47,6 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # No swagger OAuth2 flow; without this FastAPI mounts a route at
         # /docs/oauth2-redirect, outside the versioned prefix.
         swagger_ui_oauth2_redirect_url=None,
+        lifespan=_lifespan,
     )
     app.state.settings = resolved
     engine, session_factory = create_session_factory(resolved.database_url)
@@ -86,6 +169,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(entity_config_router)
     api_router.include_router(selections_router)
     api_router.include_router(revisions_router)
+    api_router.include_router(timeline_router)
+    api_router.include_router(ws_router)
     app.include_router(api_router)
 
     return app

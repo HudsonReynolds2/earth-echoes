@@ -169,7 +169,10 @@ def test_preview_matches_what_apply_then_produces(apply_app):
     assert applied.status_code == 200
     result = applied.json()
     assert result["state"] == "draft"
-    assert result["publish_enabled"] is False
+    # E3.13 flipped the default on (D61); this app holds no broker
+    # connection, so nothing was published and draft is the honest answer.
+    assert result["publish_enabled"] is True
+    assert result["published"] == 0
     (revision,) = result["revisions"]
     assert revision["target_id"] == MACS_P1[0]
     assert revision["changed_keys"] == ["capture.duty_on_seconds", "logging.verbosity"]
@@ -485,5 +488,17 @@ def test_revisions_list_and_item_with_scope_discipline(apply_app):
     assert operator.get(f"{API_PREFIX}/revisions/{uuid.uuid4()}").status_code == 404
 
 
-def test_publish_flag_exists_and_is_off(apply_app):
-    assert apply_app.state.settings.publish_enabled is False
+def test_publish_is_enabled_by_default_and_apply_still_stops_at_draft_without_a_broker(
+    apply_app,
+):
+    """E3.13 flipped this default ON (D61); this test was
+    `test_publish_flag_exists_and_is_off` until then.
+
+    The flag being on is not enough to reach a device: this app never ran its
+    lifespan, so it holds no outbound connection (D86) and every revision
+    stays `draft` and says so. That is the same answer a real API gives when
+    its broker is down, which is why apply reports per-revision state rather
+    than assuming success.
+    """
+    assert apply_app.state.settings.publish_enabled is True
+    assert getattr(apply_app.state, "mqtt", None) is None

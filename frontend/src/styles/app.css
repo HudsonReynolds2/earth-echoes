@@ -1435,3 +1435,60 @@ tr.row-noop td {
 .rail-block-link:hover {
   text-decoration: underline;
 }
+
+/* --- Device timeline (E3.11; spec 6.3) ----------------------------------- */
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-4);
+}
+
+.timeline-entry {
+  border-left: 3px solid var(--eoe-color-border);
+  padding-left: var(--eoe-space-4);
+}
+
+/* The spec 6.2 states an operator needs to notice, tinted on the rail rather
+   than as a status chip: these describe a config revision, not whether the
+   device is reachable, and the two vocabularies must not look alike. */
+.timeline-entry[data-revision-state="failed"],
+.timeline-entry[data-revision-state="drifted"] {
+  border-left-color: var(--eoe-color-status-drifted);
+}
+
+.timeline-entry[data-revision-state="applied"] {
+  border-left-color: var(--eoe-color-status-healthy);
+}
+
+.timeline-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--eoe-space-3);
+  flex-wrap: wrap;
+}
+
+.timeline-state {
+  font-weight: 600;
+}
+
+.timeline-actor,
+.timeline-detail {
+  margin: var(--eoe-space-1) 0 0;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.timeline-diff {
+  margin-top: var(--eoe-space-2);
+  border-collapse: collapse;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.timeline-diff th,
+.timeline-diff td {
+  text-align: left;
+  padding: var(--eoe-space-1) var(--eoe-space-3) var(--eoe-space-1) 0;
+}

@@ -22,7 +22,11 @@ phase-doc tasks) are given so a fresh session can verify any entry at its source
                 migration conventions
 ```
 
-Dev ports: API 8000, frontend dev server 5173, Postgres 5432, Redis 6379.
+Dev ports, HOST side (amended by E3.1 — PHASE0-2-02, project-changes #21): API 18000,
+frontend dev server 15173, Postgres 15432, Redis 16379, MQTT over TLS 18883. Containers
+still listen on 8000/5173/5432/6379/8883 internally and in-network URLs are unchanged;
+only the published host side moved, so the stack coexists with other local services.
+`FIXED_PORTS` in `backend/tests/test_repo_layout.py` is the enforced list.
 
 ### Environment variables (E0.1, E0.3; phase-0 section 2)
 
@@ -33,6 +37,10 @@ Dev ports: API 8000, frontend dev server 5173, Postgres 5432, Redis 6379.
 | `EOE_KEK` | yes | base64 platform key-encryption key (SecretStore, E0.11) |
 | `REDIS_URL` | no | enables Redis-backed features (E3, E7) |
 | `EOE_CORS_ORIGINS` | no | comma-separated allowed browser origins (D2/D4) |
+| `EOE_PUBLISH_ENABLED` | no | gates publication AND the API's outbound broker connection (D61, D86); default off until E3.13 |
+| `EOE_WORKER_IN_API` | no | run the reconciliation worker inside the API process instead of the `worker` container (E3.7, D59); default off |
+| `EOE_TIMEOUT_SWEEP_SECONDS` | no | pending-timeout sweep cadence, default 30 (E3.7) |
+| `EOE_DRIFT_SWEEP_SECONDS` | no | drift re-comparison cadence, default 300 (E3.7) |
 
 No secret defaults are committed; `deploy/.env.example` documents names only, never values.
 Settings precedence: environment variable over TOML config file over default (D5).
@@ -486,7 +494,13 @@ reimplement their logic.** Signatures, verbatim:
 - `check_aggregator_membership(db, aggregator_uuid) -> Aggregator | None` — membership
   lookup, never sentinel equality. `require_known_aggregator(db, aggregator_uuid)` is
   the raising variant (`ProvisioningRequiredError`) that also opens the
-  `provisioning_required` alert; use it on metrics/analysis/object ingest paths.
+  `provisioning_required` alert; use it on metrics/analysis/object ingest paths, and
+  E3.5 uses it on the reported and event channels too.
+- `quarantine_report(db, report, reason) -> QuarantinedReport` — **public since E3.5**
+  (was `_quarantine`; behaviour, signature and outcomes unchanged). Stages one quarantine
+  row plus its audit row, so a channel deciding what a NON-conflict outcome means reuses
+  the row shape rather than assembling its own. `reason` vocabulary: `mac_conflict` and
+  `name_conflict` (E1.5), `unknown_mac` (E3.5's reported channel, D76).
 - **Tables:** `quarantined_report` (append-only evidence; no FK to listener — survives
   deletion, holds reports about devices inventory never had) and `inventory_alert`
   (open alerts unique per (alert_type, entity_type, entity_key) via partial unique index
@@ -648,9 +662,10 @@ reimplement their logic.** Signatures, verbatim:
   `state` String from the spec 6.2 vocabulary — **E2 writes 'draft' ONLY**; every
   transition belongs to E3's machine · `created_by` SET-NULL FK · `created_at`.
   Indexed: (target_type, target_id, created_at), deployment_id, state (pre-pays E3's
-  pending scan). **`publish_revision(revision_id)` does not exist yet — E3 adds it**,
-  gated by `EOE_PUBLISH_ENABLED` (Settings.publish_enabled, default False; E2 only
-  reports it in the apply response).
+  pending scan). **`publish_revision` now exists** (E3.4 — see "The desired publish
+  path" under E3), still gated by `EOE_PUBLISH_ENABLED` (Settings.publish_enabled,
+  default False until E3.13 per D61; E2's apply only reports it in the response and
+  still stops at `draft` until E3.13 wires the call-through).
 - **Secret rotation note (D56):** replacing a secret's value keeps the same marker →
   no new revision. Rotation reaches devices via E3's §8.7 rewrap path, never
   desired-config.
@@ -709,3 +724,585 @@ reimplement their logic.** Signatures, verbatim:
   editor type + the acceptance key `test.demo_knob` (no src/ reference); an
   in-memory override store + miniature D53 merge back the MSW handlers, so
   provenance and no-op detection are real in tests.
+
+---
+
+## Owned by E3
+
+### The MQTT contract module (E3.1, E3.3; spec 7.2, 7.3) — PUBLISHED, SIM CONSUMES IT
+
+- **Path:** `backend/app/contracts/mqtt.py`, under a package whose whole purpose is wire
+  contracts shared outside this codebase. **The simulation harness (SIM epic) imports this
+  module directly and device firmware is written against it**, so it is published from the
+  moment it merged: additive change only, never a silent rename, and a shape change is a
+  field-breaking change.
+- **Topic builders** — one per spec 7.2 row, all hanging off `deployment_root(dep)` =
+  `eoe/{dep}`: `desired_topic`, `reported_topic`, `status_topic`, `event_topic`,
+  `command_topic`, `listener_desired_topic`, `listener_reported_topic`, plus
+  `aggregator_root`/`listener_root`. `{dep}` is the deployment **slug** (D36), `{agg}` the
+  `aggregator_uuid`, `{mac}` a NORMALIZED uppercase colon MAC.
+- **Identifiers are validated, never repaired.** `TopicError` (a plain `ValueError`, NOT the
+  API's `AppError` — this module runs outside the HTTP layer) rejects anything that fails
+  the same formats the database CHECK-constrains: an unchecked slug or MAC reaching a topic
+  string could inject a `+`/`#` wildcard and hand one device another's subtree. Normalize at
+  the API boundary with `app.inventory.naming.normalize_mac` first.
+- **`deployment_subscriptions(dep)`** is the platform's subscribe set: the four
+  device-to-platform filters only. Deliberately NOT `eoe/{dep}/#` — that would feed the
+  platform's own retained desired publishes back into its consumer.
+- **`parse_topic(topic) -> ParsedTopic(kind, dep, agg, mac)`** (added E3.5) is the inverse,
+  and the ONLY place a topic is taken apart — `TopicKind` has one member per spec 7.2 row, so
+  a caller's `match` covers the table exhaustively. Identifiers are validated on the way in by
+  the same functions that validate them on the way out, so a `+`/`#` that reached a topic
+  string is refused rather than repaired. Round-trip test-pinned across every builder.
+- **`QOS = 1`** on every platform topic (phase-3 fixed choice); retained flags follow the
+  spec 7.2 table exactly (desired and status retained; reported, event and cmd not).
+- **Payload models** (E3.3; spec 7.3; D67-D68), all on the published base `MqttPayload`:
+  `DesiredConfig` (+ `DesiredTarget`), `ReportedAggregatorState` (+ `HealthBlock`),
+  `ReportedListenerState` (+ `ListenerLiveness`), `StatusMessage`, `DeviceEvent`, `Command`.
+  Helpers: `encode(payload) -> bytes`, `decode(model, raw) -> model`,
+  `describe(payload) -> dict` (JSON-ready, for timeline detail and audit rows). Constants:
+  `SCHEMA_VERSION`, `DETAIL_MAX`, `EVENT_LISTENER_STREAM_GAP`,
+  `EVENT_LISTENER_MISSED_WAKE_WINDOW`. Field types: `UtcTimestamp`, `Checksum`,
+  `MacAddress`, `EventCode`, `LivenessState`, `CommandName`.
+- **Direction decides strictness (D67).** Outbound (`DesiredConfig`, `Command`) forbids
+  unknown fields; inbound (the reported states, `StatusMessage`, `DeviceEvent`) ignores them.
+  `schema_version` is top-level only and absent means 1; any other value is rejected.
+  Timestamps are aware-only, normalized to UTC, serialized `...Z`. `encode` omits absent
+  optionals — but never reaches inside `config`, where a null is data.
+  `expected_wake_at` is present exactly while `liveness.state == "sleeping"`, enforced both
+  ways. `applied_revision_id` is optional; `command_id` defaults to a fresh UUID.
+- **`DesiredConfig.config` IS the `config_revision.snapshot`, verbatim**, and `checksum` is
+  that snapshot's D52 checksum. Copying the snapshot through unchanged is load-bearing: it is
+  what makes a device-echoed checksum match by construction. The recipe itself stays in
+  `app.config.canonical` and is deliberately not imported here (D67).
+- **`ContractError(ValueError)`** is the shared base; `TopicError` and `PayloadError` both
+  derive from it, so a caller can catch either level. **`PayloadError` is safe to log
+  verbatim** — it names the model and the failing fields and never the values (D68).
+
+### `deployment_service` — broker coordinates (E3.1; spec 7.1) — **E5 EXTENDS THIS**
+
+- **Table** (migration `a41f9c7b2e05`, singular per D30): `id`, `deployment_id` FK,
+  `service_key` CHECK-constrained to `('mqtt')` for now, `host`, `port` (CHECK 1..65535),
+  `tls_enabled`, `ca_cert_pem`, `username`, `password_secret_name`, timestamps.
+  UNIQUE `(deployment_id, service_key)`.
+- **E5 owns extending it** with the Influx/Grafana/Prometheus/S3 rows, connection tests, and
+  the spec 16.5 verification status lifecycle — by widening the `service_key` CHECK and
+  adding columns here, **not** by starting a second table. E3 reads this row and writes only
+  the `mqtt` one.
+- **`deployment_id` IS a real foreign key**, unlike the immutable-evidence tables (D33/D55):
+  a service row describes a live connection and is meaningless once its deployment is gone.
+- **Credentials never live in the row.** `password_secret_name` names a SecretStore entry
+  (`deployment:{deployment_id}:mqtt_password`); `ca_cert_pem` is deliberately NOT a secret —
+  it is the public trust anchor the platform verifies the broker against, and storing the
+  PEM rather than a path keeps it portable across API replicas and containers.
+
+### The development broker (E3.1; spec 7.1)
+
+- **Generator:** `backend/app/devbroker.py` (`uv run python -m app.devbroker`), documented
+  for operators in the README's "Development MQTT broker" section. **Two passes by design:**
+  `--certs-only` writes TLS material and empty account files so Mosquitto can start at all;
+  the full run needs seeded deployments and writes accounts, ACLs and the service rows.
+  `--host` is the hostname the PLATFORM dials (`mosquitto` in compose, `localhost` on the
+  host); `--keep-tls` reuses existing certificates.
+- **Everything it writes is gitignored** (`deploy/dev-certs/`): private CA, server cert,
+  generated passwords, Mosquitto `passwd` (PBKDF2-SHA512, `$7$` format — 2.0 dropped
+  plain-text password files) and `acl`, plus `accounts.json`, which is how tests and the
+  mock device learn device credentials without a second source of truth. Re-running rotates
+  every credential; the password file and SecretStore are rewritten in the same pass so they
+  cannot drift apart.
+- **The ACL is the isolation guarantee, and it is generated from the topic builders**, not
+  from repeated literals: a platform account gets `readwrite eoe/{dep}/#`; an aggregator
+  gets exactly seven grants that are spec 7.2's Direction column read literally (read
+  `desired`/`cmd`/`lst/+/desired`, write `reported`/`status`/`event`/`lst/+/reported`).
+  A device therefore cannot publish its own desired config — which would let it manufacture
+  agreement and defeat drift detection.
+- **Denial looks like silence.** Mosquitto accepts a subscription to a topic its ACL denies
+  (SUBACK 0) and then never delivers, and it filters wildcards per message. Every denial
+  assertion in `backend/tests/test_dev_broker.py` is therefore paired with a positive
+  control publishing the same retained message to the same topic for an authorized
+  identity; a later session must keep that pairing or the suite proves nothing.
+- **Compose:** the `mosquitto` service is **TLS only** (8883, no 1883 listener) with
+  `persistence true` so retained desired messages survive a broker restart — spec 6.4's
+  reconnect property and E3.7's restart acceptance both depend on it.
+- **Shared test fixture:** `conftest.ephemeral_broker(dev_dir, host_port=None)` yields a
+  `Broker` with `port`, `exec_client(...)`, `reload()`, and (added at E3.2) `stop()`/`start()`.
+  It ships files in with `docker cp` rather than a bind mount ON PURPOSE — bind mounts of
+  WSL/Windows paths translate differently per host, and the gate must behave identically on
+  all three. `host_port` defaults to a Docker-assigned port; pass `conftest.free_port()` only
+  when a test must survive a stop/start, because Docker re-assigns port 0 on every start.
+- **Gate-locked sets extended here:** `COMPOSE_SERVICES` and `FIXED_PORTS` in
+  `backend/tests/test_repo_layout.py` (mosquitto, `8883:8883`), and `E0_TABLES` in
+  `backend/tests/test_e0_readiness.py` (`deployment_service`).
+
+### The MQTT client manager (E3.2; spec 7.1, 7.4; D64-D66) — E3.4/E3.5/E3.7 build on this
+
+- **Path:** `backend/app/controlplane/broker.py`, in the package that owns everything talking
+  to a broker. The wire contract stays in `app/contracts/mqtt.py`, which is published outside
+  this codebase; nothing in `app/controlplane/` is.
+- **`BrokerCoordinates`** — `deployment_id`, `slug`, `host`, `port`, `username`, `password`,
+  `tls_enabled`, `ca_cert_pem`. The `slug` rides along because it is the `{dep}` topic segment
+  (D36) and the manager needs it to build filters. **`password` is `field(repr=False)` and the
+  class carries a `__str__` naming only the deployment and the socket** — every log line in
+  the module interpolates a coordinates object, so a later edit that adds `%r` still cannot
+  leak a credential (rule R2). Keep both.
+- **`load_broker_coordinates(session_factory, secret_store)`** reads every `deployment_service`
+  row with `service_key == "mqtt"`, ordered by slug, resolving `password_secret_name` through
+  SecretStore. A row whose secret is unreadable is **skipped with a warning naming the secret,
+  never its value** — one badly provisioned deployment must not deafen the others (D64).
+- **`tls_context(coordinates)`** → `ssl.SSLContext | None`. When `ca_cert_pem` is set, that CA
+  is the **only** trust anchor (D65) — deliberately not "system store plus this one".
+  `check_hostname` and `CERT_REQUIRED` hold on both branches, minimum TLS 1.2; aiomqtt's
+  `tls_insecure` is never used.
+- **`MqttClientManager(loader, *, backoff, client_id_prefix, keepalive)`** — one asyncio task
+  per deployment, each an infinite connect / subscribe / read loop. API:
+  `subscribe(filters, handler)` (BEFORE `start()` only — the set is fixed for the manager's
+  lifetime, D64), `start()` / `stop()` / `async with`, `publish(deployment_id, topic, payload,
+  qos=QOS, retain=False)`, `wait_connected(deployment_id, timeout)`, `is_connected(...)`,
+  `deployment_ids`. `filters` has the signature of
+  `contracts.mqtt.deployment_subscriptions` — `(slug) -> Sequence[str]` — which is how E3.5
+  registers the whole device-to-platform set.
+- **`start_or_retry() -> bool`** (E3.7, D87) — what long-lived hosts call instead of `start()`.
+  `start()` reads the `deployment_service` rows ONCE and raises if it cannot, and both hosts of
+  a manager (the API lifespan, the worker) come up beside Postgres in compose and can beat the
+  migrations to that table. Returns True when the connections are open, False when a retry is
+  backing off in the background; `stop()` cancels it. **An unreachable BROKER never reaches
+  here** — that is the connection loop's own affair. Use `start()` only where a failure should
+  propagate, i.e. in tests.
+- **The contract with callers: a broker outage is not an event handlers see.** No
+  connection-lost callback, no resubscribe hook. Handlers receive `InboundMessage`
+  (`deployment_id`, `deployment_slug`, `topic`, RAW `payload` bytes, `qos`, `retain`) and
+  nothing else. **A handler that raises is logged and the loop continues** (D64) — one
+  device's malformed payload may not cost a deployment its control plane. Payloads stay bytes
+  here: decoding is `contracts.mqtt`'s job, and an undecodable payload must still reach the
+  handler that decides what to do about it.
+- **`BrokerUnavailable`** on publish with no live connection: E3.4 must be able to tell "the
+  broker is down" from "published", or a revision moves to `pending` on a lie.
+- **Sessions are clean and every connect resubscribes** (D64). The platform does not ask the
+  broker to remember its session; delivery guarantees come from QoS 1 plus the retained
+  desired topics (spec 6.4). Client identifier: `{prefix}-{slug}-{8 hex}`, one suffix per
+  manager instance, so a reconnect retires its own old session but two API replicas never
+  collide.
+- **Coordinates load once, at `start()`.** Adding a deployment's broker row takes a manager
+  restart; E3.7 owns that lifecycle. **Nothing constructs this manager yet** — E3.2 ships the
+  library, the worker (D59) wires it up.
+- **New runtime dependency: `aiomqtt`** (the phase-3 fixed client choice), which pulls
+  `paho-mqtt`. Async tests run on **anyio's pytest plugin** via the `anyio_backend` fixture in
+  `conftest.py` — no pytest-asyncio (D66).
+
+### The revision state machine (E3.6; spec 6.2, 14.5; D69-D70) — TEST-CRITICAL
+
+- **Path:** `backend/app/controlplane/revision_state.py`. **`transition()` is the ONLY writer
+  of `config_revision.state`** anywhere in the codebase — E3.4, E3.5, E3.7 and E3.10 come
+  through it rather than assigning the column, which is what makes the spec 6.2 lifecycle true
+  of every row instead of true of the most recently written call site. E2 writes `draft` at
+  creation and nothing else (D55).
+- **Suite:** `backend/tests/test_revision_state.py`. **One of the four suites no later session
+  may weaken (spec 14.5, rule R0.)** It transcribes spec 6.2's transition table verbatim
+  (`SPEC_6_2_TABLE`, trigger text included) and the diagram's extra edge separately
+  (`SPEC_6_2_DIAGRAM_EXTRA`); the legal set is rebuilt from those transcriptions alone. All 288
+  `(source, target, trigger)` triples are enumerated and the 276 outside the legal set must
+  raise. **To add a transition you must edit the transcription**, which means reading the spec.
+- **`RevisionState`** (StrEnum, compares equal to the stored string): `draft`, `pending`,
+  `applied`, `drifted`, `failed`, `superseded`. **`TERMINAL` = {`superseded`} and nothing
+  else**; `OPEN` is the other five. Every open state has an exit and every state is reachable
+  from `draft` — both suite-asserted, so dead vocabulary cannot creep in.
+- **`Trigger`** (StrEnum): `publish`, `report_match`, `report_error`, `timeout`,
+  `report_diverged`, `republish`, `retry`, `newer_revision` — spec 6.2's Trigger column, as
+  causes. **A transition is a TRIPLE `(source, target, trigger)`, not a pair** (D69): the same
+  pair can be legal under one cause and illegal under another, and the trigger is what makes
+  `failed` legible on the timeline (rejected the config vs. never answered).
+- **`TIMEOUT` attaches to exactly one transition and means silence only** (D70). A device that
+  acks a revision with the wrong config fails as `REPORT_ERROR` on its first report; it never
+  waits out the window. Suite-pinned — do not widen it.
+- **API:** `TRANSITIONS` (frozenset of frozen `Transition` rows carrying `spec_trigger`, the
+  spec's own text) · `is_legal` / `legal_targets` / `legal_triggers` · `check(source, target,
+  trigger)` raising **`IllegalTransition`** (a plain exception, NOT the API's `AppError` — the
+  worker and consumer run outside the HTTP layer; the `ContractError` precedent) ·
+  `parse_state` raising **`UnknownRevisionState`** on anything outside the vocabulary (loud
+  rather than lenient: treating an unrecognized state as `draft` would republish live config) ·
+  `transition(db, revision, target, trigger, *, actor_user_id, detail) -> TransitionRecord` ·
+  `load_for_transition` · `open_revisions_for_target` · `supersede_open_revisions`.
+- **`check`'s messages distinguish three failures** because they call for different fixes: a
+  no-op (a missing idempotency check in the caller), a legal pair under the wrong trigger (the
+  right intent reported under the wrong cause, and the message names the permitted triggers),
+  and an impossible pair (the message lists where the source can actually go).
+- **Stages, never commits** — the `record_audit` convention, so a transition and the publish or
+  report that caused it seal or roll back together. `TransitionRecord` (revision id, target,
+  deployment, source, target state, trigger, `at`, actor, detail) is what the caller audits
+  from; `actor_user_id is None` means system-driven, matching `record_audit`.
+- **Concurrency:** `load_for_transition` reads `SELECT ... FOR UPDATE`. An ack and a timeout can
+  land on the same pending revision together; the lock serializes them and the guard then
+  refuses the loser, so a true `applied` is never overwritten by a `failed` that did not happen.
+- **`supersede_open_revisions(db, winner)` closes every OTHER open revision for the winner's
+  device, unconditionally — no timestamp comparison.** That is safe ONLY because **E3.4 refuses
+  to publish a revision that is not the newest for its device**; the two rules are a pair, and
+  removing either alone silently discards drafts (D69).
+- **E3.11 hangs `reconciliation_event` off `transition()` itself**, not off each call site —
+  one choke point is what will make the timeline complete by construction.
+
+### The desired publish path (E3.4; spec 6.2, 6.4, 7.2, 7.3; D71-D74) — E3.13 wires E2 to this
+
+- **Path:** `backend/app/controlplane/publisher.py`. **`publish_revision` is the ONLY way a
+  `config_revision` reaches a device** — steps 1 and 2 of the spec 6.4 loop; E3.5 is the rest.
+- **Signature:** `await publish_revision(session_factory, publisher, revision_id, *,
+  publish_enabled: bool, actor_user_id: uuid.UUID | None = None) -> PublishOutcome`.
+  `publish_enabled` is REQUIRED and keyword-only (D71) — the `EOE_PUBLISH_ENABLED` refusal
+  lives inside this function, so no caller can reach a device by forgetting it; the value comes
+  from `Settings.publish_enabled` (D61). `publisher` is anything satisfying the structural
+  **`DesiredPublisher`** protocol (`async publish(deployment_id, topic, payload, *, qos,
+  retain)`) — `MqttClientManager` does, and so does a test double.
+- **Owns its own transaction** (D74): a revision can only be published once committed, so
+  E3.13's apply commits first and calls this second. **The publish happens INSIDE that
+  transaction** — state change staged, bytes sent, commit only on success. A `BrokerUnavailable`
+  rolls back and the revision stays `draft` with nothing published. Do not reorder this: a
+  committed `pending` nobody was told about resolves as a spec 6.2 `failed(timeout)`, which
+  under D70 means "the device never answered" and blames a device for a broker outage.
+- **Retained, QoS 1, always** — spec 7.2/6.4's reconnect property, proven by an acceptance test
+  that publishes and only THEN connects a subscriber (as the Aggregator's own credential, so
+  the spec 7.1 ACL is on trial with it).
+- **Payload:** `DesiredConfig` with `config = revision.snapshot` and `checksum =
+  revision.checksum`, both VERBATIM (D52). Rewriting, reordering or enriching the snapshot on
+  the way out breaks the device-echo match for the whole fleet at once and surfaces as phantom
+  drift, not as an error. This module has no secret handling and must never grow any — E2 put
+  the markers in the snapshot (spec 5.4, 8).
+- **Topics come from LIVE inventory, never `config_revision.deployment_id`** (D71), which is
+  historical evidence (D33). Listener revisions resolve their deployment through the
+  Aggregator's pod, because the spec 7.2 Listener subtopic hangs off that Aggregator's subtree.
+  `resolve_desired_route -> DesiredRoute(deployment_id, slug, aggregator_uuid, device_id,
+  topic)` is exported for reuse. A revision whose device has left inventory raises
+  **`UnknownPublishTarget`** — expected, not a bug.
+- **An aggregator revision's `target_id` is the PLATFORM UUID (`aggregator.id`), NOT the
+  `aggregator_uuid`** (D75) — that is what E2 writes. The `{agg}` topic segment and the spec
+  7.3 `target.id` are the `aggregator_uuid`; `DesiredRoute.device_id` carries it. Spec 4.2
+  keeps the three identifiers distinct and this is the one place that crosses between them.
+  Getting it wrong fails SILENTLY — a valid topic no device subscribes to — so any future
+  consumer of `target_id` must resolve, never string-copy. Listener `target_id` is the MAC,
+  which is both.
+- **The trigger follows the source state** (D71): `draft` → `publish`, `drifted` → `republish`,
+  `failed` → `retry`, all reaching `pending` via `transition()`. New states must be added to
+  `_TRIGGER_FOR` deliberately; it does not default.
+- **Idempotent republish** (D72): a `pending` or `applied` revision re-sends byte-identical
+  retained bytes, moves NO state and writes NO second audit row (`PublishOutcome.transitioned`
+  is False). It re-sends rather than no-oping because that is the repair for a broker that lost
+  its retained store.
+- **Only the newest revision for a device may be published** (D73), by `(created_at, id)`;
+  otherwise **`StaleRevision`**, as for a `superseded` one. **This is the pair rule that makes
+  `supersede_open_revisions` safe** — see the state-machine section above; removing either half
+  alone silently discards an operator's newer draft.
+- **Exceptions** all derive from **`PublishError`** (a plain exception, not `AppError` — the
+  worker and E3.13's apply call this outside the HTTP layer; the `ContractError` precedent):
+  `PublishDisabled`, `UnknownRevision`, `UnknownPublishTarget`, `StaleRevision`. The API
+  boundary translates.
+- **Audit:** one `revision.publish` row per state-moving publish (`AUDIT_ACTION`), entity
+  `config_revision`, scoped to the resolved deployment, detail carrying target, topic, checksum,
+  from/to state, trigger and the superseded revision ids. `actor_user_id is None` means
+  system-driven, per the `record_audit` convention.
+- **Suite:** `backend/tests/test_publish_revision.py` (gate 43).
+
+### The reported consumer (E3.5; spec 4.3, 6.1, 6.2, 7.3, 7.4; D76-D79) — E3.7 runs it
+
+- **Path:** `backend/app/controlplane/consumer.py`. The second half of the spec 6.4 loop:
+  E3.4 publishes and stops, this consumes reported Aggregator state, reported Listener
+  state and events. A LIBRARY like the client manager — **nothing constructs it yet**;
+  E3.7's worker wires the two with `manager.subscribe(consumer.filters, consumer.handle)`.
+- **API:** `ReportedConsumer(session_factory)` · `filters(slug)` (returns
+  `deployment_subscriptions(slug)` verbatim — one namespace, not a second list) ·
+  `async handle(message: InboundMessage) -> ReportOutcome` (satisfies
+  `broker.MessageHandler`; runs the sync ORM work in a worker thread) · `consume(message)`,
+  its synchronous body, which is what the suite drives. Helpers: `latest_state(db,
+  entity_type, entity_id)`, `delete_device_state_for(db, entity_type, entity_id)`,
+  `differing_keys(reported, desired)`. Constants: `AUDIT_ACTION = "revision.report"`,
+  `QUARANTINE_UNKNOWN_MAC`, `MAX_DIFFERING_KEYS = 20`.
+- **`ReportOutcome`** (StrEnum, returned per message so E3.7 can count without re-deriving):
+  `applied` · `rejected` · `drifted` · `unchanged` · `stale` · `quarantined` ·
+  `unprovisioned` · `malformed` · `event` · `duplicate_event` · `misrouted` · `not_mine`.
+- **Identity comes from the TOPIC, never a payload** (D79). The spec 7.1 ACL authenticated
+  the `{agg}`/`{mac}` segments; a payload field would be a self-declaration. No inbound
+  spec 7.3 model carries an identity field and none should grow one.
+- **Identity routes through the E1.5 services, which never touch inventory.** MAC/name
+  conflicts quarantine and alert; an unknown `aggregator_uuid` opens `provisioning_required`
+  on the reported AND event channels; an unregistered MAC quarantines with reason
+  `unknown_mac` and NO alert (D76). **A report that fails an identity check writes no
+  `device_state` row and moves no revision** — not just no inventory row.
+- **The spec 6.2 edges a report can drive:** `pending`+match → `applied` (`report_match`);
+  `pending`+coherent mismatch → `failed` (`report_error`) **immediately**, never waiting out
+  the window (D70); `applied`+mismatch → `drifted` (`report_diverged`). From `draft`,
+  `drifted`, `failed` and `superseded` a report moves NOTHING — checked BEFORE the machine is
+  asked, since offering it an illegal triple would raise where nothing is wrong. All through
+  `transition()`, still the only writer of `config_revision.state`.
+- **Two boundary refusals with NO transition** (D70), because a malformed message is not
+  evidence about whether config was applied: an undecodable payload, and a device whose
+  `checksum` is not `config_checksum(config)` — the platform recomputes rather than trusting
+  a naked field, which is what makes the D52 echo-match a property and not a hope.
+- **Mismatch detail names differing KEYS, never values** (rule R2) — bounded at
+  `MAX_DIFFERING_KEYS`, since it lands in an audit row and on the E3.11 timeline.
+- **Staleness** (D78): a report strictly older than the stored one is dropped WHOLE.
+  Equal-timestamp replays run the full comparison and land on "already there", so
+  idempotency is a property of `applied_revision_id` plus checksum as spec 7.4 words it.
+  `stale` therefore means late delivery and nothing else.
+- **Audit:** one `revision.report` row per state-moving report, entity `config_revision`,
+  `actor_user_id is None` (a device said so, not a user), detail carrying target, from/to
+  state, trigger, `reported_at`, the reported checksum and any `differing_keys`. No row for a
+  report that changed nothing — reports arrive continuously and the audit trail records what
+  CHANGED (the D72 reasoning).
+- **Suite:** `backend/tests/test_reported_consumer.py` (gate 44), including the three phase
+  acceptance criteria and one live-Mosquitto test that publishes as the device's own
+  credential through the real manager — the only test that proves `filters` and `handle` are
+  wired, since every other one hands the consumer a message the suite built.
+
+### `device_state` and `device_event` (E3.5; spec 6.1, 7.3; D77-D78) — **E3.8/E3.9 EXTEND
+`device_state`**
+
+- **`device_state`** (migration `a2cf00fc037f`): `id` · `entity_type` CHECK
+  `('aggregator','listener')` · `entity_id` — **the `config_revision` convention exactly**,
+  aggregator PLATFORM UUID / listener MAC (D75), un-FK'd for the `entity_override` reason ·
+  `deployment_id` **FK** (current state, not evidence — the `deployment_service` precedent,
+  not D33) · `reported_at` (the device's clock; the spec 7.4 ordering key) ·
+  `applied_revision_id` nullable, un-FK'd · `checksum` · `config` JSONB (markers, never
+  plaintext) · `health` JSONB nullable (stored as sent, **never charted** — Prometheus is
+  authoritative, spec 10.1) · `received_at`. UNIQUE `(entity_type, entity_id)`: one row per
+  device, replaced in place.
+- **E3.8 adds the LWT online state** spec 9.3 makes authoritative for an Aggregator's live
+  verdict; **E3.9 adds the spec 6.5 Listener liveness block**. E3.5 stores neither on
+  purpose. Add columns here, not a second table.
+- **Deleted with its device:** `delete_device_state_for` is wired into the E1 aggregator and
+  listener DELETE endpoints (the `delete_overrides_for` precedent, D51), so a MAC reused by
+  a different physical device cannot inherit its predecessor's reported config.
+- **`device_event`**: `id` · `deployment_id` un-FK'd indexed · `aggregator_uuid` (the EMITTER
+  the broker authenticated) · `listener_mac` nullable indexed · `at` · `level` CHECK
+  `('debug','info','warn','error')` · `code` · `detail` · `received_at`. Immutable evidence
+  (D33): it outlives the device it describes and has no cleanup hook.
+- **`uq_device_event_delivery` UNIQUE `(deployment_id, aggregator_uuid, listener_mac, at,
+  code)` `NULLS NOT DISTINCT`** (D77): a QoS 1 redelivery is a no-op, not a second timeline
+  entry. The NULLS clause is load-bearing — without it only Listener events would dedupe.
+  Requires Postgres 15+. The same code at a different instant is a different event.
+  `ix_device_event_timeline (aggregator_uuid, at)` pre-pays E3.11's query.
+
+### The reconciliation worker (E3.7; spec 6.4, 14.3; D80-D81, D84-D86) — E3.8-E3.12 EXTEND IT
+
+- **Path:** `backend/app/controlplane/runner.py`. The process that runs the spec 6.4 loop:
+  it owns an `MqttClientManager` with E3.5's `ReportedConsumer` registered on it, and
+  schedules the two things no message-driven code could do.
+- **Two entrypoints, one module (D59):** `python -m app.controlplane.runner` (the compose
+  `worker` service) and the API lifespan under `EOE_WORKER_IN_API` (default off).
+- **API:** `ReconciliationWorker(session_factory, secret_store, *, timeout_interval=30.0,
+  drift_interval=300.0, manager=None, consumer=None)` · `async start()` / `stop()` /
+  `__aenter__` / `wait_closed()` · `.manager` (the live client manager — E3.13 and the API
+  publish through one) · `.counters` (diagnostics only; all real state is in Postgres).
+- **`pending_timeout_sweep(session_factory, *, now=None) -> TimeoutSweepReport`** (spec 6.4
+  item 4): `pending` revisions whose deployment window has elapsed go
+  `failed(timeout)`, with a `revision.timeout` audit row and `actor_user_id is None`. Report
+  carries `failed` · `overtaken` (an ack won the race under the row lock) · `unanchored`.
+- **`drift_sweep(session_factory) -> DriftSweepReport`** (spec 6.4 item 5): stored
+  `device_state` vs the applied revision → `drifted(report_diverged)` plus a
+  `revision.drift` audit row (detail names differing KEYS, never values); recomputed
+  effective config vs that revision → `desired_changed`, an **observation with no
+  transition** (D85). Report carries `drifted` · `desired_changed` · `unresolvable` ·
+  `unreported` · `auto_reconcile_requested`.
+- **The sweeps are module-level functions** taking a session factory: the suite drives them
+  with no event loop, no broker and no worker. One transaction per revision; the scan is
+  lockless and every transition re-reads under `load_for_transition` (D80).
+- **Nothing here republishes.** `deployment.auto_reconcile` is stored, default off, INERT
+  pending spec 17 item 3 (D81) — the worker reads it only to report it. Drift is repaired
+  by `POST /revisions/{id}/publish`.
+- **Suite:** `backend/tests/test_reconciliation_worker.py` (gate 45), including both halves
+  of the phase acceptance against a real broker: the full journey (publish → ack → drift →
+  operator re-publish → timeout) and a worker restart mid-flight.
+
+### Reconciliation policy and the window anchor (E3.7; D81, D84) — **E7 MAY EXTEND**
+
+- **`deployment.pending_timeout_seconds`** (migration `c41e9b7d3a58`): int, default 300,
+  CHECK > 0. The spec 6.4 item 4 window, per deployment. A PLATFORM setting — never a
+  catalog key, because a catalog key would be merged into effective config and published to
+  devices. A revision whose deployment row is gone falls back to
+  `models.DEFAULT_PENDING_TIMEOUT_SECONDS` (300) rather than sitting `pending` forever.
+- **`deployment.auto_reconcile`**: bool, default false, **inert** (D81). The phase that
+  implements the spec 17 item 3 policy is the phase that may act on it.
+- **`config_revision.published_at`** (same migration): nullable timestamptz, indexed,
+  written by `revision_state.transition` on EVERY edge into `pending` and by nothing else
+  (D84). **This extends an E2-owned table**: E2 owns the row up to `draft`, E3 owns every
+  state after it. Not backfilled; a `pending` row without it is reported, never timed out.
+
+### `POST /revisions/{revision_id}/publish` (E3.7; spec 6.2, 6.4; D82-D83, D86)
+
+- **The operator half of the loop**, on the E2.6 revisions router. CSRF; two-step scoping —
+  `VIEW_STATUS` decides 404 (the D35 existence-oracle rule), `MANAGE_CONFIG` decides 403.
+  Calls E3.4's `publish_revision` and adds no publish logic of its own.
+- **Response:** `{revision_id, topic, deployment_id, checksum, state, trigger,
+  transitioned, superseded[]}`. `transitioned: false` is the idempotent re-publish (D72).
+- **Refusals:** publication disabled → 409 · stale/superseded/device-gone → 409 · broker
+  down → **503 `service_unavailable`** (the D8 vocabulary's seventh code, D83) · revision
+  vanished → 404. Nothing is half-done on any of them (D74).
+- **`app.state.mqtt`** is the API's own publish-only manager, started by the lifespan **only
+  when `EOE_PUBLISH_ENABLED` is on**, and None otherwise (D86). It registers no
+  subscriptions, so it never consumes what the worker consumes. E3.13 publishes E2's apply
+  through the same attribute.
+- **Compose:** the `worker` service (no ports, `python -m app.controlplane.runner`) joins
+  `COMPOSE_SERVICES` in `backend/tests/test_repo_layout.py`, the same deliberate-extension
+  discipline as `E0_TABLES`.
+
+### `aggregator_status` — the live online verdict (E3.8; spec 9.3; D88)
+
+- **Table** (migration `d3b1a7f45e92`), one row per Aggregator: `aggregator_id` (unique, FK
+  to `aggregator.id` **ON DELETE CASCADE**), `deployment_id`, `online` (bool),
+  `declared_at`, `changed_at`, `received_at`. Spec 9.3 makes MQTT the authoritative
+  real-time liveness signal and explicitly NOT Prometheus, whose remote-write agent buffers
+  and backfills (spec 10.4).
+- **NOT columns on `device_state`**, though E3.5's docstring anticipated them. That row is a
+  REPORT with three NOT NULL columns a status message cannot fill; LWT is Aggregator-only
+  (Listeners hold no MQTT session — E3.9 stores their liveness on the report); and an
+  `offline` will is published by the BROKER, so it is the one state the device did not send.
+- **`declared_at` IS NOT AN ORDERING KEY, and must never become one.** A device composes its
+  will at CONNECT time, so an LWT's `at` is older than every `online` that followed it.
+  Ordering status the way spec 7.4 orders reports would reject the will as stale and leave a
+  dead device reading online forever. **Receipt order decides.** `changed_at` moves only when
+  `online` actually changes, so a retained replay on platform reconnect is not a new outage.
+- **No `unknown` state:** a device that has never spoken has no row. "Never heard from" and
+  "told us it is offline" are different questions and the UI must be able to tell them apart.
+- **Consumed by:** `ReportedConsumer._status`, returning `ReportOutcome.ONLINE` / `OFFLINE`.
+  **E3.11** puts the transitions on the timeline, **E3.12** pushes them over the websocket,
+  and **E6** paints the map dot from `online`. The Listener half of spec 9.3's verdict is
+  E3.9's and lives on `device_state`, not here.
+- **Suite:** `backend/tests/test_lwt_status.py` (gate 46), including the phase acceptance
+  against a real Mosquitto: a real client registers a real will and is SIGKILLed, so the
+  broker — not the test — composes and publishes the `offline` message.
+
+### Listener liveness on `device_state` (E3.9; spec 6.5, 9.3; D91)
+
+- **Columns** (migration `e7c4a02f19bd`), all nullable and all NULL on an aggregator row:
+  `liveness_state` (`streaming` | `sleeping` | `offline`), `last_audio_at`,
+  `expected_wake_at`, `liveness_changed_at`. This is the extension E3.5's docstring
+  promised — unlike the E3.8 LWT verdict, liveness arrives INSIDE a `lst/{mac}/reported`
+  payload, so it belongs on the row that holds what the device said.
+- **Three CHECK constraints**, duplicating rules `contracts.mqtt.ListenerLiveness` already
+  enforces: the state vocabulary, `(liveness_state = 'sleeping') = (expected_wake_at IS NOT
+  NULL)`, and `liveness_is_listener_only`. Pydantic protects the boundary; Postgres protects
+  the table against the next writer that is not the MQTT consumer.
+- **`liveness_changed_at` moves only on a real change** — a Listener re-reporting `sleeping`
+  every minute must not keep resetting how long it has been asleep (the
+  `aggregator_status.changed_at` rule).
+- **`app/controlplane/liveness.py` — `listener_verdict(state) -> "healthy" | "offline" |
+  "unknown"`.** THE spec 9.3 rule, in one place because **E3.11, E3.12 and E6 all need it**:
+  `streaming` and `sleeping` are BOTH healthy, and `None` is `unknown`, never offline. A
+  duty-cycled Listener is silent by design, and a copy of this rule that forgot so would
+  report a working deployment as a fleet-wide outage every night. Also exports
+  `LIVENESS_STATES` and `HEALTHY_LIVENESS`.
+- **`listener_missed_wake_window` flips the verdict on arrival** (D91), clearing
+  `expected_wake_at`. **The platform computes nothing**: it never reads a wake time or
+  `listener.wake_grace_seconds`, which stays a device setting. An expired `expected_wake_at`
+  with no event behind it changes nothing, and a later phase that adds such a sweep would be
+  contradicting spec 6.5.
+- **Suite:** `backend/tests/test_listener_liveness.py` (gate 47), carrying all three of the
+  task's acceptance criteria by name.
+
+### `POST /aggregators/{aggregator_id}/commands` (E3.10; spec 7.2, 7.4, 13)
+
+- **Body** `{command}` from the closed vocabulary `restart | resync | flush_buffer`
+  (`contracts.mqtt.CommandName`); anything else is a 422 at the boundary, so no firmware ever
+  meets a verb it does not know. **Response** `{command_id, command, aggregator_id,
+  aggregator_uuid, topic, published_at}`.
+- **202, not 200.** The platform published to a topic; it did not watch the device act. The
+  cmd topic is deliberately **not retained** (spec 7.2) — a command is a one-shot, and a
+  retained one re-fires on every reconnect, so a device returning after a fortnight would
+  restart because of a button pressed then. An offline device therefore misses the command
+  entirely, by design.
+- **A fresh `command_id` per submission, always.** Spec 7.4 gives the device the id so it can
+  drop its OWN redeliveries; two operator submissions are two decisions, and reusing an id
+  would let the device swallow the second while the API reported success. Deduplicating
+  retries is the device's job; deduplicating operators is nobody's.
+- **Scoping** is the two-step D82 rule: `VIEW_STATUS` decides 404, `MANAGE_DEVICES` decides
+  403 naming the permission — a viewer reads these rows through `GET /aggregators/{id}`, so a
+  404 would be a lie about a device on their screen. CSRF required.
+- **Refusals:** publication disabled → 409 (commands ride the same outbound connection as
+  publishes, D86) · broker down → **503 `service_unavailable`** (D83) · unknown or invisible
+  aggregator → 404. **A command that never reached the broker is not audited**, since an
+  audit row would put a restart on the timeline that never happened.
+- **Audit** `aggregator.command`, detail `{command, command_id, topic}` — written AFTER the
+  publish, unlike a revision: there is no transaction to roll a broker write back out of, so
+  the row records what actually went out.
+- **Suite:** `backend/tests/test_command_channel.py` (gate 48), carrying both halves of the
+  acceptance — distinct ids per submission, and a mock device deduplicating a redelivery of
+  one id against a real Mosquitto.
+
+### `reconciliation_event` and the per-device timeline (E3.11; spec 6.3; D93)
+
+- **Table** (migration `f81c6ab3d740`): `revision_id`, `target_type`/`target_id` (the
+  `config_revision` convention — aggregators by PLATFORM UUID, listeners by MAC, D75),
+  `deployment_id`, `from_state`, `to_state`, `trigger`, `at`, `actor_user_id`, `diff`,
+  `detail`. Every reference out is **un-FK'd** (D33): history outlives the revision it
+  describes and the device it happened to.
+- **Written by `revision_state.transition` and by nothing else.** That function is the only
+  writer of `config_revision.state`, so putting the record inside it makes the timeline
+  complete **by construction** rather than by every call site remembering. A later writer
+  that sets `state` directly would break spec 6.3 silently — don't add one.
+- **`diff` vs `detail` is a provenance split, not a formatting one.** `diff` is
+  `{key: {before, after}}` from revision SNAPSHOTS, which carry secret markers rather than
+  plaintext (spec 5.4), so values are safe there; present only on entry to `pending`, the
+  edge where the desired config actually changes. `detail` is device- or worker-supplied —
+  differing key NAMES, error text — and **never device-supplied values**.
+- **`GET /aggregators/{id}/timeline` · `GET /listeners/{mac}/timeline`** — `VIEW_STATUS`
+  (a viewer is exactly who reads a history), D35 scoping, newest first, `?revision_id=` and
+  `?to_state=` filters, D7 pagination. `actor_email` is resolved for display and is **null
+  for system moves**; that null means nobody did it and must never render as "unknown".
+- **The org-wide and per-deployment halves of spec 6.3 are E0.8's `GET /audit`**, filtered
+  by `scope`, and are deliberately NOT rebuilt over this table. Two answers to one question
+  drift apart. `audit_log` answers "who did what across the organization";
+  `reconciliation_event` answers "what happened to this device".
+- **Frontend:** `components/DeviceTimeline.tsx`, mounted on the pod page's aggregator card
+  and on the listener detail page; pure helpers in `lib/timeline.ts`. It marks entries with
+  **`data-revision-state`, never `data-status`** — a spec 6.2 revision state and a spec 9.3
+  device status are different vocabularies, and D40's guard still forbids the latter on
+  inventory routes until E3.12.
+- **Suites:** `backend/tests/test_timeline.py` (gate 49), including a parametrized sweep over
+  the whole spec 6.2 table proving no transition can happen without a row, and
+  `frontend/tests/timeline.test.tsx`.
+
+### `WS /ws`, the live-update bus, and real device status (E3.12; spec 13, 9.3; D59, D60)
+
+- **`WS /ws`** — session-cookie authenticated, **no CSRF** (the handshake is a GET a page
+  cannot forge headers on, and the socket is read-only). Sends `Event` JSON:
+  `{channel, deployment_id, entity_type, entity_id, data, at}`. A client may send
+  `{"subscribe": [...]}` to NARROW its channels; it can never widen its scope. An
+  unauthenticated socket is accepted then closed with **1008**, so a browser can tell "you
+  may not" from "the API is down" and stop retrying.
+- **Scoping is server-side, per event, per connection** —
+  `visible_deployments(..., VIEW_STATUS)`, resolved once at connect. A filter applied in the
+  browser would be no filter: the bytes would already have crossed.
+- **The bus is Postgres `LISTEN`/`NOTIFY`** (`controlplane/events.py`, D59), not Redis, which
+  spec 3.2 calls optional and spec 15.1's simplest deploy omits. **`publish(db, event)` rides
+  the caller's transaction**: `pg_notify` is delivered only on COMMIT, so a browser can never
+  be shown a change that rolled back. Delivery is best-effort by construction — clients treat
+  events as invalidation signals and refetch, never as data.
+- **Channel registry:** `device_status`, `reconciliation`. **E7 adds `alerts`** by adding a
+  member and an emitter; the filtering is channel-agnostic and needs no change.
+- **`controlplane/device_status.py` is THE spec 9.3 derivation** — `aggregator_status`,
+  `listener_status`, `rollup`. Reachability outranks reconciliation (an offline device shows
+  `offline`, not `drifted` — the drift cannot be repaired until it is back). `failed` is
+  `degraded`, not offline. `pending`/`draft` are healthy: a change in flight is not a fault.
+  **`unknown` is a first-class value** for a device that has never spoken and must never be
+  rendered as healthy.
+- **D40 IS LIFTED HERE, and rewritten rather than deleted (D60).** `AggregatorOut.status` and
+  `ListenerOut.status` are new fields; the frontend renders `StatusCell`, which draws a chip
+  for the six real states and a muted dash for `unknown`. The honesty guard now asserts that
+  status renders only where the API reported one, and that config routes still show none.
+- **Frontend:** `lib/useLiveUpdates.ts`, mounted once in `Shell`. One socket per tab.
+- **Suites:** `backend/tests/test_websockets.py` (gate 50, including the two-scope
+  acceptance and the commit-only bus property), `frontend/tests/live-updates.test.ts`.
+
+### Apply publishes, and the flag is on (E3.13; D61, D96) — **the E2/E3 loop is closed**
+
+- **`POST /config/apply` now publishes.** It writes overrides and draft revisions in one
+  transaction, COMMITS, then publishes each revision through E3.4's `publish_revision`.
+  Ordering is the contract: the operator's edit is durable before anything is attempted, so a
+  broker outage costs a publish and not their work.
+- **Response gains `published: int` and `revisions[].state`.** Top-level `state` is now
+  `draft` (nothing published) · `pending` (all published) · **`partial`** (some brokers were
+  down). Per-revision state is the truth; the top level is a summary.
+- **A revision that did not go out stays `draft`** and is retried with
+  `POST /revisions/{id}/publish` — the same route drift repair uses (D82). One publish path,
+  one set of refusals.
+- **`EOE_PUBLISH_ENABLED` defaults to `true`** as of this task (D61). Still per-environment,
+  and still inert for a deployment with no `deployment_service` broker row. A process that
+  never ran the lifespan holds no manager (D86) and honestly reports `draft`.
+- **Suite:** `backend/tests/test_end_to_end_loop.py` (gate 51) — the epic's definition of
+  done against a real broker and a real worker, plus the broker-outage case.

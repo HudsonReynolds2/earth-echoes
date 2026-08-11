@@ -342,19 +342,30 @@ def _effective(
     )
 
 
-def revision_snapshot(device: DevicePlan) -> dict[str, Any]:
-    """The publishable payload body (D55): flat values from the AFTER
-    effective map, markers in place. Listener snapshots exclude the
-    write-restricted service keys (spec 5.4: they never reach
-    Listener-bound config; the 16.4 post-connect path carries them to
-    aggregators); aggregator snapshots include them."""
+def snapshot_from_raw(target_type: str, raw: Mapping[str, ResolvedValue]) -> dict[str, Any]:
+    """The publishable payload body (D55) from a RAW effective map: flat
+    values, markers in place. Listener snapshots exclude the write-restricted
+    service keys (spec 5.4: they never reach Listener-bound config; the 16.4
+    post-connect path carries them to aggregators); aggregator snapshots
+    include them.
+
+    Split out from `revision_snapshot` for E3.7's drift sweep, which
+    recomputes a device's effective config through `service.effective_raw`
+    and needs the SAME composition rule to compare checksums. Two copies of
+    this rule would make the drift detector report drift on every listener
+    with a service key set - the detector itself drifting, which is the one
+    failure a drift detector cannot have.
+    """
     return {
         key: rv.value
-        for key, rv in device.after_raw.items()
-        if not (
-            device.target_type == "listener" and CATALOG_BY_KEY[key].write_restricted is not None
-        )
+        for key, rv in raw.items()
+        if not (target_type == "listener" and CATALOG_BY_KEY[key].write_restricted is not None)
     }
+
+
+def revision_snapshot(device: DevicePlan) -> dict[str, Any]:
+    """The publishable payload body for one planned device (E2.6)."""
+    return snapshot_from_raw(device.target_type, device.after_raw)
 
 
 def apply_change_plan(

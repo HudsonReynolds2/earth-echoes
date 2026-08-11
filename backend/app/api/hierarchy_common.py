@@ -13,8 +13,19 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.controlplane import device_status
+from app.controlplane.device_status import DeviceStatus
 from app.errors import AppError
-from app.models import Aggregator, Deployment, Listener, Organization, Pod
+from app.models import (
+    Aggregator,
+    AggregatorStatus,
+    ConfigRevision,
+    Deployment,
+    DeviceState,
+    Listener,
+    Organization,
+    Pod,
+)
 
 TAG_MAX = 64
 
@@ -81,6 +92,10 @@ class AggregatorOut(BaseModel):
     name: str | None
     tags: list[str]
     listener_count: int
+    #: The spec 9.3 displayed status (E3.12, lifting D40). `unknown` where the
+    #: device has never spoken — never silently `healthy`, which would report a
+    #: deployment that has never come online as a working one.
+    status: str
     created_at: datetime
     updated_at: datetime
 
@@ -104,6 +119,9 @@ class ListenerOut(BaseModel):
     gps_lat: float | None
     gps_lon: float | None
     tags: list[str]
+    #: Spec 9.3 (E3.12). `sleeping` is a status of its own and is HEALTHY —
+    #: a duty-cycled Listener is silent by design (spec 6.5).
+    status: str
     created_at: datetime
     updated_at: datetime
 
@@ -181,6 +199,7 @@ def deployment_out(db: Session, rows: list[Deployment]) -> list[DeploymentOut]:
 
 def aggregator_out(db: Session, rows: list[Aggregator]) -> list[AggregatorOut]:
     counts = listener_counts_by_aggregator(db, [row.id for row in rows])
+    statuses = aggregator_statuses(db, [row.id for row in rows])
     return [
         AggregatorOut(
             id=row.id,
@@ -190,11 +209,86 @@ def aggregator_out(db: Session, rows: list[Aggregator]) -> list[AggregatorOut]:
             name=row.name,
             tags=row.tags,
             listener_count=counts.get(row.id, 0),
+            status=statuses.get(row.id, DeviceStatus.UNKNOWN).value,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
         for row in rows
     ]
+
+
+def aggregator_statuses(
+    db: Session, aggregator_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, DeviceStatus]:
+    """Spec 9.3 for a page of Aggregators, in two queries rather than 2N.
+
+    The revision half takes the NEWEST revision per device, because that is
+    the one whose state describes the device now — an older `failed` row that
+    a later publish superseded is history, and E3.11's timeline is where
+    history belongs.
+    """
+    if not aggregator_ids:
+        return {}
+    online = {
+        row.aggregator_id: row.online
+        for row in db.scalars(
+            select(AggregatorStatus).where(AggregatorStatus.aggregator_id.in_(aggregator_ids))
+        ).all()
+    }
+    latest = _latest_revision_states(db, "aggregator", [str(i) for i in aggregator_ids])
+    return {
+        agg_id: device_status.aggregator_status(
+            online=online.get(agg_id), revision_state=latest.get(str(agg_id))
+        )
+        for agg_id in aggregator_ids
+    }
+
+
+def listener_statuses(db: Session, macs: list[str]) -> dict[str, DeviceStatus]:
+    """Spec 9.3 for a page of Listeners. Their reachability is the spec 6.5
+    liveness their Aggregator reported (E3.9), never an MQTT session."""
+    if not macs:
+        return {}
+    liveness = {
+        row.entity_id: row.liveness_state
+        for row in db.scalars(
+            select(DeviceState).where(
+                DeviceState.entity_type == "listener", DeviceState.entity_id.in_(macs)
+            )
+        ).all()
+    }
+    latest = _latest_revision_states(db, "listener", macs)
+    return {
+        mac: device_status.listener_status(
+            liveness_state=liveness.get(mac), revision_state=latest.get(mac)
+        )
+        for mac in macs
+    }
+
+
+def _latest_revision_states(db: Session, target_type: str, target_ids: list[str]) -> dict[str, str]:
+    """The newest revision's state per device, one query.
+
+    `DISTINCT ON` rather than a correlated subquery: this runs on every
+    inventory page render, and the `(target_type, target_id, created_at)`
+    ordering is what `config_revision` is already indexed for.
+    """
+    if not target_ids:
+        return {}
+    newest = (
+        select(ConfigRevision.target_id, ConfigRevision.state)
+        .where(
+            ConfigRevision.target_type == target_type,
+            ConfigRevision.target_id.in_(target_ids),
+        )
+        .distinct(ConfigRevision.target_id)
+        .order_by(
+            ConfigRevision.target_id,
+            ConfigRevision.created_at.desc(),
+            ConfigRevision.id.desc(),
+        )
+    )
+    return {target_id: state for target_id, state in db.execute(newest).all()}
 
 
 def pod_out(db: Session, rows: list[Pod]) -> list[PodOut]:
@@ -222,8 +316,23 @@ def pod_out(db: Session, rows: list[Pod]) -> list[PodOut]:
     ]
 
 
-def listener_out(rows: list[Listener]) -> list[ListenerOut]:
-    return [ListenerOut.model_validate(row, from_attributes=True) for row in rows]
+def listener_out(db: Session, rows: list[Listener]) -> list[ListenerOut]:
+    statuses = listener_statuses(db, [row.mac for row in rows])
+    return [
+        ListenerOut(
+            mac=row.mac,
+            name=row.name,
+            aggregator_id=row.aggregator_id,
+            deployment_id=row.deployment_id,
+            gps_lat=row.gps_lat,
+            gps_lon=row.gps_lon,
+            tags=row.tags,
+            status=statuses.get(row.mac, DeviceStatus.UNKNOWN).value,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
+        for row in rows
+    ]
 
 
 # --- Deletion and resolution -------------------------------------------------

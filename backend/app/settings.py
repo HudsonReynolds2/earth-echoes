@@ -54,9 +54,34 @@ class Settings(BaseSettings):
     build_sha: str = Field(default="dev", validation_alias="EOE_BUILD_SHA")
     session_ttl_seconds: int = Field(default=43200, validation_alias="EOE_SESSION_TTL_SECONDS")
     # E2.6 (D56): gates E3's publish call-through. E2's apply stops at draft
-    # revisions UNCONDITIONALLY - the flag exists so E3 can flip it, nothing
-    # in E2 reads it beyond reporting it in the apply response.
-    publish_enabled: bool = Field(default=False, validation_alias="EOE_PUBLISH_ENABLED")
+    # revisions unconditionally; E3.13 wired its apply to publication and
+    # flipped this default ON (D61, task E3.13). Publication still only
+    # reaches a deployment that HAS a `deployment_service` broker row, and
+    # the flag stays settable per environment for a deployment that wants
+    # to stage config without touching devices.
+    publish_enabled: bool = Field(default=True, validation_alias="EOE_PUBLISH_ENABLED")
+    # E3.7 (D59): the reconciliation worker runs as its own process in the dev
+    # and production stacks. This flag runs it inside the API process instead,
+    # from the same module - one deployment mode for the simplest self-hosted
+    # install (spec 15.1), and OFF by default so an API replica never quietly
+    # becomes a second worker competing for the same revisions.
+    worker_in_api: bool = Field(default=False, validation_alias="EOE_WORKER_IN_API")
+    # How often the worker fails out timed-out pending revisions (spec 6.4
+    # item 4). Well under the 300s default window, so the window is what
+    # decides a timeout and the cadence only decides how promptly it is seen.
+    timeout_sweep_seconds: int = Field(default=30, validation_alias="EOE_TIMEOUT_SWEEP_SECONDS")
+    # How often the worker re-compares applied devices (spec 6.4 item 5).
+    # Slower than the timeout sweep on purpose: it recomputes effective config
+    # per applied device, and a device that diverges tells us so on its next
+    # report anyway - this sweep is the backstop for the one that does not.
+    drift_sweep_seconds: int = Field(default=300, validation_alias="EOE_DRIFT_SWEEP_SECONDS")
+    # Where the standalone worker writes its liveness stamp. The compose
+    # healthcheck reads the file's age; the worker serves no port, and
+    # opening one purely to answer a probe would add a socket, a framework
+    # and a route to a process that only talks to Postgres and a broker.
+    worker_heartbeat_path: str = Field(
+        default="/tmp/eoe-worker.heartbeat", validation_alias="EOE_WORKER_HEARTBEAT_PATH"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:

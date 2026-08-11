@@ -4,6 +4,893 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D96 (2026-08-11): Apply publishes AFTER it commits, and one broker's outage does not
+fail the rest (E3.13)
+
+- **Decision:** `POST /config/apply` writes the overrides and the draft revisions in one
+  transaction, COMMITS, and only then publishes. An operator's config edit is durable the
+  moment they apply it; a broker that is down costs them a publish, not their work.
+- **Decision:** a revision that could not go out stays `draft` and is REPORTED as such, per
+  revision. `POST /revisions/{id}/publish` retries it — the same route drift repair uses
+  (D82), so there is one publish path and one set of refusals rather than a second one grown
+  here.
+- **Decision:** one failure does not abort the rest. A fleet-wide apply spans deployments
+  whose brokers are independent, and failing the whole call over one unreachable broker
+  would leave the operator unable to tell which devices were told.
+- **`ApplyOut.state` gains `partial`.** With several deployments in one apply, "some devices
+  were told and some were not" is a real outcome and neither `draft` nor `pending` describes
+  it honestly. `revisions[].state` carries the per-device truth; the top-level value is a
+  summary.
+- **`EOE_PUBLISH_ENABLED` now defaults ON** (D61, as task E3.13 specifies). Publication still
+  only reaches a deployment that HAS a `deployment_service` broker row, and the flag remains
+  settable per environment for anyone who wants to stage config without touching devices.
+  Two E2 assertions that pinned the flag as off were rewritten rather than deleted, and now
+  assert the honest consequence: the flag being on is not enough — a process holding no
+  outbound connection (D86) still reports `draft`.
+- **The end-to-end test is the epic's definition of done**, and deliberately the only test
+  that spans every task: preview, apply, retained desired message read by the device on its
+  own credential, ack, `applied`, timeline, websocket. A red there with green everywhere else
+  means the pieces do not fit rather than that a piece is broken.
+
+## D95 (2026-08-10): Live updates are invalidation signals, and `unknown` is a status
+(E3.12)
+
+- **Decision (the bus):** `publish()` issues `pg_notify` INSIDE the caller's transaction.
+  Postgres delivers it only on commit, so a browser cannot be told about a transition that
+  was rolled back — no outbox, no ordering to arrange, no window of a UI showing something
+  that did not happen. `test_an_event_reaches_a_listener_only_after_the_transaction_commits`
+  pins both halves.
+- **Decision (the client):** events are INVALIDATION SIGNALS and never data. The hook
+  refetches; it never patches a cache from an event body, and on every (re)connect it
+  invalidates everything. `NOTIFY` is best-effort — a browser that reconnects has missed
+  whatever happened while it was away — so a patched cache would be a confidently stale
+  screen, which is worse than a slightly late one.
+- **Decision (scoping):** applied on the server, per event, per connection. A websocket is a
+  long-lived read of everything happening in the platform; filtering in the browser would be
+  no filtering at all. A client may narrow its channels and can never widen its scope, which
+  is why the inbound reader needs no authorization of its own.
+- **Decision (D40 lifted, and rewritten):** status is real now, derived in ONE place
+  (`device_status.py`) from LWT, spec 6.5 liveness and revision state. The guard test is not
+  deleted: it now asserts that a chip renders only where the API reported a status, that
+  `unknown` never renders as one of the six, and that config routes still show none.
+- **`unknown` is a first-class status**, and this is the part most likely to be "simplified"
+  later. A device entered in inventory but never heard from has no status; defaulting it to
+  healthy would report a deployment that has never come online as working. It renders as a
+  muted dash, visibly not a chip.
+- **Reachability outranks reconciliation** in the roll-up: an offline device shows `offline`
+  even when its revision has drifted, because the drift cannot be repaired until the device
+  is back and `drifted` would send an operator to fix a config on an unplugged box.
+- **A slow browser is dropped from, not waited on.** The hub's per-subscriber queue drops
+  when full: losing live updates for one stalled client beats stalling the bus for everyone.
+
+## D94 (2026-08-10): The broker client is closed OUTSIDE its own cancellation (E3.2 defect,
+found by a gate flake)
+
+- **What went wrong:** `test_shutdown_leaves_no_running_tasks` failed twice across this batch
+  with `tasks outlived stop(): [...Client._misc_loop...]`, and passed every time it was run
+  alone. A test that only fails under load is a latent gate flake, and re-running until green
+  would have been the wrong answer.
+- **The cause, and it was a real bug:** `_connection_loop` held the client in an
+  `async with`, with `except asyncio.CancelledError: raise`. aiomqtt's `__aexit__` AWAITS —
+  it sends DISCONNECT, then cancels its own internal `_misc_loop`. Re-raising there runs
+  that teardown inside a task whose cancellation is already pending, so its first await
+  raises again, the cleanup is abandoned half-done, and `_misc_loop` is left running with a
+  live socket under it. Under load the window is wide enough to hit.
+- **Decision:** the client lives in an `AsyncExitStack`, and `_close_client` closes it in its
+  OWN task, shielded, then awaits that task to completion even after the shield re-raises.
+  The teardown therefore always finishes before `stop()` returns.
+- **Why it matters beyond a green gate:** every reconnect takes this path. A leaked
+  `_misc_loop` per reconnect is a slow leak of tasks and sockets in a process designed to
+  run for months across brokers that come and go — the flake was the symptom, not the
+  disease.
+- **Verified** by running the suite three times clean and the shutdown test again under
+  deliberate CPU contention, which is the condition that used to reproduce it.
+
+## D93 (2026-08-10): The timeline row is written inside `transition()`, and the org-wide
+half of spec 6.3 stays on the audit log (E3.11)
+
+- **Decision:** `reconciliation_event` is written by `revision_state.transition` rather than
+  by its call sites. Spec 6.3 asks for "every transition" recorded, and that function is
+  already the only writer of `config_revision.state` — so the timeline is complete BY
+  CONSTRUCTION instead of by four call sites each remembering to log. The same argument put
+  `published_at` there (D84). `test_no_transition_can_happen_without_a_timeline_row` walks
+  the entire spec 6.2 table to hold it.
+- **Decision:** spec 6.3's other half — "an Organization-wide and per-Deployment audit log
+  renders the same events filtered by scope" — is **E0.8's `GET /audit`**, not a second
+  surface over this table. E3.4, E3.5 and E3.7 have been writing `revision.publish`,
+  `revision.report`, `revision.timeout` and `revision.drift` rows with the deployment in
+  `scope` since they landed. Two org-wide logs would be two answers to one question, and the
+  one nobody was looking at would rot.
+- **The two tables are not redundant.** `audit_log` answers "who did what across this
+  organization" and holds config edits and user administration too; `reconciliation_event`
+  answers "what happened to this device" and is the only one guaranteed complete per
+  transition.
+- **`diff` and `detail` split by PROVENANCE.** `diff` comes from revision snapshots, which
+  hold spec 5.4 markers rather than plaintext, so storing values there cannot leak a secret —
+  and an operator seeing "before 48000, after 22050" is the entire point of spec 6.3's
+  "before/after effective config diff". `detail` is whatever a DEVICE or the worker said, and
+  device values are of unknown provenance, so it carries key NAMES only. Mixing them would
+  either strip the diff of its usefulness or put untrusted values on a trusted screen.
+- **The diff is recorded only on entry to `pending`**, the edge where what the platform is
+  asking for changes. Repeating it on `applied`, `drifted` and `failed` would read as four
+  separate config changes on the timeline.
+- **The first revision for a device has no diff.** It is not a change from anything, and
+  rendering the whole config as "added" buries the one key an operator edited.
+- **UI:** entries carry `data-revision-state`, deliberately not `data-status`. A revision
+  state (spec 6.2) and a device status (spec 9.3) are different vocabularies, and D40's guard
+  forbids `[data-status]` on inventory routes until E3.12 has real status to put there —
+  borrowing the attribute would defeat a guard that exists to stop plausible-looking
+  placeholders.
+
+## D92 (2026-08-10): The worker gets a REAL healthcheck, because `disable: true` is red in
+CI and green locally (E3.7 defect, found in CI)
+
+- **What went wrong:** CI failed the two container tests with
+  `container eoe-verify-test-worker-1 has no healthcheck configured`. E3.7 gave the `worker`
+  service `healthcheck: disable: true` — deliberately, with a good argument: the shared image
+  probes the API's HTTP port, which the worker does not have, and "a green tick that proves
+  nothing is worse than no tick". The local Compose (v5.3.1) accepts a disabled healthcheck
+  under `compose up --wait`; the runner's rejects it. **Green here, red there**, on already
+  pushed and tagged commits.
+- **Decision:** the worker writes a liveness stamp and the compose healthcheck reads its age.
+  `EOE_WORKER_HEARTBEAT_PATH`, default `/tmp/eoe-worker.heartbeat`, written every 5s by a
+  loop that **only writes while both sweep tasks are alive**.
+- **Why this keeps E3.7's argument rather than abandoning it:** the check is real. The
+  failure a worker can actually suffer is a sweep task dying while the process stays up
+  holding its broker connection — from outside indistinguishable from a healthy fleet, which
+  is exactly why `_sweep_loop` swallows exceptions in the first place. A tick that only
+  proved the process had not segfaulted would report that as healthy forever.
+  `test_a_dead_sweep_lets_the_heartbeat_go_stale` is the guard.
+- **Why a file and not a port:** the worker serves nothing. An HTTP port opened purely to
+  answer a probe means a socket, a framework and a route added to a process whose entire job
+  is to talk to Postgres and a broker.
+- **Only the standalone process writes one.** Under `EOE_WORKER_IN_API` the API's own
+  healthcheck already covers the process, and the suite runs the worker hundreds of times
+  without wanting a file each — `test_no_heartbeat_file_is_written_unless_one_is_asked_for`.
+- **Guarded against recurrence:** `test_no_compose_service_disables_its_healthcheck` bans
+  `disable: true` outright, since that is precisely what CI rejects and the only part
+  decidable from the compose file. This is the third defect this batch that was invisible to
+  one side of the CI/local split (D87, D90, D92); the pattern is that the gate and CI do not
+  run in identical environments, and each such difference is worth a guard rather than a
+  memory.
+
+## D91 (2026-08-10): A missed-wake EVENT flips liveness immediately, and the platform
+still computes nothing (E3.9)
+
+- **Decision:** `listener_missed_wake_window` sets `device_state.liveness_state = 'offline'`
+  for the named MAC when the event arrives, rather than waiting for the `lst/{mac}/reported`
+  publish that spec 6.5 says will follow. `expected_wake_at` is cleared with it: the promise
+  is spent once it has been missed.
+- **Why not wait for the report:** spec 6.5 has the Aggregator do both — raise the event AND
+  report the Listener offline next time it publishes — and the event is the first news. A
+  Listener that keeps reading `sleeping` until the next reported publish is a device the
+  operator is being told is fine while its own Aggregator has already said it is not.
+- **Why this is not the platform computing liveness,** which the phase document forbids in
+  as many words: the Aggregator knows the wake time the Listener declared over the local
+  link, applies `listener.wake_grace_seconds` itself, and raising the event IS the decision.
+  The platform records an announcement. **Nothing up here reads a wake time or a grace
+  period**, and `test_the_platform_never_computes_a_wake_window` is the guard: an
+  `expected_wake_at` an hour in the past with no event behind it changes nothing at all.
+  `wake_grace_seconds` remains a device setting that rides the config down.
+- **Ordering:** the event and the reports come from the same Aggregator over the same
+  ordered session, so the report that follows confirms rather than contradicts. Reports stay
+  authoritative for liveness and keep E3.5's staleness rule; the event only supplies the
+  immediate flip.
+- **A missed-wake for a Listener that has never reported stores the event and no state
+  row.** Inventing a `device_state` row from an event would put a device in the reported
+  table that has never reported.
+- **Verified by mutation:** removing the flip turns two tests red, including the acceptance.
+
+## D90 (2026-08-10): The QA stack's compose project name is pinned in every document
+(E3.8, found by the gate)
+
+- **What went wrong:** gate 46 went red on the two container tests with
+  `Bind for 0.0.0.0:15173 failed: port is already allocated`, and the holder was a full
+  stack under the compose project **`deploy`** — not the `eoe-qa` one the walkthrough talks
+  to. `qa-stack.ps1` passes `-p eoe-qa`, but the guide's POSIX §0 path and the README both
+  omitted `-p`, so Compose fell back to naming the project after the directory.
+- **Why it is worse than a cosmetic mismatch:** a POSIX reader who follows §0 gets a stack
+  called `deploy`, and then every later command in the walkthrough — all of which pass
+  `-p eoe-qa` — silently addresses a stack that does not exist, while the one they are
+  actually running keeps holding the fixed host ports. The D44 pre-gate warning names
+  `.\qa-stack.ps1 down`, which does not touch it either. The failure surfaces as an
+  unexplained port collision with no documented command to clear it.
+- **Decision:** `-p eoe-qa` is pinned in the guide's POSIX path and in the README's dev
+  setup, with a note saying it is not optional; the pre-gate warning now gives the POSIX
+  teardown alongside the PowerShell one and says the gate collides with ANY running stack,
+  not only a `qa-stack.ps1` one.
+- **Not fixable in the test harness**, unlike D87: `FIXED_PORTS` is a deliberate contract
+  (the walkthrough tells you to open `localhost:15173`), so the container tests bind those
+  exact ports by design and no amount of pinning inside `compose_env` lets a gate coexist
+  with a running stack. The fix belongs in the documents that bring the stack up.
+
+## D89 (2026-08-10): Per-task project-updates entries are batched to the end of E3
+(owner instruction)
+
+- **Decision:** E3.8 through E3.13 do not each get a dated `docs/project-updates.md` entry.
+  One consolidated entry covering the batch lands when E3.13 closes the epic. Every other
+  part of R0/R1 is unchanged: each task still ends in its own FULL green gate, its own
+  commit, its own push and its own `gate-{N}` tag, and every deviation still gets a
+  DECISIONS entry as it happens.
+- **Why:** the owner asked for it on 2026-08-10, having watched the per-task entries grow
+  into the largest artifact of each task.
+- **Recorded rather than silently followed** because R1 says "dated entry after each gate
+  PASSES", and a rule the project binds itself to is not one a session may quietly drop. The
+  consolidated entry is the compromise: the batch is not allowed to land with no dated
+  record at all, which is the thing R1 exists to prevent.
+- **Consequence to watch:** a red gate mid-batch has nowhere to be recorded until the end.
+  Where one happens, it goes in the commit message of the task that fixed it, the way
+  gate 45's three red runs did.
+
+## D88 (2026-08-10): LWT online state is its own table, and receipt order — not the
+payload clock — decides it (E3.8)
+
+- **Decision:** `aggregator_status` (migration `d3b1a7f45e92`), one row per Aggregator:
+  `online`, `declared_at`, `changed_at`, `received_at`, a cascading FK to `aggregator.id`.
+  E3.5's `DeviceState` docstring anticipated these as columns on `device_state`; they are
+  not, and that docstring is amended.
+- **Why not `device_state`:** three reasons, the third decisive. (1) `reported_at`,
+  `checksum` and `config` are NOT NULL there, and a device publishes `online` before it has
+  ever reported a config — a status-only row would need three of E3.5's columns made
+  nullable, dissolving the invariant that a row there IS a report. (2) LWT is
+  Aggregator-only: Listeners hold no MQTT session (spec 6.4/9.3), and E3.9 stores their
+  liveness on the report where it arrives. (3) An `offline` LWT is published by the BROKER
+  on the device's behalf. `device_state` is defined as "the last state the device sent", and
+  a will is precisely the state the device did not send.
+- **Decision (ordering), and the trap it avoids:** status carries NO staleness comparison.
+  A device composes its will when it CONNECTS, so the broker holds those bytes — with that
+  connect-time `at` — until the session dies; every `online` heartbeat published afterwards
+  carries a later timestamp. Applying spec 7.4's rule here, correct as it is for reports,
+  would reject the LWT as stale and **leave a dead device reading online forever**, which is
+  the exact failure spec 9.3 makes MQTT authoritative in order to prevent. Receipt order is
+  the truth: one broker, QoS 1, one ordered session per device, and a retained replay always
+  carries the current value. `declared_at` is stored because the device said it and is read
+  by nothing that decides anything. Pinned by
+  `test_an_lwt_whose_timestamp_predates_the_last_heartbeat_still_wins`.
+- **`changed_at` moves only on a real change.** The broker replays the retained status on
+  every platform reconnect; rewriting it there would reset the whole fleet's "offline since"
+  to the moment the platform restarted, telling an operator the outage began when their own
+  service did.
+- **No `unknown` third state.** A device that has never spoken has no row, which is a
+  different question from one the platform has heard call itself offline.
+- **Verified by mutation:** removing the SIGKILL from the acceptance test leaves the device
+  online and turns it red, so the flip is genuinely the broker's will and not a side effect.
+
+## D87 (2026-08-10): Opening broker connections may never kill its host, and the
+container tests pin every compose variable (E3.7, found by the gate)
+
+- **What went wrong:** the gate 45 run went red on `test_compose_stack` and `test_verify_tool`
+  with `container eoe-gate-test-api-1 exited (3)` — uvicorn's code for a lifespan that raised.
+  With `EOE_PUBLISH_ENABLED` on, the D86 lifespan awaited a bare `MqttClientManager.start()`,
+  which reads the `deployment_service` rows ONCE. The API comes up beside Postgres in compose,
+  won the race against the migrations that create that table, and died of
+  `UndefinedTable` — taking every route that has nothing to do with publishing with it.
+- **Decision (the defect):** the retry moves INTO the manager as
+  `MqttClientManager.start_or_retry()`, returning True when the connections are open and False
+  when a background retry is running; `stop()` cancels that retry. Both hosts of a manager now
+  get it, and E3.7's `ReconciliationWorker._connect_with_retry` — which already had exactly
+  this guard privately — is deleted in favour of it. A second copy in `main.py` was the
+  alternative, and the reason there is one copy is that the worker having the guard while the
+  API did not is precisely what shipped the bug.
+- **Decision (why CI could not have caught it):** Docker Compose interpolates `${VAR}` from the
+  process environment first and from `deploy/.env` second. `compose_env()` built a fresh env
+  dict but left five variables unpinned, so the container tests read them from a developer's
+  own scratch `.env` — which the E3 walkthrough §7 instructs you to fill with
+  `EOE_PUBLISH_ENABLED=true` and 5-second sweeps. The gate therefore tested a *different stack*
+  on a machine that had run the walkthrough than in CI, where no `.env` exists. Every
+  interpolated variable is now pinned, guarded by
+  `test_compose_env_pins_every_variable_the_compose_file_interpolates`, which caught three more
+  on its first run — including `EOE_CORS_ORIGINS`, whose walkthrough value still names the
+  pre-PHASE0-2-02 port.
+- **Verified by mutation:** restoring the bare `start()` turns
+  `test_the_api_starts_even_when_the_broker_rows_cannot_be_read` red.
+- **The honest reading:** this is a defect in E3.7 as written, caught before its gate passed
+  and before it was committed, which is what the gate is for. It also means the flag flip at
+  E3.13 would have broken every `compose up` for anyone whose migrations had not already run.
+
+## D86 (2026-08-10): The API holds its own publish-only broker connection (E3.7)
+
+- **Decision:** `create_app` gained a lifespan. When `EOE_PUBLISH_ENABLED` is on it starts
+  an `MqttClientManager` with NO subscriptions registered and parks it on
+  `app.state.mqtt`; the publish route and (at E3.13) E2's apply publish through it. With
+  the flag off it starts nothing and `app.state.mqtt` is None, which is what every existing
+  test sees — a `TestClient` used without its context manager never runs the lifespan at
+  all.
+- **Why:** publishing is an HTTP action and the worker is a different process (D59). The
+  alternatives were worse: routing publishes through the worker would need a request/reply
+  bus this phase does not have, and a shared connection across a process boundary is not a
+  thing that exists. Two managers on one broker are fine — each carries its own instance
+  suffix in its client id (D64), which is the same property that lets two API replicas
+  coexist.
+- **Consequence:** the API subscribes to nothing, so it can never consume a message the
+  worker is also consuming. A single-process deployment (`EOE_WORKER_IN_API`) runs both
+  managers in one process, and they still do not overlap.
+
+## D85 (2026-08-10): The drift sweep compares BOTH directions, and only one of them is a
+transition (E3.7, owner-approved)
+
+- **Decision:** each pass over the `applied` revisions asks two questions. (1) Does the
+  device's stored `device_state` match the revision it applied? A mismatch is
+  `applied -> drifted(report_diverged)`, the spec 6.2 edge. (2) Does the platform's
+  RECOMPUTED effective config still match that revision (through E2's merge engine and
+  `snapshot_from_raw`)? A mismatch is reported as `desired_changed` and moves nothing.
+- **Why the second one is not a transition:** spec 6.2 has no state for "desired moved on",
+  and it would not be true of the device if it had one — the device is doing exactly what
+  it was told. Creating the revision that closes the gap is E2's apply, which is out of
+  scope for this phase (phase-3 §3), so the worker would have nowhere to go with it. It is
+  surfaced because an operator seeing "applied" on a device whose config has been edited
+  since is being told something misleading by omission.
+- **Why direction (1) needs a sweep at all**, given E3.5 already drives that edge on
+  report: a device that quietly reverts and then reports with no `applied_revision_id`, or
+  names a pruned revision, moves nothing on arrival — E3.5 stores the state and
+  deliberately takes no edge (D79's neighbour). The sweep is the only thing that reads
+  those rows, which is exactly spec 6.4 item 5's "even without a device-initiated report".
+- **One composition rule, not two:** `plan.revision_snapshot` was split into
+  `snapshot_from_raw(target_type, raw)` so the sweep builds its comparison the way E2 built
+  the revision. A second copy would report every Listener carrying a write-restricted
+  service key as drifted — the drift detector drifting, the one defect a drift detector
+  cannot have. Pinned by `test_the_detector_uses_e2s_own_snapshot_composition`.
+
+## D84 (2026-08-10): `config_revision.published_at`, and the timeout window is measured
+from it (E3.7)
+
+- **Decision:** a nullable `published_at` column, written by
+  `revision_state.transition` on EVERY edge into `pending` and by nothing else. The spec
+  6.4 item 4 window is measured from it. A `pending` row with no `published_at` is reported
+  and left alone, never timed out.
+- **Why not `created_at`:** E2 writes that when an operator saved a draft. Spec 6.2 reaches
+  `pending` three ways, and two of them are re-entries — an operator retrying a `failed`
+  revision, or re-publishing over `drifted`. Measured from `created_at`, a revision retried
+  an hour after it was drafted fails again on the next sweep without the device having been
+  given a moment to answer, and the timeline then says `failed(timeout)`, which under D70
+  means the device stayed silent.
+- **Why in the state machine rather than in the publisher:** every path into `pending` goes
+  through `transition()`. Stamping it at the call site would make the window a property of
+  which caller moved the revision.
+- **Why a column and not worker memory:** the phase acceptance is that a restarted worker
+  loses nothing (spec 14.3). This is the only piece of the loop that was not already
+  durable. Verified by mutation: removing the stamp turns both acceptance tests red.
+- **Extends an E2-owned table** (`config_revision`, D55). Flagged rather than assumed: E2
+  owns the row up to `draft` and E3 owns every state after it, so lifecycle columns are
+  E3's to add. `docs/INTERFACES.md` records it under E3.
+
+## D83 (2026-08-10): `service_unavailable` joins the D8 error vocabulary (E3.7)
+
+- **Decision:** a seventh envelope code, at HTTP 503, raised when a dependency the platform
+  needs is down and the request itself was fine. Its first use is a broker outage during
+  `POST /revisions/{id}/publish`.
+- **Why:** D8 fixed the vocabulary as stable and EXTENSIBLE for exactly this. The existing
+  codes both lie here: a 4xx blames the caller for a broker that is down, and
+  `internal_error` sends an operator looking for a platform defect. The publish rides
+  inside the database transaction (D74), so the revision is untouched and the request is
+  honestly retryable — which is what 503 means and what neither alternative says.
+- **Consequence:** `test_api_skeleton.py::D8_VOCABULARY` gained the code. That is an
+  extension of an E0 guard, not a weakening: the assertion is still exact equality.
+
+## D82 (2026-08-10): `POST /revisions/{id}/publish` — drift repair is an operator action
+(E3.7, owner-approved)
+
+- **Decision:** a new route on the E2.6 revisions router, `manage_config` within the
+  revision's deployment, CSRF-protected, calling the same `publish_revision` E3.13 wires
+  E2's apply to. Scoping is two-step: a revision the caller cannot SEE answers 404 (the D35
+  existence-oracle rule), one they can see but may not publish answers 403 naming the
+  permission. Refusals map as: publication disabled → 409, stale or superseded → 409, device
+  gone from inventory → 409, broker down → 503 (D83), revision vanished → 404.
+- **Why it exists in this phase:** the phase forbids auto-republish (`auto_reconcile` is
+  inert, D81) and makes re-publish "an operator action" — with no route, drift could not be
+  repaired through the platform at all, and the phase acceptance's own re-publish step
+  would exist only inside a test.
+- **Not temporary, and not superseded by E3.13:** E3.13 wires BULK apply to publication.
+  This is the single-revision action, and the two share one code path with one set of
+  refusals.
+
+## D81 (2026-08-10): The reconciliation policy lives on the `deployment` row, and
+`auto_reconcile` is stored INERT (E3.7, owner-approved)
+
+- **Decision:** two columns on `deployment` — `pending_timeout_seconds` (default 300, the
+  phase-3 fixed choice, CHECK > 0) and `auto_reconcile` (default false). Not a
+  `deployment_policy` table: one row per deployment already exists, the sweep reads it in
+  the same query it scans revisions with, and E5/E7 can move it later behind the accessor.
+- **Why on the deployment and not in the E2 settings catalog:** it is a platform setting,
+  not a device setting (phase-3 fixed choice). A catalog key would be merged into effective
+  config and published to devices, which would put the platform's own scheduling on a
+  device's desired topic.
+- **`auto_reconcile` is stored and inert.** Spec 6.2 names an "auto-reconcile policy" as
+  the second driver of `drifted -> pending` and spec 17 item 3 has not decided what that
+  policy is. The worker READS the flag only to log that it read it, and counts it in the
+  sweep report; nothing in the codebase turns it into an action.
+  `test_auto_reconcile_is_stored_and_does_nothing` is the guard, and the phase that
+  implements the policy is the phase that may delete it.
+- **A revision whose deployment row is gone falls back to the 300s default** rather than
+  sitting `pending` forever: `config_revision.deployment_id` is un-FK'd by design (D33).
+
+## D80 (2026-08-10): The worker's shape — two sweeps, one transaction per revision, and no
+state of its own (E3.7)
+
+- **Decision:** `app/controlplane/runner.py` holds `ReconciliationWorker` plus two pure
+  sweep functions (`pending_timeout_sweep`, `drift_sweep`) that take a session factory and
+  return a report. The worker owns an `MqttClientManager` with E3.5's consumer registered
+  and schedules the two sweeps on independent cadences (`EOE_TIMEOUT_SWEEP_SECONDS` 30,
+  `EOE_DRIFT_SWEEP_SECONDS` 300). Two entrypoints, one module (D59):
+  `python -m app.controlplane.runner` for the compose `worker` service, and the API
+  lifespan under `EOE_WORKER_IN_API`.
+- **The sweeps are functions, not methods,** so the suite drives them with no event loop,
+  no broker and no worker — a red test there means the comparison is wrong rather than a
+  container being slow.
+- **One transaction per revision.** A sweep that committed once at the end would hold row
+  locks across the whole scan; one that failed whole on a single bad row would leave the
+  rest of the fleet unreconciled.
+- **The scan is lockless and the transition is not.** Each candidate is re-read under
+  `load_for_transition` and re-checked, so a device's ack that lands mid-sweep wins over the
+  clock rather than losing to whichever write happened to be second
+  (`test_an_ack_that_lands_first_wins_the_race`).
+- **A failing sweep is logged and retried, never fatal.** A worker whose sweep task died
+  would keep its broker connection and silently stop timing anything out, which from the
+  outside is indistinguishable from a healthy fleet.
+- **`broker.MessageHandler` widened to `Awaitable[object]`**: E3.5's `handle` returns a
+  `ReportOutcome` the worker counts, and the dispatcher ignores return values anyway. Every
+  existing handler still satisfies it.
+
+## D79 (2026-08-10): A device's identity comes from the TOPIC, and reports that fail an
+identity check are not stored either (E3.5)
+
+- **Decision:** the reported consumer takes `{agg}` and `{mac}` from the topic a message
+  arrived on and never from a payload field. `contracts.mqtt.parse_topic` is the one place
+  that takes a topic apart, validating identifiers on the way IN with the same functions
+  that validate them on the way out.
+- **Why the topic is trustworthy and a payload field is not:** spec 7.1 cuts each device's
+  broker ACL to its own subtree, so the segments of a topic a message arrived on were
+  authenticated by the broker before the platform saw them. A payload field is a
+  self-declaration; trusting it would let any device with a valid credential report on
+  behalf of any other, and the E1.5 MAC-conflict machinery would never fire, because the
+  conflicting device would simply claim to be the right one. None of the spec 7.3 inbound
+  models carries an identity field today and none should grow one.
+- **A quarantined or misrouted report writes NO `device_state` row and moves NO revision.**
+  Spec 4.3 item 2 stops the platform overwriting *inventory*; this goes one step further,
+  because a report the platform does not believe must not become the device's reported
+  configuration either. Storing it would launder a rejected claim into the record E3.7's
+  drift sweep reads. The acceptance test asserts all three: the Listener row is unchanged
+  field for field, there is no `device_state` row, and the revision is still `pending`.
+- **Two further refusals, both warnings rather than quarantines.** A known device reporting
+  on a deployment it does not live in (checked against the CONNECTION's deployment, which
+  the platform dialled and therefore knows) means a credential valid for a namespace the
+  device does not belong to — a broker problem, not an inventory one. A report naming a
+  revision that belongs to another device is the same class. Neither is evidence about a
+  device's identity, so neither belongs in `quarantined_report`.
+
+## D78 (2026-08-10): Reported-state persistence — `device_state` now, extended by E3.8 and
+E3.9 (E3.5, owner-approved)
+
+- **Decision:** E3.5 creates `device_state`, one row per device holding spec 6.1's "last
+  state the device sent", and `device_event` for the spec 7.3 event stream. The phase
+  document's E3.5 text names only "persist device events"; the owner approved the state
+  table at plan approval for the reason below.
+- **Why it is not optional:** spec 7.4's ordering rule needs a per-device memory. Deciding
+  staleness from revision timestamps alone — which is literally what spec 7.4 says — misses
+  the case that actually breaks things: a delayed report for the SAME revision carrying
+  diverging config would drive a healthy `applied` device to `drifted` on ten-second-old
+  news. `reported_at` compared against the stored row is what refuses it. E3.7's periodic
+  drift re-compare needs the same row, and spec 6.1 asks for it by name.
+- **Strictly older is stale; equal is not.** A byte-identical replay shares its
+  `reported_at`, and letting it run the full comparison is what makes idempotency a property
+  of `applied_revision_id` plus checksum, as spec 7.4 words it, rather than of a timestamp
+  shortcut that would hide a broken comparison behind an early return. Test-pinned in both
+  directions: flipping `<` to `<=` turns the replay test red.
+- **`ReportOutcome.STALE` therefore means late delivery and nothing else** — the
+  one-meaning-per-value discipline D70 applied to `Trigger.TIMEOUT`. A report naming a
+  `superseded` revision is not stale delivery: it is current news that the device has not
+  caught up, so it is STORED and moves nothing.
+- **E3.8 and E3.9 extend this table** (the `deployment_service` pattern, D62's neighbour):
+  E3.8 adds the LWT-driven online state spec 9.3 makes authoritative, E3.9 the spec 6.5
+  liveness block. E3.5 stores neither, deliberately — a column here that is a
+  half-implementation of a task that has not run is worse than no column.
+- **Identifiers follow `config_revision` exactly** (`entity_type` + `entity_id`, aggregators
+  by platform UUID and listeners by MAC), so a device's revisions and its reported state
+  join without crossing between spec 4.2's three identifiers a second time (D75).
+- **It is current state, not evidence, so it is deleted with its device.**
+  `delete_device_state_for` is wired into the E1 aggregator and listener DELETE endpoints,
+  the `delete_overrides_for` precedent (D51). A Listener re-added under a MAC that once
+  belonged to another physical device would otherwise inherit its predecessor's reported
+  config and read as reconciled before it had said a word. `device_event` rows are evidence
+  and deliberately survive (D33).
+- **`E0_TABLES` in `test_e0_readiness.py` gains both names**, which is that guard's
+  documented extension mechanism rather than a weakening of it: the schema-drift check
+  exists so a neighbouring phase's table cannot appear early unnoticed, and this is the
+  phase that owns these two.
+
+## D77 (2026-08-10): Device events dedupe on (emitter, instant, code) (E3.5, owner-approved)
+
+- **Decision:** `device_event` carries a unique index on `(deployment_id, aggregator_uuid,
+  listener_mac, at, code)` and the consumer checks before inserting, so a QoS 1 redelivery
+  is a no-op rather than a second row.
+- **Why not append-only**, which is the `quarantined_report` precedent: a quarantine row
+  answers "how many conflicting reports arrived", where every delivery genuinely is evidence.
+  A device event answers "what happened on the device", and a duplicated row is a lie about
+  how often it happened — one an operator reads straight off the E3.11 timeline. Events
+  carry no device-supplied id to dedupe on, so identity has to be structural; two distinct
+  events with one code from one device in the same instant are indistinguishable on the wire
+  anyway.
+- **`NULLS NOT DISTINCT` is load-bearing.** Without it Postgres treats every Aggregator-level
+  event (`listener_mac` NULL) as unique, and the index would dedupe only Listener events —
+  so exactly the lifecycle events an Aggregator emits about itself would double. Requires
+  Postgres 15+; the stack is on 16. A test covers the NULL case specifically.
+- **Dedupe must not swallow a recurring fault:** the same code at a different instant is a
+  different event, also test-pinned. A stream gap every minute is a minute-by-minute story.
+- **The unique index backstops the check against races**, exactly as `inventory_alert`'s
+  partial index backstops E1.5's alert dedupe.
+
+## D76 (2026-08-10): An unregistered Listener's report is quarantined, with no alert (E3.5,
+owner-approved)
+
+- **The gap:** E1.5 returns `UNKNOWN_MAC` (known reporter, MAC in no inventory row) with
+  zero side effects and says "E3 decides what an unregistered device means per channel"
+  (D37). The reported channel is the first channel to have to decide.
+- **Decision:** quarantine the report with reason `unknown_mac`, open no alert, write no
+  inventory row and no `device_state` row.
+- **Why quarantine:** a Listener wired up before anyone entered it in inventory is a real
+  and ordinary situation, and dropping the report with a log line leaves an operator no
+  trace to find it by. The quarantine table is already the place a report the platform will
+  not act on goes, and the row carries the MAC, the reporting Aggregator and the payload —
+  enough to adopt the device.
+- **Why no alert:** spec 4.3 item 2's `duplicate_identity` is for conflicts, and nothing
+  here disagrees with anything; spec 4.3 item 3's `provisioning_required` is explicitly about
+  `aggregator_uuid` membership on the metrics, analysis and object ingest paths. Reusing
+  either would widen an E1-owned vocabulary to mean something it does not.
+- **Consequence for E1.5:** `_quarantine` became the public `quarantine_report(db, report,
+  reason)` so the row shape stays in one place rather than being reassembled by each channel
+  that needs it. Behaviour, signature and outcomes are unchanged; `quarantined_report.reason`
+  gains a third value, noted on the column.
+
+## D75 (2026-08-10): An Aggregator revision's `target_id` is the PLATFORM UUID; the topic
+segment is the `aggregator_uuid` (E3.4)
+
+- **The fact:** E2's apply writes `str(aggregator.id)` — the row primary key — into
+  `config_revision.target_id`. The spec 7.2 `{agg}` topic segment and the spec 7.3
+  `target.id` field are the `aggregator_uuid`. Spec 4.2 keeps an Aggregator's three
+  identifiers distinct and E1 never conflates them (INTERFACES, entity schema); this is the
+  one place in the codebase that has to cross between two of them, so `resolve_desired_route`
+  does the lookup and `DesiredRoute.device_id` carries the result.
+- **Why it matters:** using `target_id` as the topic segment builds
+  `eoe/redwood-coast/agg/<a uuid>/desired` — a well-formed topic that no device subscribes to
+  and no broker ACL grants. It fails silently: the publish succeeds, the revision goes
+  `pending`, and the device times out to `failed` 300 seconds later looking like a hardware
+  fault. Nothing upstream catches it, because every identifier involved is a valid string.
+- **And the payload's `target.id` is the `aggregator_uuid` too.** An Aggregator receiving the
+  platform's private row key could not recognize itself in it. Listeners have one identifier,
+  the MAC, so the distinction does not arise there.
+- **How it was found, and the test lesson.** E3.4's first implementation looked up by
+  `aggregator_uuid` and its suite built fixtures the same way, so the tests agreed with the bug
+  and passed. The manual verification pass caught it on the first real revision, because E2's
+  own apply response shows the real `target_id`. The fixture now derives the id through
+  `platform_uuid_of()` from live inventory, and
+  `test_an_aggregator_target_id_that_is_not_a_platform_uuid_is_refused` pins the refusal —
+  a fixture that invents its own id shape can only prove the implementation agrees with the
+  fixture.
+
+## D74 (2026-08-10): The publish happens INSIDE the database transaction (E3.4)
+
+- **Decision:** `publish_revision` opens its own session, stages the transition, the supersede
+  sweep and the audit row, publishes the retained message, and commits only if the publish
+  returned. A `BrokerUnavailable` rolls the whole thing back, so the revision stays in `draft`
+  with nothing published — which is what `broker.py` already promised its callers.
+- **Why not commit first:** a committed `pending` revision that no device was ever told about
+  resolves 300 seconds later as a spec 6.2 `failed(timeout)`. Under D70 that message means
+  "the device never answered", so the platform would be blaming a device for its own broker
+  outage, and the operator would go looking at the link, the power and the firmware.
+- **The residual window is one-sided and smaller:** publish succeeds, commit fails. That leaves
+  a retained message with the revision still `draft` — recoverable by republishing, and it
+  never produces a false accusation against a device.
+- **The row lock is deliberately held across the publish.** `load_for_transition` takes
+  `FOR UPDATE`, so two operators publishing the same revision at once serialize: the second
+  re-reads the state the first committed and takes the idempotent path (D72) instead of
+  transitioning twice. The cost is a database transaction held open across one QoS 1 round
+  trip, which is bounded by the client's own timeout.
+- **`publish_revision` owns its transaction rather than joining the caller's**, because a
+  revision can only be published once it is committed. E3.13's apply therefore commits its
+  overrides, revisions and audit rows first, then calls this.
+
+## D73 (2026-08-10): Only the newest revision for a device may be published (E3.4)
+
+- **Decision:** `publish_revision` refuses a revision that is not the latest for its
+  `(target_type, target_id)`, ordered by `(created_at, id)`, and refuses a `superseded` one
+  outright as spec 6.2's only terminal state.
+- **Why:** this is the other half of the pair D69 records. `supersede_open_revisions` closes
+  every other open revision unconditionally, with no timestamp comparison; publishing an older
+  revision would therefore supersede a NEWER draft an operator was still editing. Removing
+  either rule alone is a data-loss bug. Both docstrings say so, and
+  `test_an_older_revision_is_refused_so_a_newer_draft_survives` pins it.
+- **`(created_at, id)`, not `created_at` alone.** The column defaults to `now()`, which
+  Postgres holds constant for a whole transaction, so revisions written together tie exactly.
+  The same total order `open_revisions_for_target` sorts by, so "newest" and "oldest first"
+  cannot disagree about which row is which.
+- **The check ignores state on purpose.** A newer revision that is itself already superseded
+  still blocks an older one: the rule is "publish the latest", which is simple enough for an
+  operator to hold in their head, rather than a state-dependent search for the best candidate.
+
+## D72 (2026-08-10): Re-publishing a `pending` or `applied` revision re-sends the bytes and
+moves no state (E3.4)
+
+- **Decision:** the E3.4 acceptance criterion "republish of the same revision is idempotent" is
+  implemented as: send the byte-identical retained payload again, perform NO transition, write
+  NO second audit row. `PublishOutcome.transitioned` reports which path ran.
+- **Why re-send rather than return early:** a broker that lost its retained store (restarted
+  without persistence, reprovisioned) leaves devices that reconnect with no desired config at
+  all. Re-publishing is the operator's repair for exactly that, and it is safe because the
+  payload is derived entirely from the immutable revision row — a device that already holds it
+  computes a matching checksum and does nothing.
+- **Why no transition:** `pending -> pending` is not a spec 6.2 edge and the state machine
+  refuses self-transitions by design ("callers that mean 'already there' check the state
+  first"), so this module checks first. Moving `applied` back to `pending` for a re-send would
+  be worse than illegal: it would make a healthy, reconciled device read as unreconciled when
+  nothing about it changed.
+- **Why no audit row:** the audit trail answers "who changed this revision's state". A re-send
+  changed nothing, and a row per retry would bury the transitions that matter under repair
+  noise. The publish is still logged at INFO.
+
+## D71 (2026-08-10): The desired topic is resolved from LIVE inventory, and the flag is
+enforced inside `publish_revision` (E3.4)
+
+- **Topic addressing:** the deployment slug and aggregator UUID come from the device's current
+  inventory rows, never from `config_revision.deployment_id`. That column is historical
+  evidence (the D33 un-FK'd precedent) recording where the device lived when the revision was
+  cut; a device that has since moved deployments must publish to its current home's broker and
+  subtree or not at all. Listener revisions resolve their deployment through their Aggregator's
+  pod for the same reason — the spec 7.2 Listener subtopic hangs off the Aggregator's subtree,
+  so it must name the deployment whose ACL grants that subtree.
+- **A revision whose device is gone raises `UnknownPublishTarget`,** which is expected rather
+  than exceptional: revision history outlives the devices it describes by design, and a
+  revision for a decommissioned Aggregator is evidence with no topic to go to.
+- **`EOE_PUBLISH_ENABLED` is enforced inside `publish_revision`,** as a REQUIRED keyword-only
+  `publish_enabled` argument, not as a check each call site remembers. The value still comes
+  from `Settings.publish_enabled` (D61) because settings do not belong in the control-plane
+  core, but the refusal lives in one place, so no future caller can reach a device by
+  forgetting the flag. Required rather than defaulted: a default would decide the safety
+  question for callers who never thought about it.
+- **The spec 6.2 trigger is chosen from the revision's current state,** not fixed at `publish`:
+  `draft` publishes, `drifted` republishes, `failed` retries. Three edges reach `pending` and
+  they are three different events on E3.11's timeline. A hardcoded trigger would be rejected by
+  the state machine rather than silently mislabelled, which is what validating triples buys.
+
+## D70 (2026-08-10): `failed(timeout)` means silence and nothing else; a contradictory ack
+fails fast (E3.6, implemented at E3.5)
+
+- **Decision:** a reported state that names a pending revision but carries config that is not
+  that revision's is a DEFINITE negative answer, and fails the revision on the first report —
+  `pending -> failed` under `report_error`, with a detail naming the differing KEY NAMES (not
+  values: snapshots hold secret markers, rule R2). It never waits for the window to elapse.
+  `Trigger.TIMEOUT` therefore attaches to exactly one transition and carries exactly one
+  meaning: no valid report arrived at all. A suite test pins that one-to-one.
+- **And the ambiguity is removed rather than adjudicated.** The report carries `config` AND
+  `checksum`, so two different failures were being collapsed into one. They are now separate:
+  1. **Internally inconsistent** — `checksum` != `config_checksum(config)`. The device
+     contradicts *itself*; the message is malformed, not a reconciliation outcome. Rejected at
+     the boundary alongside schema violations, with a message pointing at the firmware's
+     checksum implementation, and **no state transition** — an unparseable report is not
+     evidence about whether the config was applied, so the revision is left for the timeout,
+     whose message is then still true.
+  2. **Internally consistent, disagrees with the revision** — the device coherently reports
+     config that is not the revision's. Nothing to wait for. Fails immediately, per above.
+- **Why not the conservative "stay pending and let the timeout decide":** it waits 300 seconds
+  to report a *timeout* for a device that answered in two seconds, which is an inaccurate error
+  message for a condition the platform already knew for certain. It also makes
+  `failed(timeout)` cover two stories that call for opposite operator responses — "the device
+  never answered" (check the link, the broker, the power) and "the device answered wrong"
+  (check the config and the firmware).
+- **Consequence, and it is deliberate:** `applied_revision_id` is not authoritative on its own.
+  The platform recomputes the checksum from the reported config rather than trusting a naked
+  checksum field, which is the only thing that makes D52/D55's "device-echoed checksums match
+  by construction" a property rather than a hope. A firmware that cannot reproduce the D52
+  recipe is caught by case 1, precisely, instead of looking like a config disagreement.
+
+## D69 (2026-08-10): Spec 6.2's diagram beats its table on the superseded edge (E3.6)
+
+- **The contradiction:** spec 6.2's transition TABLE lists only `pending -> superseded` and
+  `applied -> superseded`. Its DIAGRAM, four lines below, draws
+  `(any non-terminal) --new revision--> superseded`, which also reaches `draft`, `drifted` and
+  `failed`. Both are section 6.2; they cannot both be complete.
+- **Decision (owner-approved at plan approval):** implement the union — the table's nine rows
+  plus the diagram's three. `superseded` is the only terminal state.
+- **Why the diagram:** under the table alone a revision that failed can never be closed out.
+  The operator fixes the config and publishes a new revision; the old row sits at `failed`
+  forever beside an `applied` one, and nothing in the state column says which is live. The same
+  goes for a superseded-in-fact `draft` and for a `drifted` revision abandoned in favour of a
+  new one. The table is best read as listing the interesting transitions, not as an exhaustive
+  enumeration — which is exactly what the diagram's parenthetical says.
+- **How the suite keeps both honest:** `test_revision_state.py` transcribes the table verbatim
+  as `SPEC_6_2_TABLE` (trigger text included) and the diagram's edge separately as
+  `SPEC_6_2_DIAGRAM_EXTRA`, so each spec statement is named and attributable rather than merged
+  into one undifferentiated list. Feed this back into the next spec revision by adding the three
+  rows to the table.
+- **A transition is a TRIPLE, not a pair.** Legality depends on the trigger: `pending -> failed`
+  is legal as an apply error or a timeout and illegal as "operator retries", which is
+  `failed -> pending` read backwards. Validating `(source, target)` alone would accept that.
+- **The paired rule that makes the sweep safe.** `supersede_open_revisions` closes every other
+  open revision for the device unconditionally, with no timestamp comparison. That is only safe
+  because E3.4 refuses to publish a revision that is not the newest for its device; without that
+  guard the sweep would quietly discard a newer draft an operator was still working on. The two
+  rules are a pair — removing either alone is a data-loss bug, and both say so in their
+  docstrings.
+
+## D68 (2026-08-10): `PayloadError` is safe to log; Pydantic's rendering is not (E3.3)
+
+- **Decision:** `contracts.mqtt.decode` builds its message from
+  `ValidationError.errors(include_url=False, include_input=False, include_context=False)` —
+  the model name and which fields failed, never the values.
+- **Why:** `str(ValidationError)` echoes the offending input back, and for a `missing` error
+  the "input" is the WHOLE body. A reported-state payload's `config` carries secret markers
+  and an event's `detail` is device-supplied text of unknown provenance, and E3.5 will log
+  every decode failure it hits. Verified, not assumed: the test feeds a body whose `config`
+  holds a `secret:` marker and omits `checksum`, and asserts the marker does not appear.
+- **Consequence:** a later edit that swaps the message back for Pydantic's nicer one puts
+  secret markers in the log. The comment on `decode` says so; keep it.
+
+## D67 (2026-08-10): The spec 7.3 payload models — strictness by direction, and the
+vocabularies the spec left open (E3.3)
+
+- **Direction decides strictness.** Models the platform PUBLISHES (`DesiredConfig`,
+  `Command`) set `extra="forbid"`: an unexpected key there is a bug on this side about to
+  reach every device in a deployment. Models it RECEIVES (`ReportedAggregatorState`,
+  `ReportedListenerState`, `StatusMessage`, `DeviceEvent`) set `extra="ignore"`: firmware
+  that adds a field must not be able to make the platform stop reading its reports.
+- **`schema_version` is top-level only, and absent means 1.** There has never been another
+  version, so a device that omits it can only have meant this one; a payload claiming any
+  other version is rejected rather than guessed at. Nested blocks (`target`, `health`,
+  `liveness`) carry none, matching every spec 7.3 example.
+- **Timestamps are timezone-aware only**, normalized to UTC on the way in and serialized as
+  `...Z` on the way out. A naive instant cannot be ordered against another device's report,
+  and spec 7.4 drops stale reports by comparing timestamps — guessing UTC would make that
+  silently wrong instead of loudly broken. `Z` rather than `+00:00` because that is what
+  every spec example prints and firmware may well compare the strings.
+- **`encode()` omits absent optionals rather than sending null**, which is what spec 7.3
+  means by `expected_wake_at` being "present only while sleeping". It does NOT reach inside
+  `config`: a null there is data, and stripping it would change the D52 checksum.
+- **`expected_wake_at` is present exactly while sleeping**, enforced in both directions. The
+  platform never recomputes a wake schedule (spec 6.5), so a `sleeping` report without one
+  leaves nothing to tell healthy sleep from silence, and one left on a `streaming` report is
+  a stale promise E3.9 might act on.
+- **Vocabularies the spec leaves open**, chosen here and open to revision before firmware
+  ships: event `level` is `debug|info|warn|error` (the spec shows `warn`); event `code` is an
+  OPEN vocabulary — firmware will invent codes — but constrained to identifier shape
+  (`^[a-z][a-z0-9_]{0,63}$`) because codes end up in queries, alert rules and UI copy;
+  `health.coarse` is deliberately FREE TEXT, since inventing a vocabulary firmware has not
+  agreed to would reject real reports for a field the platform does not even chart (spec
+  10.1); `detail` is capped at 2000 characters so firmware authors read the budget off the
+  contract rather than discovering it from a truncated row.
+- **`applied_revision_id` is optional** on both reported states: a device that has applied
+  nothing yet still reports its state.
+- **`command_id` defaults to a fresh UUID**, so two submissions of one logical command carry
+  distinct ids structurally rather than by a caller's discipline — that is exactly what lets
+  a device deduplicate its own retries without swallowing an operator's second attempt.
+- **The D52 checksum recipe is NOT imported here.** This module is published to firmware
+  authors who implement the recipe rather than call it, so the contract states the field's
+  SHAPE (`^sha256:[0-9a-f]{64}$`) and `app.config.canonical` keeps the recipe. The suite
+  bridges them: a snapshot round-tripped through `encode`/`decode` must produce identical
+  canonical bytes, which is the property that makes device-echoed checksums match.
+
+## D66 (2026-08-10): Async tests ride anyio's pytest plugin, not pytest-asyncio (E3.2)
+
+- **Decision:** the `anyio_backend` fixture in `backend/tests/conftest.py` pins the single
+  backend `"asyncio"`, and async tests carry `pytest.mark.anyio`. No new dev dependency.
+- **Why:** anyio is already installed — Starlette depends on it — and its plugin does
+  everything pytest-asyncio would here. Pinning one backend also keeps one test per test:
+  anyio parametrizes over trio by default, which would double the async suite for a runtime
+  the app never uses, and every one of those duplicates counts against the gate's clock.
+- **The one new RUNTIME dependency at E3.2 is `aiomqtt`** (plus its `paho-mqtt`), which the
+  phase document fixes as the client choice. Nothing else was added.
+
+## D65 (2026-08-10): A pinned broker CA REPLACES the public trust store (E3.2)
+
+- **Decision:** when a `deployment_service` row carries `ca_cert_pem`, `tls_context()` builds
+  a context trusting that CA and nothing else. Only a row with no stored PEM falls back to
+  the system trust store (the E5 path, for a broker with a publicly-issued certificate).
+- **Why:** spec 7.1 identifies a deployment's broker by its own CA, and `ssl` offers both
+  shapes — `create_default_context()` then `load_verify_locations` ADDS an anchor, which
+  reads like hardening and is the opposite. With the public roots still loaded, any
+  certificate any public CA would issue for the broker's hostname also verifies, so the
+  stored PEM stops being a constraint and becomes decoration.
+- **What stays true in both branches:** `check_hostname` on, `CERT_REQUIRED`, minimum TLS
+  1.2. aiomqtt's `tls_insecure` is not used anywhere and should never be.
+- **Consequence:** re-running `app.devbroker` rotates the CA, so a manager holding older
+  coordinates fails to verify until it reloads them. That is the correct failure — it is a
+  different broker identity — and the reload happens on the manager restart E3.7 owns.
+
+## D64 (2026-08-10): The client manager's connection model (E3.2)
+
+Four rulings the phase document leaves open, all chosen so that **a broker outage is not an
+event message-handling code ever sees** — the property E3.2's acceptance criterion states.
+
+- **Subscriptions are registered before `start()` and are fixed after it.** A registration
+  accepted mid-flight would reach a connection that happens to be down only after it next
+  reconnected, so some deployments would deliver to the new handler and others would not —
+  a bug that surfaces as missing messages days later. Registering late raises.
+- **Clean sessions; every connect resubscribes.** The platform does not ask the broker to
+  remember its session: several API replicas may hold the same deployment, and a shared
+  persistent session id would have them evict each other. Delivery guarantees come from QoS 1
+  and the retained desired topics (spec 6.4), which is where the spec puts them.
+- **A handler that raises is logged, and the loop keeps reading.** One device's malformed
+  payload must not cost a whole deployment its control plane. This is why `InboundMessage`
+  carries RAW bytes: a payload the platform cannot parse is still a payload E3.5 has to see
+  and decide about, so parsing does not belong in the transport.
+- **An unreadable broker secret skips that deployment, with a warning naming the secret and
+  never its value.** The alternative — raising out of the loader — lets one badly provisioned
+  deployment deafen every other one at startup.
+- **Also settled:** coordinates load once at `start()` (adding a broker row takes the manager
+  restart E3.7 owns); `publish()` lives here but stays a bare primitive, because WHICH topic
+  and WHICH retain flag are E3.4's and E3.10's decisions; publishing with no live connection
+  raises `BrokerUnavailable` rather than returning quietly, so E3.4 can never move a revision
+  to `pending` on a publish that did not happen.
+
+## D63 (2026-08-10): Dev host ports move, container ports do not (owner-directed)
+
+- **Decision:** the compose stack publishes 18000/15173/15432/16379/18883 on the host; every
+  container keeps listening on 8000/5173/5432/6379/8883 internally.
+- **Why split it that way:** the collision is with the HOST's port space only. Moving the
+  container side too would touch both Dockerfiles, the uvicorn and vite arguments, the
+  Mosquitto listener and every in-network URL, for no benefit — nothing inside a compose
+  network collides with anything. Keeping the standard ports internally also keeps the
+  images honest as artifacts: the API image still serves 8000 wherever it is run.
+- **Consequence for `vite.config.ts`:** the host-run dev server moves to 15173 as well, so
+  the guides can name one address for both paths. The container is unaffected because the
+  Dockerfile's CMD passes `--port 5173` explicitly.
+- **Why it mattered enough to change a phase-0 fixed choice:** rule R0 forbids skipping, so
+  a port a developer's other services already hold is not an inconvenience — it is a gate
+  that cannot go green. Recorded as project-changes #21, addendum PHASE0-2-02.
+
+## D62 (2026-08-10): The topic builders land with E3.1, not E3.3
+
+- **Decision:** `app/contracts/mqtt.py` is created by E3.1 carrying the spec 7.2 topic
+  builders; E3.3 adds the spec 7.3 payload models to the same module and completes its
+  suite. The phase document assigns the whole module to E3.3.
+- **Why:** E3.1's broker ACL grants ARE topic strings. Building them from literals for two
+  tasks and refactoring at E3.3 would mean the namespace existed in two places, which is
+  precisely the drift the "single contracts module" fixed choice exists to prevent. Moving
+  a deliverable earlier inside one epic and one batch is a sequencing call the handbook
+  (section 2) allows; nothing outside E3 is touched.
+- **Consequence:** `backend/tests/test_mqtt_contracts.py` exists from gate 39 and E3.3
+  extends it rather than creating it. Recorded in project-changes #20.
+
+## D61 (2026-08-10): `EOE_PUBLISH_ENABLED` default flips on at E3.13 (owner-approved)
+
+- **Decision:** E3.13 flips `Settings.publish_enabled` to default `True`, as task E3.13
+  specifies, rather than deferring the flip to a separate readiness flight.
+- **Why:** E2 is merged, so the condition the phase document attaches to the flip is met.
+  The CI end-to-end test is the safety net, the flag remains settable per environment, and
+  publication only reaches a broker a deployment actually has a `deployment_service` row
+  for. Epic E3's definition of done requires the flip.
+- **Owner decision, 2026-08-10.** The alternative offered was an E3-R flight on the E0-R
+  precedent; the owner chose the flip at E3.13.
+
+## D60 (2026-08-10): D40 is lifted by E3, on real reported state only (owner-approved)
+
+- **Decision:** E3.12 replaces D40's zero-`[data-status]` guard with real device status on
+  the inventory tables, the aggregator card and the Overview roll-up, all driven by
+  `device_state` rows fed from LWT and reported messages, plus a Timeline tab. The guard
+  stays where it still applies (config routes; import outcomes are not device states).
+- **Why:** D40 exists to stop invented status, not status. E3 is the epic that supplies the
+  real thing, and it named itself as the lifter. The Map (E6) and alerts (E7) stay
+  untouched.
+- **Consequence:** the gate check that asserts zero `[data-status]` on inventory routes is
+  rewritten in the same batch, not deleted — it becomes an assertion that status renders
+  where real state exists and nowhere else.
+
+## D59 (2026-08-10): Control-plane topology — one worker module, two entrypoints, and a
+Postgres LISTEN/NOTIFY bus (owner-approved)
+
+- **Decision (worker):** `app/controlplane/runner.py` runs either as an asyncio task in the
+  FastAPI lifespan or as a standalone `worker` container, from one module. Spec 3.1 draws
+  Workers as a separate box, and production runs it that way; forcing a second container
+  into every integration test buys nothing but minutes.
+- **Decision (websocket fan-out):** reconciliation transitions happen in the worker while
+  websockets are held by the API, so the two need a bus. It is Postgres `LISTEN`/`NOTIFY`:
+  the worker NOTIFYs after commit, each API process LISTENs and fans out to its sockets.
+- **Why not Redis**, which spec 3.2 names for websocket fan-out: spec 3.2 also calls Redis
+  optional and spec 15.1's simplest self-hosted deploy omits it, and E0 wrote that promise
+  into a readiness test. A bus that must work without Redis cannot be Redis. Redis stays a
+  recorded future accelerator for E7/E8 behind the same seam.
+- **Consequence:** no new required dependency — the bus rides the psycopg connection the
+  app already holds. `test_redis_stays_optional_until_e3` is updated in E3.12 to say Redis
+  stayed optional THROUGH E3, which is now a stronger statement than when E0 wrote it.
+
 ## D58 (2026-08-04): Bulk edit UI rulings (E2.8) — gating, honest slots, folded affordances
 
 - **Commit gating is the acceptance**: Commit stays disabled until the CURRENT form

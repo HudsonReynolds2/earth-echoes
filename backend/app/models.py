@@ -13,7 +13,9 @@ from sqlalchemy import (
     Index,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -21,6 +23,13 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+
+#: The phase-3 fixed choice: a published revision that has not been reported
+#: within this many seconds is failed as a timeout (spec 6.4 item 4). Per
+#: deployment, overridable on the row; this is the value a new deployment gets
+#: and the value the worker falls back to when a revision outlives the
+#: deployment row it names (`config_revision.deployment_id` is un-FK'd, D33).
+DEFAULT_PENDING_TIMEOUT_SECONDS = 300
 
 
 def utcnow() -> datetime:
@@ -182,6 +191,7 @@ class Deployment(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "name"),
         CheckConstraint("slug ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'", name="slug_format"),
+        CheckConstraint("pending_timeout_seconds > 0", name="pending_timeout_positive"),
         Index("ix_deployment_tags", "tags", postgresql_using="gin"),
     )
 
@@ -190,6 +200,21 @@ class Deployment(Base):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(63), unique=True, index=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String(64)), default=list)
+    #: E3.7: the spec 6.4 item 4 window, in seconds, after which a `pending`
+    #: revision this deployment owns is failed as a timeout. A PLATFORM
+    #: setting, not a device setting (phase-3 fixed choice), so it lives on the
+    #: deployment row rather than in the settings catalog - no device ever
+    #: reads it and it must never reach a desired topic.
+    pending_timeout_seconds: Mapped[int] = mapped_column(
+        default=DEFAULT_PENDING_TIMEOUT_SECONDS, server_default=str(DEFAULT_PENDING_TIMEOUT_SECONDS)
+    )
+    #: E3.7: stored, default off, and deliberately INERT. Spec 6.2 names an
+    #: "auto-reconcile policy" as a second driver of drifted -> pending, and
+    #: spec 17 item 3 has not decided what that policy should be; until it
+    #: does, drift is repaired by an operator re-publishing. Nothing in the
+    #: worker reads this to decide an action - the only code that may read it
+    #: reports it.
+    auto_reconcile: Mapped[bool] = mapped_column(default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -295,7 +320,10 @@ class QuarantinedReport(Base):
     mac: Mapped[str] = mapped_column(String(17), index=True)
     reported_name: Mapped[str | None] = mapped_column(String(200), default=None)
     aggregator_uuid: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
-    reason: Mapped[str] = mapped_column(String(40))  # name_conflict | mac_conflict
+    # name_conflict | mac_conflict (E1.5) | unknown_mac (E3.5, D76: a Listener
+    # reporting before anyone entered it in inventory - not a conflict, so no
+    # alert, but evidence an operator should be able to find and adopt).
+    reason: Mapped[str] = mapped_column(String(40))
     report: Mapped[dict[str, Any]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -410,6 +438,17 @@ class ConfigRevision(Base):
         ForeignKey("user.id", ondelete="SET NULL"), default=None
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    #: E3.7: when this revision last ENTERED `pending`, written by
+    #: `revision_state.transition` and by nothing else. The spec 6.4 item 4
+    #: window is measured from here rather than from `created_at`, because a
+    #: revision reaching `pending` a second time (an operator retrying a
+    #: `failed` one, or re-publishing over drift) starts a fresh wait - from
+    #: `created_at` it would time out the instant it was retried. In Postgres
+    #: rather than in the worker so a restarted worker resumes the same
+    #: windows it left (spec 14.3).
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, index=True
+    )
 
 
 class Selection(Base):
@@ -460,3 +499,343 @@ class EntityOverride(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# --- E3 control plane (spec 6, 7) ------------------------------------------
+
+
+class DeploymentService(Base):
+    """A deployment-local service the platform connects outbound to (task
+    E3.1; spec 7.1, 16.2).
+
+    **E5 OWNS EXTENDING THIS TABLE.** E3 defines the row shape and populates
+    exactly one service_key, 'mqtt', because the control plane cannot exist
+    without broker coordinates. The Influx / Grafana / Prometheus / S3 rows,
+    the connection tests, and the verification status lifecycle (spec 16.5)
+    are E5's; adding them means adding columns here, not a second table.
+
+    Credentials never live in this row: `password_secret_name` names a
+    SecretStore entry (`deployment:{deployment_id}:{service_key}_password`)
+    and the plaintext moves only through app.secrets.SecretStore (rule R2).
+    ca_cert_pem is deliberately NOT a secret - it is the public certificate
+    the platform must trust to verify the broker's TLS identity, and storing
+    the PEM rather than a path keeps a deployment's trust anchor portable
+    across API replicas and container filesystems.
+    """
+
+    __tablename__ = "deployment_service"
+    __table_args__ = (
+        UniqueConstraint("deployment_id", "service_key"),
+        CheckConstraint("service_key IN ('mqtt')", name="service_key_vocab"),
+        CheckConstraint("port > 0 AND port < 65536", name="port_range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    service_key: Mapped[str] = mapped_column(String(40))
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column()
+    tls_enabled: Mapped[bool] = mapped_column(default=True)
+    ca_cert_pem: Mapped[str | None] = mapped_column(Text, default=None)
+    username: Mapped[str] = mapped_column(String(200))
+    password_secret_name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    deployment: Mapped[Deployment] = relationship()
+
+
+class DeviceState(Base):
+    """The last state a device REPORTED (task E3.5; spec 6.1, 7.3, 7.4).
+
+    Spec 6.1's other half: every device carries a desired configuration (the
+    `config_revision` rows) and a reported configuration, "the last state the
+    device sent". One row per device, replaced in place — this is current
+    state, not evidence, so it is deleted with its device rather than
+    outliving it (`delete_device_state_for`, the E2.4 override-cleanup
+    precedent). The append-only record of what a device said over time is
+    `device_event` and, for config outcomes, the revision transitions.
+
+    **`reported_at` is what makes spec 7.4's ordering rule enforceable.** A
+    report older than the stored one is a late redelivery describing a world
+    that has already moved on, and applying it would drive a healthy device to
+    `drifted` on the strength of stale news. Equal timestamps are NOT stale:
+    a byte-identical replay runs the full comparison and reaches "already
+    there", so idempotency comes from `applied_revision_id` plus checksum as
+    spec 7.4 words it, rather than from a timestamp shortcut.
+
+    **E3.9 EXTENDS THIS TABLE** with the spec 6.5 Listener liveness block,
+    which arrives inside a report and so belongs here. E3.5 deliberately
+    stores none of it, so that no column is a half-implementation of a task
+    that has not run.
+
+    **E3.8 did NOT extend it, though E3.5 anticipated it would** (D88). LWT
+    online state went to `aggregator_status` instead: `reported_at`,
+    `checksum` and `config` are NOT NULL and a device publishes `online`
+    before it has ever reported a config, so a status-only row would have
+    required making three of them nullable — dissolving the invariant that a
+    row here IS a report. An `offline` LWT is also published by the BROKER on
+    the device's behalf, which is precisely the state the device did not send.
+
+    `entity_type`/`entity_id` follow the `config_revision` convention exactly
+    — aggregators by PLATFORM UUID (`aggregator.id`), listeners by MAC (D75)
+    — so a device's revisions and its reported state join without translating
+    between spec 4.2's three identifiers. `entity_id` is deliberately un-FK'd
+    for the `entity_override` reason: two target kinds live in two tables.
+    """
+
+    __tablename__ = "device_state"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id"),
+        CheckConstraint("entity_type IN ('aggregator','listener')", name="entity_type_vocab"),
+        # E3.9. The spec 6.5 vocabulary, and the two shape rules the wire
+        # contract already enforces (`contracts.mqtt.ListenerLiveness`),
+        # repeated here because a constraint in Pydantic protects the boundary
+        # and a constraint in Postgres protects the table. A `sleeping` row
+        # with no wake time cannot be told from silence, and a wake time on a
+        # streaming row is a stale value something will eventually act on.
+        CheckConstraint(
+            "liveness_state IS NULL OR liveness_state IN ('streaming','sleeping','offline')",
+            name="liveness_state_vocab",
+        ),
+        CheckConstraint(
+            "(liveness_state = 'sleeping') = (expected_wake_at IS NOT NULL)",
+            name="wake_time_belongs_to_sleeping",
+        ),
+        # Aggregators have no spec 6.5 liveness at all — theirs is the LWT
+        # verdict in `aggregator_status` (E3.8). A liveness value on an
+        # aggregator row would be a second, quieter answer to a question that
+        # already has an authoritative one.
+        CheckConstraint(
+            "entity_type = 'listener' OR liveness_state IS NULL",
+            name="liveness_is_listener_only",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    entity_type: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[str] = mapped_column(String(100))
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    #: The device's own clock, from the payload — the spec 7.4 ordering key.
+    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: NULL while a device has applied nothing yet; un-FK'd like every other
+    #: reference to a revision, so history can be pruned without erasing state.
+    applied_revision_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    checksum: Mapped[str] = mapped_column(String(80))
+    #: The reported config verbatim, secret MARKERS included (never plaintext:
+    #: they were markers on the desired topic too, spec 5.4). E3.7 re-compares
+    #: this against the desired snapshot to detect drift without a new report.
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: Spec 7.3's coarse hint, stored as sent and NOT charted — Prometheus is
+    #: the authoritative metrics source (spec 10.1) and two sources of truth
+    #: for one number is exactly what that split exists to prevent.
+    health: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    #: When the PLATFORM took delivery. Differs from `reported_at` by the
+    #: broker's queueing, which is the gap that makes a late report late.
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # -- spec 6.5 Listener liveness (E3.9), NULL on every aggregator row -----
+    #
+    # The AGGREGATOR tracks all of this and the platform only records it. The
+    # Listener declares its own wake time over the local HaLow link, the
+    # Aggregator trusts that declaration rather than recomputing the schedule
+    # (the Listener's own clock is what governs when it actually wakes), and
+    # the platform is a further step removed still: it must never compute a
+    # wake window, apply a grace period, or decide on its own that a Listener
+    # has missed one. `listener.wake_grace_seconds` is a DEVICE setting that
+    # rides the config down; nothing up here reads it.
+    #: `streaming` | `sleeping` | `offline`, verbatim from the report. NULL
+    #: means no Listener report has arrived yet, which is not the same as
+    #: offline — see `liveness.py`.
+    liveness_state: Mapped[str | None] = mapped_column(String(20), default=None)
+    #: Last audio the Aggregator saw. Diagnostic; drives no verdict.
+    last_audio_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    #: Present exactly while sleeping (spec 7.3), enforced both at the wire
+    #: boundary and by `wake_time_belongs_to_sleeping` above. The moment the
+    #: Listener PROMISED to be back, not a deadline the platform enforces.
+    expected_wake_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    #: When `liveness_state` last actually changed, which is what "offline
+    #: since" reads. A re-report of the same state must not move it, the same
+    #: rule `aggregator_status.changed_at` follows for the LWT verdict.
+    liveness_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+
+
+class DeviceEvent(Base):
+    """One spec 7.3 event from an Aggregator's event topic (task E3.5).
+
+    Immutable evidence, so `deployment_id`, `aggregator_uuid` and
+    `listener_mac` are deliberately un-FK'd on the D33 precedent: an event is
+    the record that something happened, and it must survive the device it
+    describes being decommissioned. E7 owns alerts; E3 persists these and
+    E3.11 renders them on the device timeline, which is why `code` stays
+    machine-readable and `detail` stays human-readable.
+
+    **Redelivery is a no-op, not a second row.** QoS 1 is at-least-once and an
+    event carries no device-supplied id, so identity is (emitter, instant,
+    code) — two distinct events with one code from one device in the same
+    instant are indistinguishable on the wire anyway, and a duplicated
+    timeline entry is a lie about how often something happened. The unique
+    index backstops the consumer's check against races, the way
+    `inventory_alert`'s partial index backstops E1.5's. `NULLS NOT DISTINCT`
+    is load-bearing: without it every Aggregator-level event (`listener_mac`
+    NULL) would be unique to Postgres and dedupe only Listener events.
+    """
+
+    __tablename__ = "device_event"
+    __table_args__ = (
+        Index(
+            "uq_device_event_delivery",
+            "deployment_id",
+            "aggregator_uuid",
+            "listener_mac",
+            "at",
+            "code",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("ix_device_event_timeline", "aggregator_uuid", "at"),
+        CheckConstraint("level IN ('debug','info','warn','error')", name="level_vocab"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    #: The EMITTER, which is the identity the broker ACL authenticated — the
+    #: `{agg}` segment of the topic it arrived on, never a payload field.
+    aggregator_uuid: Mapped[str] = mapped_column(String(64))
+    #: Set when the event is about one Listener; both of the spec 7.3 named
+    #: codes are. Not validated against inventory: the emitter is what was
+    #: authenticated, and refusing to record an event about an unknown MAC
+    #: would discard the report that an unknown Listener exists.
+    listener_mac: Mapped[str | None] = mapped_column(String(17), default=None, index=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    level: Mapped[str] = mapped_column(String(10))
+    code: Mapped[str] = mapped_column(String(64))
+    detail: Mapped[str | None] = mapped_column(Text, default=None)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AggregatorStatus(Base):
+    """An Aggregator's live online verdict, driven by MQTT (task E3.8; spec 9.3, 7.2, 7.3).
+
+    Spec 9.3 makes MQTT the AUTHORITATIVE real-time liveness signal for an
+    Aggregator, and deliberately not Prometheus: the remote-write agent
+    buffers to a write-ahead log and backfills on reconnect (spec 10.4), so
+    central Prometheus lags real time by design. This row is what the status
+    dot reads.
+
+    **Not a column on `device_state`, though E3.5's docstring anticipated
+    one.** Three reasons, and the third is decisive. `device_state` is defined
+    as "the last state the device REPORTED" and its `reported_at`, `checksum`
+    and `config` are NOT NULL, but a device publishes `online` before it has
+    ever reported a config — so a status-only row could not be written without
+    making three of E3.5's columns nullable and dissolving the invariant that
+    a `device_state` row IS a report. LWT is also Aggregator-only (Listeners
+    hold no MQTT session, spec 6.4/9.3, and E3.9 stores their liveness on the
+    report where it belongs). And an `offline` LWT is published by the BROKER
+    on the device's behalf: it is precisely the state the device did not send.
+
+    **`at` is NOT an ordering key, and this is the trap the table exists to
+    avoid.** A device composes its will at CONNECT time and the broker holds
+    those exact bytes until the session dies, so the `at` on an `offline`
+    message is older than every `online` heartbeat that followed it — often by
+    hours. Ordering status by the payload clock the way spec 7.4 orders
+    reports would reject every LWT as stale and leave dead devices reading
+    online forever. Receipt order is the truth here: one broker, QoS 1, one
+    ordered session per device, and a retained replay always carries the
+    CURRENT value. `declared_at` is stored because the device said it, and
+    read by nothing that decides anything.
+    """
+
+    __tablename__ = "aggregator_status"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    #: Real FK with a cascade, unlike `device_state.entity_id`: there is one
+    #: target table here rather than two, and this is CURRENT state, not
+    #: evidence — it dies with its device instead of outliving it. The
+    #: `device_event` rows keep the history.
+    aggregator_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("aggregator.id", ondelete="CASCADE"), unique=True
+    )
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    #: The spec 9.3 verdict. No `unknown` third state: a device that has never
+    #: spoken has no row at all, which is a different question from one the
+    #: platform has heard call itself offline.
+    online: Mapped[bool] = mapped_column()
+    #: The payload's own `at`. Stored as sent, never compared — see the class
+    #: docstring. On an LWT this is the moment the device CONNECTED.
+    declared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: When `online` last actually changed value, which is what "offline since"
+    #: means on screen. A retained replay of the same state must not move it.
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: Platform receipt, and the real ordering key.
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ReconciliationEvent(Base):
+    """One spec 6.2 transition, as timeline evidence (task E3.11; spec 6.3).
+
+    Spec 6.3 asks for "every transition with a timestamp, the actor (user or
+    system), the before/after effective config diff, and any device-supplied
+    detail". This is that row, and it is written by
+    `revision_state.transition` and by nothing else — the same argument that
+    put `published_at` there (D84). Every state change in the system passes
+    through that one function, so recording the timeline inside it makes the
+    timeline complete BY CONSTRUCTION rather than by every call site
+    remembering to log.
+
+    **Evidence, not current state**, so it is append-only and un-FK'd on the
+    D33 precedent: a transition must survive the revision being pruned and the
+    device being decommissioned. It is what the E3.11 timeline renders after
+    the thing it describes is gone.
+
+    **Two fields, because they have two different provenances.** `diff` is the
+    PLATFORM's side — how this revision's config differs from the one before
+    it, taken from revision snapshots, which hold secret markers rather than
+    plaintext (spec 5.4) and so are safe to store whole. `detail` is the
+    DEVICE's side, or the worker's: differing key NAMES on a mismatch, the
+    Aggregator's own error text. Values from a device are of unknown
+    provenance and never land in `diff`.
+    """
+
+    __tablename__ = "reconciliation_event"
+    __table_args__ = (
+        # The timeline query: one device, newest first.
+        Index("ix_reconciliation_event_timeline", "target_type", "target_id", "at"),
+        Index("ix_reconciliation_event_scope", "deployment_id", "at"),
+        CheckConstraint("target_type IN ('aggregator','listener')", name="target_type_vocab"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    #: Un-FK'd (D33): history outlives the revision it describes.
+    revision_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    #: The `config_revision` convention exactly — aggregators by PLATFORM
+    #: UUID, listeners by MAC (D75) — so a device's timeline is one query.
+    target_type: Mapped[str] = mapped_column(String(20))
+    target_id: Mapped[str] = mapped_column(String(100))
+    #: For the per-deployment audit view (spec 6.3). Un-FK'd like the rest.
+    deployment_id: Mapped[uuid.UUID] = mapped_column()
+    from_state: Mapped[str] = mapped_column(String(20))
+    to_state: Mapped[str] = mapped_column(String(20))
+    trigger: Mapped[str] = mapped_column(String(40))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    #: NULL means the system did it — a timeout, a device report, a drift
+    #: sweep. The same convention `audit_log` uses, so the two surfaces agree
+    #: on what "no actor" looks like.
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    #: `{key: {"before": ..., "after": ...}}` against the previous revision for
+    #: this device, from SNAPSHOTS only. Present on entry to `pending`, where
+    #: the config change actually happens; None on the other edges, which move
+    #: state without changing what was asked for.
+    diff: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    #: Device- or worker-supplied. Key NAMES on a mismatch, never values.
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)

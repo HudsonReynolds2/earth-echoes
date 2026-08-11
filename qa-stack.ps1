@@ -13,7 +13,7 @@
 # Windows-first because the gate's Windows entry point is too.
 #
 # WARNING (D44): the gate's compose tests bind the SAME host ports
-# (8000/5173/5432/6379). Run `.\qa-stack.ps1 down` before `.\gate.ps1`.
+# (18000/15173/15432/16379/18883). Run `.\qa-stack.ps1 down` before `.\gate.ps1`.
 
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -75,8 +75,8 @@ function Initialize-EnvFile {
         "EOE_SESSION_SECRET=$(New-RandomBase64)"
         "EOE_KEK=$(New-RandomBase64)"
         "REDIS_URL=redis://redis:6379/0"
-        "EOE_CORS_ORIGINS=http://localhost:5173"
-        "EOE_FRONTEND_API_URL=http://localhost:8000"
+        "EOE_CORS_ORIGINS=http://localhost:15173"
+        "EOE_FRONTEND_API_URL=http://localhost:18000"
     )
     # ASCII content only, so encoding is a non-issue for compose and python.
     Set-Content -Path $envFile -Value $lines -Encoding ascii
@@ -102,38 +102,53 @@ function Invoke-Compose {
 function Test-Health {
     $ok = $true
     try {
-        $health = Invoke-RestMethod -Uri "http://localhost:8000/api/v1/health" -TimeoutSec 5
+        $health = Invoke-RestMethod -Uri "http://localhost:18000/api/v1/health" -TimeoutSec 5
         if ($health.status -eq "ok" -and $health.database -eq "ok") {
-            Write-Host "   API healthy at http://localhost:8000 (build $($health.build_sha))"
+            Write-Host "   API healthy at http://localhost:18000 (build $($health.build_sha))"
         } else {
             Write-Host "   API responded but is not healthy: $($health | ConvertTo-Json -Compress)" -ForegroundColor Red
             $ok = $false
         }
     } catch {
-        Write-Host "   API unreachable at http://localhost:8000" -ForegroundColor Red
+        Write-Host "   API unreachable at http://localhost:18000" -ForegroundColor Red
         $ok = $false
     }
     try {
-        $front = Invoke-WebRequest -Uri "http://localhost:5173/" -TimeoutSec 5 -UseBasicParsing
+        $front = Invoke-WebRequest -Uri "http://localhost:15173/" -TimeoutSec 5 -UseBasicParsing
         if ($front.StatusCode -eq 200) {
-            Write-Host "   frontend serving at http://localhost:5173"
+            Write-Host "   frontend serving at http://localhost:15173"
         } else {
             Write-Host "   frontend answered $($front.StatusCode)" -ForegroundColor Red
             $ok = $false
         }
     } catch {
-        Write-Host "   frontend unreachable at http://localhost:5173" -ForegroundColor Red
+        Write-Host "   frontend unreachable at http://localhost:15173" -ForegroundColor Red
         $ok = $false
     }
     return $ok
 }
 
+function Invoke-DevBroker {
+    # E3.1: the dev broker's certificates, accounts and ACLs are generated,
+    # never committed. --certs-only runs BEFORE compose up because Mosquitto
+    # will not start without them; the full run needs the seeded deployments,
+    # so it can only happen afterwards.
+    param([string[]]$BrokerArgs)
+    $uv = Find-Uv
+    Push-Location (Join-Path $root "backend")
+    try {
+        & $uv run python -m app.devbroker @BrokerArgs
+        return $LASTEXITCODE
+    }
+    finally { Pop-Location }
+}
+
 function Show-GateWarning {
     Write-Host ""
     Write-Host "  +---------------------------------------------------------------+" -ForegroundColor Yellow
-    Write-Host "  | Before running .\gate.ps1: run  .\qa-stack.ps1 down           |" -ForegroundColor Yellow
-    Write-Host "  | The gate's compose tests bind the same ports                  |" -ForegroundColor Yellow
-    Write-Host "  | (8000 / 5173 / 5432 / 6379) and will go RED otherwise (D44).  |" -ForegroundColor Yellow
+    Write-Host "  | Before running .\gate.ps1: run  .\qa-stack.ps1 down            |" -ForegroundColor Yellow
+    Write-Host "  | The gate's compose tests bind the same host ports              |" -ForegroundColor Yellow
+    Write-Host "  | (18000/15173/15432/16379/18883) and go RED otherwise (D44).    |" -ForegroundColor Yellow
     Write-Host "  +---------------------------------------------------------------+" -ForegroundColor Yellow
 }
 
@@ -145,6 +160,12 @@ switch ($verb) {
         Assert-Engine $docker
         Initialize-EnvFile
         Write-Host ""
+        Write-Host "== dev broker TLS material ==" -ForegroundColor Cyan
+        if ((Invoke-DevBroker @("--certs-only")) -ne 0) {
+            Write-Host "could not generate broker certificates" -ForegroundColor Red
+            exit 1
+        }
+        Write-Host ""
         Write-Host "== starting the stack (project $project) ==" -ForegroundColor Cyan
         Invoke-Compose @("up", "-d", "--build", "--wait")
         if ($LASTEXITCODE -ne 0) {
@@ -155,7 +176,7 @@ switch ($verb) {
         Write-Host ""
         Write-Host "== seeding the demo hierarchy ==" -ForegroundColor Cyan
         $values = Read-EnvFile
-        $env:DATABASE_URL = $values["DATABASE_URL"] -replace "@postgres:", "@localhost:"
+        $env:DATABASE_URL = $values["DATABASE_URL"] -replace "@postgres:5432", "@localhost:15432"
         $env:EOE_SESSION_SECRET = $values["EOE_SESSION_SECRET"]
         $env:EOE_KEK = $values["EOE_KEK"]
         $uv = Find-Uv
@@ -172,12 +193,21 @@ switch ($verb) {
             Write-Host "   Forgot them? Run:  .\qa-stack.ps1 reset   then 'up' again." -ForegroundColor Yellow
         }
         Write-Host ""
+        Write-Host "== broker accounts and ACLs ==" -ForegroundColor Cyan
+        # --host mosquitto: the coordinates stored on deployment_service are
+        # dialled by the API container, which reaches the broker by service name.
+        if ((Invoke-DevBroker @("--host", "mosquitto", "--keep-tls")) -eq 0) {
+            Invoke-Compose @("restart", "mosquitto") | Out-Null
+        } else {
+            Write-Host "   broker accounts not provisioned - see the message above." -ForegroundColor Yellow
+        }
+        Write-Host ""
         Write-Host "== health ==" -ForegroundColor Cyan
         $healthy = Test-Health
         Write-Host ""
         if ($healthy) {
             Write-Host "QA STACK READY" -ForegroundColor Green
-            Write-Host "  site:        http://localhost:5173"
+            Write-Host "  site:        http://localhost:15173"
             Write-Host "  walkthrough: guide/e1-verification.md"
             Write-Host "  teardown:    .\qa-stack.ps1 down   (keeps data)  |  reset (wipes data)"
         } else {

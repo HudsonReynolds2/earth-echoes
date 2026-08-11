@@ -6,7 +6,7 @@ invalidates an assertion here amends it in the same batch. Sibling:
 [the E1 walkthrough](e1-verification.md) covers hierarchy and inventory.
 
 **Setup:** `.\qa-stack.ps1` from the repo root (see the E1 walkthrough for details),
-sign in as the seeded owner, and open `http://localhost:5173`. The demo fixture seeds
+sign in as the seeded owner, and open `http://localhost:15173`. The demo fixture seeds
 no config overrides — you create them below, so this guide works against any fresh
 stack. Remember `.\qa-stack.ps1 down` before ever running `.\gate.ps1` (D44).
 

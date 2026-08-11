@@ -20,11 +20,11 @@ Node 20+ and git are the only prerequisites.
 git clone <repo-url> earth-echoes
 cd earth-echoes/frontend
 npm ci
-VITE_API_BASE_URL=http://localhost:8000 npm run dev   # → http://localhost:5173
+VITE_API_BASE_URL=http://localhost:18000 npm run dev   # → http://localhost:15173
 ```
 
 `VITE_API_BASE_URL` is required — the app throws without it, by design (no hardcoded API
-URL, no dev proxy). For repeat runs, put `VITE_API_BASE_URL=http://localhost:8000` in
+URL, no dev proxy). For repeat runs, put `VITE_API_BASE_URL=http://localhost:18000` in
 `frontend/.env.local` (gitignored) and just run `npm run dev`.
 
 **With no backend running, every route still renders.** Routes are not auth-gated, so

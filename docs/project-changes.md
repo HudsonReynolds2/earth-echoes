@@ -5,6 +5,90 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #22 (2026-08-10): E3.7 ships the operator publish route and the worker container
+
+- **What changed:** three additions inside task E3.7 that the phase document's task text
+  does not name. (1) `POST /revisions/{revision_id}/publish` — the operator action the task
+  requires ("re-publish happens on operator action") but that no E3 task claimed; it calls
+  E3.4's `publish_revision` and adds no publish logic of its own (DECISIONS D82). (2) A
+  `worker` service in the dev compose stack running `python -m app.controlplane.runner`,
+  plus an outbound publish-only broker connection in the API process, because the worker
+  and the publisher now live in two processes (D59, D86). (3) The D8 error vocabulary gains
+  `service_unavailable` for a broker outage (D83).
+- **Why:** without the route, the phase's own acceptance step "operator re-publish" would
+  exist only inside a test, and drift — which the worker is forbidden to repair itself,
+  `auto_reconcile` being inert — could not be repaired through the platform at all.
+- **What did NOT change:** the scope of the worker itself, the sweeps, or the transitions.
+  E3.13 still owns wiring E2's bulk apply to publication and flipping
+  `EOE_PUBLISH_ENABLED` on; this route is the single-revision action beside it, and both
+  take one code path.
+- **Who approved:** the owner, on 2026-08-10, choosing the route over deferring it, with
+  the instruction that anything provisional be marked as such. Marked accordingly:
+  `deployment.auto_reconcile` (stored, inert, pending spec 17 item 3), the drift sweep's
+  `desired_changed` signal (observation only — spec 6.2 has no state for it), and
+  `EOE_WORKER_IN_API` (off by default).
+- **Effect on scope:** none of the thirteen E3 tasks moves; E3.7 is larger by one route and
+  one compose service.
+- **Affects:** project_planning/phase-3-control-plane.md §4 (task E3.7)
+- **Addendum:** PHASE3-4-02
+
+## #21 (2026-08-10): Dev host ports moved into the 1xxxx range
+
+- **What changed:** the published HOST ports of the dev compose stack move from
+  8000/5173/5432/6379 to **18000/15173/15432/16379**, and E3.1's new broker publishes
+  **18883** rather than 8883. Phase-0 section 2 fixes the old numbers, so this amends it.
+- **What did NOT change:** the container side. Every service still listens on its standard
+  port inside the network (8000/5173/5432/6379/8883), so no image, no uvicorn or vite
+  argument, no `mosquitto.conf` listener and no service-to-service URL moved — only the
+  host mapping and the host-facing URLs (`EOE_CORS_ORIGINS`, `VITE_API_BASE_URL`, the
+  verifier's default `--api`, the QA script's probes, and the guides).
+- **Why:** the standard ports collide with other services commonly running on a developer
+  machine, and the collision is not cosmetic — it makes the gate impossible to pass, since
+  `test_compose_stack` and `test_verify_tool` bind them for real (rule R0 admits no
+  skipping). Owner instruction, 2026-08-10.
+- **Enforcement:** `FIXED_PORTS` in `backend/tests/test_repo_layout.py` remains the single
+  enforced list and now carries HOST:CONTAINER pairs; `docs/INTERFACES.md` records the new
+  host ports beside a pointer to it.
+- **Affects:** project_planning/phase-0-foundations.md §2 (ports)
+- **Addendum:** PHASE0-2-02
+
+## #20 (2026-08-10): E3 sequencing — contracts module lands at E3.1, state machine before publish
+
+- **What changed:** two ordering changes inside epic E3, both within their own batch.
+  (1) `backend/app/contracts/mqtt.py` is created by **E3.1** with the spec 7.2 topic
+  builders instead of arriving whole at E3.3; E3.3 adds the spec 7.3 payload models to it.
+  (2) Batch 2 runs **E3.6 (state machine) before E3.4 (publish) and E3.5 (consumer)**,
+  instead of the phase document's 3.4 → 3.5 → 3.6 order.
+- **Why:** (1) E3.1's broker ACL grants ARE topic strings; generating them from literals
+  and refactoring two tasks later would put the topic namespace in two places, which the
+  "single contracts module" fixed choice exists to prevent (DECISIONS D62). (2) Both the
+  publisher and the consumer transition revision state, so the module that owns transitions
+  must exist before either calls it rather than open-code a state write.
+- **Who approved:** the owner approved the batch-2 reorder with the E3 plan on 2026-08-10;
+  the handbook (section 2) allows a session to propose a task order.
+- **Effect on scope:** none. All thirteen E3 tasks still ship, each with its own gate.
+- **Affects:** project_planning/phase-3-control-plane.md §4 (tasks E3.1, E3.3-E3.6)
+- **Addendum:** PHASE3-4-01
+
+## #19 (2026-08-10): E3's E2-coordination contingency is moot; E3.13 is in scope
+
+- **What changed:** the phase-3 document was written expecting E3 to run in parallel with
+  E2 and hedges accordingly — agree the `config_revision` shape with the E2 session, fall
+  back to consuming revision snapshots if the merge engine has not landed, and treat E3.13
+  as conditional on E2 merging. E1 and E2 both completed before this phase started (gates
+  20-38, PRs #9-#16), so none of those contingencies apply.
+- **Why:** the epics ran in sequence, not in parallel. `config_revision` arrives exactly as
+  E2 defined it (D55); `app/config/service.py::effective_resolved` is available to the
+  publisher and the drift re-compare from the day E3.7 lands; and E3.13 — wiring apply to
+  `publish_revision` and flipping `EOE_PUBLISH_ENABLED` on — is ordinary in-scope work for
+  this phase rather than a deferred follow-up.
+- **Owner decisions taken at plan approval (2026-08-10):** DECISIONS D59 (worker topology
+  and the Postgres LISTEN/NOTIFY websocket bus), D60 (E3 lifts D40 on real reported state),
+  D61 (`EOE_PUBLISH_ENABLED` defaults on at E3.13).
+- **Effect on scope:** none removed; E3.13 becomes unconditional.
+- **Affects:** project_planning/phase-3-control-plane.md §2 (prerequisites and coordination)
+- **Addendum:** PHASE3-2-01
+
 ## #17 (2026-08-04): E2.2's level rule inverted to match spec 5.3 — at-or-above, never below
 
 - **What changed:** task E2.2 says "writing a key below its allowed level is permitted
