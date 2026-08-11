@@ -42,6 +42,7 @@ from app.auth.deps import DbDep, require_csrf
 from app.auth.rbac import Permission, require_permission
 from app.errors import AppError
 from app.models import SERVICE_KEYS, Deployment, DeploymentService, UserSession
+from app.services import testers as testers_module
 from app.services.schemas import (
     GrafanaSettings,
     InfluxSettings,
@@ -56,6 +57,7 @@ from app.services.schemas import (
     redacted_settings,
 )
 from app.services.store import load_service, load_services, upsert_service
+from app.services.testers import resolve_credentials, run_testers
 
 router = APIRouter(prefix="/deployments/{deployment_id}/services")
 
@@ -109,6 +111,10 @@ class ServicesIn(BaseModel):
             self.s3,
         )
         return [settings for settings in candidates if settings is not None]
+
+    def by_key(self) -> dict[str, ServiceSettings]:
+        """The same set, keyed by `service_key`, for the E5.3 test runner."""
+        return {type(settings).service_key: settings for settings in self.submitted()}
 
 
 class ServicesBody(BaseModel):
@@ -235,3 +241,122 @@ def put_services(
         for name in plan.secrets_to_delete:  # D51: only ever AFTER the commit
             store.delete(name)
     return _services_out(db, deployment_id)
+
+
+# --- E5.3: the connection test endpoint --------------------------------------
+
+
+class CheckOut(BaseModel):
+    name: str
+    passed: bool
+    detail: str
+    #: Non-empty on every failing check, and asserted so across the suite. S5's
+    #: premise is that an operator reads a failure and fixes their service.
+    remedy: str
+    elapsed_ms: int
+
+
+class TestResultOut(BaseModel):
+    service_key: str
+    #: pass | fail | not_required | not_configured. The last two are NOT
+    #: failures - see `app/services/testers/base.py::TesterOutcome`.
+    outcome: str
+    checks: list[CheckOut]
+
+
+class ServicesTestOut(BaseModel):
+    deployment_id: str
+    results: list[TestResultOut]
+
+
+class ServicesTestBody(BaseModel):
+    """Candidate credentials, or nothing.
+
+    Spec 16.2 says the platform "validates each entry with a live connection
+    test **before accepting it**", so the body is the unsaved form: the same
+    five typed models the PUT takes, with the keep sentinel reaching back for a
+    stored credential. Omit the body entirely to test what is stored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    services: ServicesIn = ServicesIn()
+
+
+@router.post("/test", response_model=ServicesTestOut, dependencies=[Depends(require_csrf)])
+async def test_services(
+    deployment_id: uuid.UUID,
+    db: DbDep,
+    request: Request,
+    actor: Annotated[
+        UserSession, Depends(require_permission(Permission.MANAGE_SERVICES, "deployment_id"))
+    ],
+    body: ServicesTestBody | None = None,
+) -> ServicesTestOut:
+    """Run every registered tester concurrently and report structured results.
+
+    **MANAGE_SERVICES, not VIEW_SERVICES**: the body carries candidate
+    credentials, so this is a write-shaped act even though it stores nothing.
+
+    **It stores nothing.** `deployment_service.status` and
+    `deployment.services_status` are E5.5's to write from these results; this
+    endpoint computes evidence and returns it, so re-running a test can never
+    itself change a verdict of record.
+
+    **`testers_module.REGISTRY` is empty until E5.4a-e.** Until then this honestly reports no
+    results rather than inventing verdicts nothing computed.
+    """
+    _get_deployment(db, deployment_id)
+    store = request.app.state.secret_store
+    submitted = (body.services if body is not None else ServicesIn()).by_key()
+
+    # Read through the MODULE, not a from-import: E5.4a-e register into
+    # `testers_module.REGISTRY` at import time, and a rebound name here
+    # would silently keep the empty dict this task ships with.
+    registry = testers_module.REGISTRY
+    testers = [registry[key] for key in SERVICE_KEYS if key in registry]
+    credentials = {
+        tester.service_key: resolve_credentials(
+            tester.service_key,
+            load_service(db, deployment_id, tester.service_key),
+            submitted.get(tester.service_key),
+            store.get,
+        )
+        for tester in testers
+    }
+    results = await run_testers(testers, credentials)
+
+    record_audit(
+        db,
+        action="services.test",
+        entity_type="deployment",
+        entity_id=str(deployment_id),
+        actor_user_id=actor.user_id,
+        scope=deployment_id,
+        # Outcomes by service key. No check detail and no candidate value: a
+        # remedy string is operator-facing text, and the audit log is not
+        # where it earns its keep.
+        detail={"outcomes": {result.service_key: result.outcome for result in results}},
+    )
+    db.commit()
+
+    return ServicesTestOut(
+        deployment_id=str(deployment_id),
+        results=[
+            TestResultOut(
+                service_key=result.service_key,
+                outcome=result.outcome,
+                checks=[
+                    CheckOut(
+                        name=check.name,
+                        passed=check.passed,
+                        detail=check.detail,
+                        remedy=check.remedy,
+                        elapsed_ms=check.elapsed_ms,
+                    )
+                    for check in result.checks
+                ],
+            )
+            for result in results
+        ],
+    )

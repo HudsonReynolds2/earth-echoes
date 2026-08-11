@@ -150,6 +150,11 @@ E0_ROUTES = {
     # removes them all.
     ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services"),
     ("PUT", f"{API_PREFIX}/deployments/{{deployment_id}}/services"),
+    # E5.3: the connection test endpoint. MANAGE_SERVICES rather than a read
+    # permission, because the body carries candidate credentials - spec 16.2
+    # validates an entry "before accepting it", so the unsaved form is exactly
+    # what this tests. It writes no status: that is E5.5's.
+    ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/test"),
 }
 
 E0_TABLES = {

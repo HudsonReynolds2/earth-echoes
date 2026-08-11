@@ -1422,3 +1422,39 @@ reimplement their logic.** Signatures, verbatim:
 - Both extend `app/auth/rbac.py`, `frontend/src/lib/rbac.ts`, `backend/tests/test_rbac.py`
   and `frontend/tests/rbac.test.tsx`. The RBAC suite is test-critical (spec 14.5): these are
   **additions** to its matrix and every existing assertion is untouched.
+
+### `POST /deployments/{id}/services/test` and the tester framework (E5.3; spec 16.2; D111)
+
+- **`ServiceTester`** (`app/services/testers/base.py`) is what E5.4a-e implement:
+  `service_key`, `budget_seconds`, `async run(credentials) -> TestResult`. Testers are written
+  in terms of `app/services/clients/`, the only place a deployment service is dialled from
+  (phase-5 fixed choice 8) — **E7 extends those modules and does not create parallel ones.**
+- **`TestResult`** is `(service_key, outcome, checks)`; **`CheckResult`** is
+  `(name, passed, detail, remedy, elapsed_ms)`. `remedy` is non-empty on every failing check
+  and the suite asserts it table-driven — a red row with no "what now" is what teaches
+  operators to ignore red.
+- **`TesterOutcome` is `pass` | `fail` | `not_required` | `not_configured`** — a DIFFERENT
+  vocabulary from the spec 16.2 per-service status, deliberately (D111). E5.5 maps one onto
+  the other; neither is the other's alias.
+- **Two budgets.** Each tester declares its own; `WHOLE_CALL_BUDGET_SECONDS` bounds the whole
+  endpoint over the top, so a tester that ignores its own budget cannot hang a request.
+- **Containment.** A timeout, an unexpected exception, a wrong-`service_key` result and a
+  missing credential each become that service's failure and leave the other verdicts real. A
+  crash reason names the exception **type** and never `str(error)`.
+- **`resolve_credentials(service_key, stored, candidate, secret_getter)`** decides what to dial
+  with: candidate beats stored, the D51 keep sentinel reaches back for a stored value, and a
+  service with neither is `not_configured`. Same three-way rule as the E5.2 PUT, so "test" and
+  "save" cannot disagree about which credential they mean. It raises nothing — an unreadable
+  secret is logged **by name** and skipped.
+- **`ServiceCredentials` never renders its secrets**: `secrets` is `repr=False` behind a
+  `__str__` naming only the service and its non-secret settings, exactly as `BrokerCoordinates`
+  does (D66). Keep both.
+- **The endpoint** takes an optional body of candidate settings (the same five typed models the
+  PUT takes) and tests stored credentials when it is absent. `MANAGE_SERVICES` + CSRF, because
+  the body carries credentials. **It writes no status** — `deployment_service.status` and
+  `deployment.services_status` are E5.5's. Audited as `services.test` with detail
+  `{"outcomes": {service_key: outcome}}` and nothing else.
+- **`testers.REGISTRY` is empty until E5.4a-e**, and is read through the module rather than a
+  from-import so registration at import time is visible to the endpoint. A service with no
+  registered tester is simply absent from `results`.
+- **Suite:** `backend/tests/test_service_testers.py`.

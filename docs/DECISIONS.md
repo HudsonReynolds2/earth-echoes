@@ -4,6 +4,50 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D111 (2026-08-11): A tester says four things, not three, and two of them are not failures
+(E5.3)
+
+- **Decision:** `TesterOutcome` is `pass` | `fail` | `not_required` | `not_configured`. It is a
+  DIFFERENT vocabulary from spec 16.2's per-service status (`untested` / `verified` /
+  `failed`), and E5.5 maps one onto the other rather than the two being one enum.
+- **Why not just `pass`/`fail`.** Spec 16.2 makes object storage required *only when raw-audio
+  upload is enabled*, and the S5 wizard shows all five services from step one — so a
+  deployment that will never use S3, and a deployment whose operator has not reached the
+  Grafana step yet, would both render red. Red that an operator is supposed to ignore is worse
+  than no signal at all, because it destroys the meaning of the red that matters. E5.4e's
+  acceptance already names `not_required` for the first case; `not_configured` is the second,
+  and it is the runner's rather than any tester's, because "there is nothing to dial this with"
+  is decided before a tester is entered.
+- **Why they are not folded into the status vocabulary.** "I did not run" and "I ran and it
+  failed" are different facts about the world, and `deployment_service.status` is the record of
+  a *verdict*. Collapsing them would make `untested` mean two things, and E5.5's
+  `consecutive_failures` counter — which spec 16.5 needs to demote "on repeated failure" — would
+  start counting deployments that were never dialled.
+- **Containment is per tester, and it is the framework's job.** A timeout, an unexpected
+  exception, a result filed under the wrong `service_key`, and a missing credential each become
+  that one service's `fail` (or `not_configured`), and the other four verdicts stay real. S5's
+  own caption says one failure never blocks reading the other four; that is a property of the
+  runner, not something five tester authors have to each remember.
+- **A crash reason names the exception TYPE and never its message.** `str(error)` is precisely
+  how a credential reaches an API response — `httpx` puts the request URL in its messages and a
+  URL can carry a token in a query string. The suite raises an exception with a token in its
+  message on purpose and fails if that token appears in the result, in `caplog`, or in the audit
+  row.
+- **Two budgets, both enforced.** Each tester declares `budget_seconds`; the whole call has
+  `WHOLE_CALL_BUDGET_SECONDS` over the top. The second is not redundant: a tester that blocks
+  the event loop between awaits, or one that declares a budget longer than a caller will wait,
+  is bounded by the endpoint rather than by its own good behaviour. Both are asserted with a
+  clock.
+- **`POST .../services/test` is `MANAGE_SERVICES`, not a read permission**, because the body
+  carries candidate credentials — spec 16.2 validates an entry "before accepting it", so the
+  unsaved form is exactly what it tests. **It writes no status**: E5.5 owns that, so re-running
+  a test can never itself change a verdict of record.
+- **`REGISTRY` ships empty.** E5.4a-e fill it. A tester registered before it exists would make
+  the endpoint report a verdict nothing computed, which is a worse answer than "this service has
+  no tester yet".
+- **Reference:** phase-5 §4 task E5.3, spec 16.2 and 16.5; `backend/tests/test_service_testers.py`;
+  `docs/INTERFACES.md` "Owned by E5".
+
 ## D110 (2026-08-11): The services PUT is a partial collection of wholesale members, and it
 has no delete (E5.2)
 
