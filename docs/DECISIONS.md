@@ -4,6 +4,181 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D87 (2026-08-10): Opening broker connections may never kill its host, and the
+container tests pin every compose variable (E3.7, found by the gate)
+
+- **What went wrong:** the gate 45 run went red on `test_compose_stack` and `test_verify_tool`
+  with `container eoe-gate-test-api-1 exited (3)` — uvicorn's code for a lifespan that raised.
+  With `EOE_PUBLISH_ENABLED` on, the D86 lifespan awaited a bare `MqttClientManager.start()`,
+  which reads the `deployment_service` rows ONCE. The API comes up beside Postgres in compose,
+  won the race against the migrations that create that table, and died of
+  `UndefinedTable` — taking every route that has nothing to do with publishing with it.
+- **Decision (the defect):** the retry moves INTO the manager as
+  `MqttClientManager.start_or_retry()`, returning True when the connections are open and False
+  when a background retry is running; `stop()` cancels that retry. Both hosts of a manager now
+  get it, and E3.7's `ReconciliationWorker._connect_with_retry` — which already had exactly
+  this guard privately — is deleted in favour of it. A second copy in `main.py` was the
+  alternative, and the reason there is one copy is that the worker having the guard while the
+  API did not is precisely what shipped the bug.
+- **Decision (why CI could not have caught it):** Docker Compose interpolates `${VAR}` from the
+  process environment first and from `deploy/.env` second. `compose_env()` built a fresh env
+  dict but left five variables unpinned, so the container tests read them from a developer's
+  own scratch `.env` — which the E3 walkthrough §7 instructs you to fill with
+  `EOE_PUBLISH_ENABLED=true` and 5-second sweeps. The gate therefore tested a *different stack*
+  on a machine that had run the walkthrough than in CI, where no `.env` exists. Every
+  interpolated variable is now pinned, guarded by
+  `test_compose_env_pins_every_variable_the_compose_file_interpolates`, which caught three more
+  on its first run — including `EOE_CORS_ORIGINS`, whose walkthrough value still names the
+  pre-PHASE0-2-02 port.
+- **Verified by mutation:** restoring the bare `start()` turns
+  `test_the_api_starts_even_when_the_broker_rows_cannot_be_read` red.
+- **The honest reading:** this is a defect in E3.7 as written, caught before its gate passed
+  and before it was committed, which is what the gate is for. It also means the flag flip at
+  E3.13 would have broken every `compose up` for anyone whose migrations had not already run.
+
+## D86 (2026-08-10): The API holds its own publish-only broker connection (E3.7)
+
+- **Decision:** `create_app` gained a lifespan. When `EOE_PUBLISH_ENABLED` is on it starts
+  an `MqttClientManager` with NO subscriptions registered and parks it on
+  `app.state.mqtt`; the publish route and (at E3.13) E2's apply publish through it. With
+  the flag off it starts nothing and `app.state.mqtt` is None, which is what every existing
+  test sees — a `TestClient` used without its context manager never runs the lifespan at
+  all.
+- **Why:** publishing is an HTTP action and the worker is a different process (D59). The
+  alternatives were worse: routing publishes through the worker would need a request/reply
+  bus this phase does not have, and a shared connection across a process boundary is not a
+  thing that exists. Two managers on one broker are fine — each carries its own instance
+  suffix in its client id (D64), which is the same property that lets two API replicas
+  coexist.
+- **Consequence:** the API subscribes to nothing, so it can never consume a message the
+  worker is also consuming. A single-process deployment (`EOE_WORKER_IN_API`) runs both
+  managers in one process, and they still do not overlap.
+
+## D85 (2026-08-10): The drift sweep compares BOTH directions, and only one of them is a
+transition (E3.7, owner-approved)
+
+- **Decision:** each pass over the `applied` revisions asks two questions. (1) Does the
+  device's stored `device_state` match the revision it applied? A mismatch is
+  `applied -> drifted(report_diverged)`, the spec 6.2 edge. (2) Does the platform's
+  RECOMPUTED effective config still match that revision (through E2's merge engine and
+  `snapshot_from_raw`)? A mismatch is reported as `desired_changed` and moves nothing.
+- **Why the second one is not a transition:** spec 6.2 has no state for "desired moved on",
+  and it would not be true of the device if it had one — the device is doing exactly what
+  it was told. Creating the revision that closes the gap is E2's apply, which is out of
+  scope for this phase (phase-3 §3), so the worker would have nowhere to go with it. It is
+  surfaced because an operator seeing "applied" on a device whose config has been edited
+  since is being told something misleading by omission.
+- **Why direction (1) needs a sweep at all**, given E3.5 already drives that edge on
+  report: a device that quietly reverts and then reports with no `applied_revision_id`, or
+  names a pruned revision, moves nothing on arrival — E3.5 stores the state and
+  deliberately takes no edge (D79's neighbour). The sweep is the only thing that reads
+  those rows, which is exactly spec 6.4 item 5's "even without a device-initiated report".
+- **One composition rule, not two:** `plan.revision_snapshot` was split into
+  `snapshot_from_raw(target_type, raw)` so the sweep builds its comparison the way E2 built
+  the revision. A second copy would report every Listener carrying a write-restricted
+  service key as drifted — the drift detector drifting, the one defect a drift detector
+  cannot have. Pinned by `test_the_detector_uses_e2s_own_snapshot_composition`.
+
+## D84 (2026-08-10): `config_revision.published_at`, and the timeout window is measured
+from it (E3.7)
+
+- **Decision:** a nullable `published_at` column, written by
+  `revision_state.transition` on EVERY edge into `pending` and by nothing else. The spec
+  6.4 item 4 window is measured from it. A `pending` row with no `published_at` is reported
+  and left alone, never timed out.
+- **Why not `created_at`:** E2 writes that when an operator saved a draft. Spec 6.2 reaches
+  `pending` three ways, and two of them are re-entries — an operator retrying a `failed`
+  revision, or re-publishing over `drifted`. Measured from `created_at`, a revision retried
+  an hour after it was drafted fails again on the next sweep without the device having been
+  given a moment to answer, and the timeline then says `failed(timeout)`, which under D70
+  means the device stayed silent.
+- **Why in the state machine rather than in the publisher:** every path into `pending` goes
+  through `transition()`. Stamping it at the call site would make the window a property of
+  which caller moved the revision.
+- **Why a column and not worker memory:** the phase acceptance is that a restarted worker
+  loses nothing (spec 14.3). This is the only piece of the loop that was not already
+  durable. Verified by mutation: removing the stamp turns both acceptance tests red.
+- **Extends an E2-owned table** (`config_revision`, D55). Flagged rather than assumed: E2
+  owns the row up to `draft` and E3 owns every state after it, so lifecycle columns are
+  E3's to add. `docs/INTERFACES.md` records it under E3.
+
+## D83 (2026-08-10): `service_unavailable` joins the D8 error vocabulary (E3.7)
+
+- **Decision:** a seventh envelope code, at HTTP 503, raised when a dependency the platform
+  needs is down and the request itself was fine. Its first use is a broker outage during
+  `POST /revisions/{id}/publish`.
+- **Why:** D8 fixed the vocabulary as stable and EXTENSIBLE for exactly this. The existing
+  codes both lie here: a 4xx blames the caller for a broker that is down, and
+  `internal_error` sends an operator looking for a platform defect. The publish rides
+  inside the database transaction (D74), so the revision is untouched and the request is
+  honestly retryable — which is what 503 means and what neither alternative says.
+- **Consequence:** `test_api_skeleton.py::D8_VOCABULARY` gained the code. That is an
+  extension of an E0 guard, not a weakening: the assertion is still exact equality.
+
+## D82 (2026-08-10): `POST /revisions/{id}/publish` — drift repair is an operator action
+(E3.7, owner-approved)
+
+- **Decision:** a new route on the E2.6 revisions router, `manage_config` within the
+  revision's deployment, CSRF-protected, calling the same `publish_revision` E3.13 wires
+  E2's apply to. Scoping is two-step: a revision the caller cannot SEE answers 404 (the D35
+  existence-oracle rule), one they can see but may not publish answers 403 naming the
+  permission. Refusals map as: publication disabled → 409, stale or superseded → 409, device
+  gone from inventory → 409, broker down → 503 (D83), revision vanished → 404.
+- **Why it exists in this phase:** the phase forbids auto-republish (`auto_reconcile` is
+  inert, D81) and makes re-publish "an operator action" — with no route, drift could not be
+  repaired through the platform at all, and the phase acceptance's own re-publish step
+  would exist only inside a test.
+- **Not temporary, and not superseded by E3.13:** E3.13 wires BULK apply to publication.
+  This is the single-revision action, and the two share one code path with one set of
+  refusals.
+
+## D81 (2026-08-10): The reconciliation policy lives on the `deployment` row, and
+`auto_reconcile` is stored INERT (E3.7, owner-approved)
+
+- **Decision:** two columns on `deployment` — `pending_timeout_seconds` (default 300, the
+  phase-3 fixed choice, CHECK > 0) and `auto_reconcile` (default false). Not a
+  `deployment_policy` table: one row per deployment already exists, the sweep reads it in
+  the same query it scans revisions with, and E5/E7 can move it later behind the accessor.
+- **Why on the deployment and not in the E2 settings catalog:** it is a platform setting,
+  not a device setting (phase-3 fixed choice). A catalog key would be merged into effective
+  config and published to devices, which would put the platform's own scheduling on a
+  device's desired topic.
+- **`auto_reconcile` is stored and inert.** Spec 6.2 names an "auto-reconcile policy" as
+  the second driver of `drifted -> pending` and spec 17 item 3 has not decided what that
+  policy is. The worker READS the flag only to log that it read it, and counts it in the
+  sweep report; nothing in the codebase turns it into an action.
+  `test_auto_reconcile_is_stored_and_does_nothing` is the guard, and the phase that
+  implements the policy is the phase that may delete it.
+- **A revision whose deployment row is gone falls back to the 300s default** rather than
+  sitting `pending` forever: `config_revision.deployment_id` is un-FK'd by design (D33).
+
+## D80 (2026-08-10): The worker's shape — two sweeps, one transaction per revision, and no
+state of its own (E3.7)
+
+- **Decision:** `app/controlplane/runner.py` holds `ReconciliationWorker` plus two pure
+  sweep functions (`pending_timeout_sweep`, `drift_sweep`) that take a session factory and
+  return a report. The worker owns an `MqttClientManager` with E3.5's consumer registered
+  and schedules the two sweeps on independent cadences (`EOE_TIMEOUT_SWEEP_SECONDS` 30,
+  `EOE_DRIFT_SWEEP_SECONDS` 300). Two entrypoints, one module (D59):
+  `python -m app.controlplane.runner` for the compose `worker` service, and the API
+  lifespan under `EOE_WORKER_IN_API`.
+- **The sweeps are functions, not methods,** so the suite drives them with no event loop,
+  no broker and no worker — a red test there means the comparison is wrong rather than a
+  container being slow.
+- **One transaction per revision.** A sweep that committed once at the end would hold row
+  locks across the whole scan; one that failed whole on a single bad row would leave the
+  rest of the fleet unreconciled.
+- **The scan is lockless and the transition is not.** Each candidate is re-read under
+  `load_for_transition` and re-checked, so a device's ack that lands mid-sweep wins over the
+  clock rather than losing to whichever write happened to be second
+  (`test_an_ack_that_lands_first_wins_the_race`).
+- **A failing sweep is logged and retried, never fatal.** A worker whose sweep task died
+  would keep its broker connection and silently stop timing anything out, which from the
+  outside is indistinguishable from a healthy fleet.
+- **`broker.MessageHandler` widened to `Awaitable[object]`**: E3.5's `handle` returns a
+  `ReportOutcome` the worker counts, and the dispatcher ignores return values anyway. Every
+  existing handler still satisfies it.
+
 ## D79 (2026-08-10): A device's identity comes from the TOPIC, and reports that fail an
 identity check are not stored either (E3.5)
 

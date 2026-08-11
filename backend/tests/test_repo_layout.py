@@ -31,8 +31,10 @@ FIXED_PORTS = {
     "mosquitto": "18883:8883",
 }
 # Extended by each epic that adds a service, deliberately and with its
-# INTERFACES.md entry — the same discipline as E0_ROUTES/E0_TABLES.
-COMPOSE_SERVICES = {"api", "frontend", "postgres", "redis", "mosquitto"}
+# INTERFACES.md entry — the same discipline as E0_ROUTES/E0_TABLES. E3.7
+# added `worker`: the reconciliation loop as its own process (spec 3.1, D59).
+# It publishes no ports, which is why FIXED_PORTS does not name it.
+COMPOSE_SERVICES = {"api", "frontend", "postgres", "redis", "mosquitto", "worker"}
 
 SECRET_PATTERNS = (
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -42,7 +44,17 @@ SECRET_PATTERNS = (
 
 
 def compose_env() -> dict[str, str]:
-    """Throwaway per-run values for compose interpolation; never committed."""
+    """Throwaway per-run values for compose interpolation; never committed.
+
+    **Every variable the compose file interpolates must be pinned here.** Docker
+    Compose also reads `deploy/.env`, which sits beside the compose file and is
+    a developer's own scratch file — the QA walkthrough tells you to put
+    `EOE_PUBLISH_ENABLED` and the sweep cadences in it. Anything left unpinned
+    is therefore read from whatever that file happens to say, so the gate
+    tests a different stack on a machine that has run the walkthrough than it
+    does in CI, where no `.env` exists. That is how E3.7's local gate went red
+    on a defect CI could not have seen (D87).
+    """
     password = uuid.uuid4().hex
     return {
         **docker_env(),
@@ -53,6 +65,20 @@ def compose_env() -> dict[str, str]:
         "EOE_SESSION_SECRET": uuid.uuid4().hex,
         "EOE_KEK": make_kek(),  # must be base64 of 32 bytes (E0.11 validates at startup)
         "REDIS_URL": "redis://redis:6379/0",
+        # E3.7's knobs, pinned to the documented defaults. E3.13 flips
+        # EOE_PUBLISH_ENABLED on; this line is where that change lands for the
+        # container tests, deliberately and not by whatever `.env` says.
+        "EOE_PUBLISH_ENABLED": "false",
+        "EOE_TIMEOUT_SWEEP_SECONDS": "30",
+        "EOE_DRIFT_SWEEP_SECONDS": "300",
+        # The rest of the compose file's interpolations, each pinned to the
+        # default the compose file itself declares. `EOE_CORS_ORIGINS` is the
+        # one that bites: a walkthrough `.env` carrying the pre-PHASE0-2-02
+        # port would have the gate probing a stack whose CORS names an origin
+        # the frontend no longer serves from.
+        "BUILD_SHA": "dev",
+        "EOE_CORS_ORIGINS": "http://localhost:15173",
+        "EOE_FRONTEND_API_URL": "http://localhost:18000",
     }
 
 
@@ -121,6 +147,21 @@ def test_no_committed_secret_patterns():
 def test_compose_defines_exactly_the_expected_services():
     compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))
     assert set(compose["services"]) == COMPOSE_SERVICES
+
+
+def test_compose_env_pins_every_variable_the_compose_file_interpolates():
+    """The container tests must not read a developer's `deploy/.env` (D87).
+
+    Compose resolves `${VAR}` from the process environment first and that file
+    second, so an unpinned variable makes the gate test whatever the last QA
+    walkthrough left behind — which is exactly how a real defect stayed
+    invisible to CI while turning the local gate red. Adding an interpolated
+    variable to the compose file means adding it to `compose_env`.
+    """
+    text = (DEPLOY / "docker-compose.yml").read_text(encoding="utf-8")
+    interpolated = set(re.findall(r"\$\{([A-Z_][A-Z0-9_]*)[:?}-]", text))
+    unpinned = interpolated - set(compose_env())
+    assert not unpinned, f"compose interpolates these but compose_env does not pin them: {unpinned}"
 
 
 def test_compose_publishes_the_fixed_ports():

@@ -94,9 +94,9 @@ Finally, the platform's own record of the broker:
 
 ## 2. The client manager survives a broker restart (E3.2)
 
-The platform's side of the connection. Nothing runs it automatically yet — the reconciliation
-worker (E3.7) owns that — so this section drives it by hand, which is also the clearest way to
-see the property it exists for: **a broker outage is not something message-handling code
+The platform's side of the connection. The `worker` container now runs one of these for
+real (§7, E3.7), but this section drives its own by hand, which is the clearest way to see
+the property it exists for: **a broker outage is not something message-handling code
 notices.**
 
 Save this as `check-manager.py` in `backend/` (delete it afterwards; it is a scratch probe,
@@ -322,9 +322,10 @@ as sources for `superseded`; the diagram directly below it says *any* non-termin
 
 This is where the previous four sections meet: a config revision built by E2 becomes a
 retained MQTT message on the topic its device reads. `publish_revision` is the only way that
-happens. Nothing calls it automatically yet — E2's apply still stops at `draft` until E3.13
-wires the call-through — so this section calls it by hand, which is the clearest way to see
-the property that matters: **the device does not have to be listening.**
+happens. An operator reaches it through `POST /revisions/{id}/publish` (§7, E3.7); E2's bulk
+apply still stops at `draft` until E3.13 wires the call-through. This section calls the
+function directly, which is the clearest way to see the property that matters: **the device
+does not have to be listening.**
 
 You need the QA stack from §0 running.
 
@@ -503,9 +504,9 @@ docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_s
 ## 6. The device answers back (E3.5)
 
 §5 pushed config out and stopped there. This section is the return path: what the platform
-does with what a device says. Nothing runs the consumer automatically yet either — the
-worker (E3.7) owns that — so this section wires it by hand, and the wiring is one line, which
-is itself worth seeing.
+does with what a device says. The `worker` container runs this consumer for real now (§7,
+E3.7); this section wires its own copy by hand, and the wiring is one line, which is itself
+worth seeing.
 
 You need the QA stack from §0, and a **pending** revision for `demo-agg-rc-01` — publish one
 through §5 if you have not already. Save this as `check-consumer.py` in `backend/` (a scratch
@@ -720,3 +721,169 @@ docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_p
       authoritative Aggregator liveness verdict — but **E3.8** owns what happens next, and a
       recognized-and-dropped message is an honest seam rather than a silent one.
 - [ ] Stop the probe with Ctrl-C and delete `backend/check-consumer.py`.
+
+## 7. The loop runs itself (E3.7)
+
+§5 published by hand and §6 consumed by hand. This section is the process that does both
+without you: the `worker` container. It holds the subscriptions §6 wired manually, and it
+adds the two things no message could ever trigger — a revision timing out because nobody
+answered, and drift found by re-comparison rather than announced by a device.
+
+Two things make this section honest and are worth knowing before you start. The worker
+keeps **no state of its own**: the pending window lives in `config_revision.published_at`
+and the desired config lives in a retained message, which is why you can restart it
+mid-flight below and nothing is lost. And it **never republishes**: `auto_reconcile` is
+stored, defaults off, and is inert pending spec 17 item 3, so every repair below is an
+operator action.
+
+### The worker is running
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa ps worker
+docker compose -f deploy/docker-compose.yml -p eoe-qa logs worker | tail -20
+```
+
+- [ ] The service is `running`, and the log carries
+      `reconciliation worker started (timeout sweep 30s, drift sweep 300s)` followed by
+      `connected to the redwood-coast broker at mosquitto:8883` — one line per deployment.
+- [ ] Nothing in that log mentions a password or a topic you did not expect. Broker
+      credentials go through `SecretStore` and the coordinates object never repr's its
+      password (rule R2).
+
+For this section, make the sweeps impatient so you are not watching a clock. Add these to
+`deploy/.env` and restart the worker:
+
+```
+EOE_TIMEOUT_SWEEP_SECONDS=5
+EOE_DRIFT_SWEEP_SECONDS=5
+EOE_PUBLISH_ENABLED=true
+```
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa up -d worker api
+```
+
+- [ ] The worker log now says `timeout sweep 5s, drift sweep 5s`.
+- [ ] The **api** log says `outbound publish connections started (EOE_PUBLISH_ENABLED is on)`.
+      The API dials the broker only when publication is on: with the flag off there is
+      nothing it could send, so a connection would be a socket held open to do something the
+      platform has forbidden (D86). It registers no subscriptions — consuming is the
+      worker's job, and the two processes never overlap.
+
+### Publishing is an operator action, and it is gated
+
+Sign in as the seeded owner and find a draft revision (make one through
+`POST /config/apply` as in §5, or reuse one from the E2 walkthrough). With
+`EOE_PUBLISH_ENABLED` still off — comment it out and `up -d api` again if you already
+turned it on — POST to the new route:
+
+```bash
+curl -i -X POST http://localhost:18000/api/v1/revisions/REVISION_ID/publish \
+  -H "X-CSRF-Token: CSRF" -b cookies.txt
+```
+
+- [ ] **409**, code `conflict`, message naming `EOE_PUBLISH_ENABLED`. The revision is still
+      `draft`. Now turn the flag back on, `up -d api`, and repeat.
+- [ ] **200**, `"state": "pending"`, `"trigger": "publish"`, `"transitioned": true`, and a
+      `topic` of `eoe/redwood-coast/agg/demo-agg-rc-01/desired`.
+- [ ] Read the retained message off the broker as the device (the `mosquitto_sub` command
+      from §5). The `revision_id` matches what you just published.
+- [ ] Repeat the same POST. **200 again**, `"transitioned": false`, and the state is still
+      `pending` with no second audit row. The bytes go out again on purpose (D72) — that is
+      the repair for a broker that lost its retained store — and the state does not move.
+
+### Silence becomes `failed(timeout)`
+
+The demo deployment's window is 300 seconds. Shorten it, then say nothing:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec postgres \
+  psql -U eoe -d eoe -c "UPDATE deployment SET pending_timeout_seconds = 10 WHERE slug = 'redwood-coast'"
+```
+
+- [ ] Within a few seconds the worker log says
+      `revision ... timed out after 1Xs with no device report`, and
+      `GET /api/v1/revisions/REVISION_ID` reads `failed`.
+- [ ] The audit log (`GET /api/v1/audit?action=revision.timeout`) has one row with
+      **no actor**. Nobody did this and no device did either — that is the entire content of
+      the entry, and it is why `failed(timeout)` may never be reused for a device that
+      answered wrongly (D70; a wrong answer fails immediately as `report_error`, which you
+      saw in §6).
+- [ ] Publish the same revision again (`failed -> pending`, `"trigger": "retry"`) and watch
+      it time out a second time. The window restarted: measured from `created_at` it would
+      have failed instantly, before the device had a moment to answer (D84).
+
+### Drift nobody reported
+
+Set the window back to something patient
+(`UPDATE deployment SET pending_timeout_seconds = 300 WHERE slug = 'redwood-coast'`),
+publish a fresh revision, and have the device ack it exactly as in §6 so it reaches
+`applied`. Then make it diverge **without telling the platform which revision it applied**:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_pub -h localhost -p 8883 --cafile /mosquitto/dev/ca.crt -u dev-demo-agg-rc-01 -P DEVICE_PASSWORD -q 1 -t eoe/redwood-coast/agg/demo-agg-rc-01/reported -m '{"schema_version":1,"reported_at":"2026-08-10T13:00:00Z","applied_revision_id":null,"config":{"logging.verbosity":"debug"},"checksum":"sha256:REPLACE_WITH_THE_CHECKSUM_OF_THAT_CONFIG"}'
+```
+
+(The checksum must be that config's own — the platform recomputes it and rejects a device
+that contradicts itself, §6.)
+
+- [ ] The message alone moves nothing: it names no revision, so there is no spec 6.2 edge to
+      take. `device_state` updates and the revision is still `applied`.
+- [ ] Within one drift-sweep interval the worker log says
+      `aggregator ... has drifted from revision ... (N differing key(s))` and the revision
+      reads `drifted`. **This is the case §6 cannot cover**, and the whole reason spec 6.4
+      item 5 exists: divergence with no report that could drive it.
+- [ ] `GET /api/v1/audit?action=revision.drift` shows `found_by: drift_sweep` and a
+      `differing_keys` list of key NAMES. No values anywhere — the snapshot holds secret
+      markers and the device's values are of unknown provenance (rule R2).
+- [ ] POST the publish route again: `"trigger": "republish"`, state `pending`. That edge has
+      no other driver in this phase.
+
+### The flag that does nothing, on purpose
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa exec postgres \
+  psql -U eoe -d eoe -c "UPDATE deployment SET auto_reconcile = true WHERE slug = 'redwood-coast'"
+```
+
+- [ ] Drive the device to `drifted` again (ack, then diverge). The worker log now adds
+      `deployment ... has auto_reconcile on; it is INERT pending spec 17 item 3`.
+- [ ] The revision stays `drifted`. Nothing was published, and `published_at` did not move.
+      The column exists so the spec 17 item 3 decision has somewhere to land; the phase that
+      implements the policy is the phase that may act on it (D81).
+- [ ] Set it back to false.
+
+### Restarting the worker loses nothing
+
+Publish a revision so something is `pending`, then:
+
+```bash
+docker compose -f deploy/docker-compose.yml -p eoe-qa restart worker
+```
+
+- [ ] While it is down, shorten the window again (`pending_timeout_seconds = 10`). The new
+      worker fails the revision out on its first sweep — a window it never started, opened
+      by a process that no longer exists.
+- [ ] The device can still read its desired config off the broker (the §5 `mosquitto_sub`
+      command) even though both the publisher and the worker have restarted since. Postgres
+      and the retained message ARE the handover; there is nothing else (spec 14.3).
+
+### Who may publish
+
+- [ ] As a **viewer** scoped to redwood-coast, POST the publish route: **403**, naming
+      `manage_config`. Not a 404 — they can already read that revision through
+      `GET /revisions/{id}`, so pretending it does not exist would be a lie about a row on
+      their screen.
+- [ ] As an operator scoped to a **different** deployment: **404**. They cannot see it, and
+      a 403 would confirm it exists (D35).
+- [ ] Stop the broker (`docker compose ... stop mosquitto`) and publish: **503**, code
+      `service_unavailable`, and the revision is exactly where it was. The publish rides
+      inside the database transaction, so a broker outage never leaves a `pending` revision
+      no device was told about — which would resolve as a timeout and blame the device for
+      the platform's outage (D74, D83). Start the broker again.
+- [ ] Remove **all three** lines you added — `EOE_PUBLISH_ENABLED` and both
+      `EOE_*_SWEEP_SECONDS` — from `deploy/.env` when you are done, and `up -d worker api` to
+      return to the real cadences. Leaving them behind no longer breaks the gate (the
+      container tests pin every compose variable as of D87), but `deploy/.env` is what your
+      next `compose up` reads, and a stack that publishes to devices because of a line you
+      left in a file three sessions ago is worth not having.

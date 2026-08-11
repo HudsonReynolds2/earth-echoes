@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     text,
 )
@@ -22,6 +23,13 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+
+#: The phase-3 fixed choice: a published revision that has not been reported
+#: within this many seconds is failed as a timeout (spec 6.4 item 4). Per
+#: deployment, overridable on the row; this is the value a new deployment gets
+#: and the value the worker falls back to when a revision outlives the
+#: deployment row it names (`config_revision.deployment_id` is un-FK'd, D33).
+DEFAULT_PENDING_TIMEOUT_SECONDS = 300
 
 
 def utcnow() -> datetime:
@@ -183,6 +191,7 @@ class Deployment(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "name"),
         CheckConstraint("slug ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'", name="slug_format"),
+        CheckConstraint("pending_timeout_seconds > 0", name="pending_timeout_positive"),
         Index("ix_deployment_tags", "tags", postgresql_using="gin"),
     )
 
@@ -191,6 +200,21 @@ class Deployment(Base):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(63), unique=True, index=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String(64)), default=list)
+    #: E3.7: the spec 6.4 item 4 window, in seconds, after which a `pending`
+    #: revision this deployment owns is failed as a timeout. A PLATFORM
+    #: setting, not a device setting (phase-3 fixed choice), so it lives on the
+    #: deployment row rather than in the settings catalog - no device ever
+    #: reads it and it must never reach a desired topic.
+    pending_timeout_seconds: Mapped[int] = mapped_column(
+        default=DEFAULT_PENDING_TIMEOUT_SECONDS, server_default=str(DEFAULT_PENDING_TIMEOUT_SECONDS)
+    )
+    #: E3.7: stored, default off, and deliberately INERT. Spec 6.2 names an
+    #: "auto-reconcile policy" as a second driver of drifted -> pending, and
+    #: spec 17 item 3 has not decided what that policy should be; until it
+    #: does, drift is repaired by an operator re-publishing. Nothing in the
+    #: worker reads this to decide an action - the only code that may read it
+    #: reports it.
+    auto_reconcile: Mapped[bool] = mapped_column(default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -414,6 +438,17 @@ class ConfigRevision(Base):
         ForeignKey("user.id", ondelete="SET NULL"), default=None
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    #: E3.7: when this revision last ENTERED `pending`, written by
+    #: `revision_state.transition` and by nothing else. The spec 6.4 item 4
+    #: window is measured from here rather than from `created_at`, because a
+    #: revision reaching `pending` a second time (an operator retrying a
+    #: `failed` one, or re-publishing over drift) starts a fresh wait - from
+    #: `created_at` it would time out the instant it was retried. In Postgres
+    #: rather than in the worker so a restarted worker resumes the same
+    #: windows it left (spec 14.3).
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None, index=True
+    )
 
 
 class Selection(Base):

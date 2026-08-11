@@ -19,6 +19,9 @@ from app.settings import Settings
 
 ALLOWED_ORIGIN = "http://allowed.test"
 
+#: D8 fixed this vocabulary as stable and EXTENSIBLE: existing codes never
+#: change, new ones are added deliberately and recorded. Extended once, by
+#: E3.7 (D83), for a dependency outage the caller should retry.
 D8_VOCABULARY = frozenset(
     {
         "validation_error",
@@ -28,6 +31,7 @@ D8_VOCABULARY = frozenset(
         "method_not_allowed",
         "conflict",
         "internal_error",
+        "service_unavailable",
     }
 )
 

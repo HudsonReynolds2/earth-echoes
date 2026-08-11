@@ -121,6 +121,11 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/revisions"),
     ("GET", f"{API_PREFIX}/listeners/{{mac}}/revisions"),
     ("GET", f"{API_PREFIX}/revisions/{{revision_id}}"),
+    # E3.7 (gate 45): the operator publish action (D82, project-changes #22).
+    # The worker never republishes - `auto_reconcile` is stored and inert - so
+    # this route is how drift is repaired. E3.13 wires E2's bulk apply to the
+    # same `publish_revision` beside it.
+    ("POST", f"{API_PREFIX}/revisions/{{revision_id}}/publish"),
 }
 
 E0_TABLES = {

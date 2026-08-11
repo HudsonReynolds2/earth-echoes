@@ -1,5 +1,71 @@
 # Project Updates
 
+## 2026-08-10: E3.7 reconciliation worker — the loop runs itself (Gate 45 GREEN)
+
+- **Tasks closed:** E3.7 (branch `e3-batch-1`; DECISIONS D80-D87). Plan change project-changes
+  #22 / addendum PHASE3-4-02: the task additionally ships `POST /revisions/{id}/publish`, a
+  `worker` compose service, and an outbound publish connection in the API. No task moves;
+  E3.13 still owns wiring E2's bulk apply and flipping the flag on.
+- **Gate:** 45, GREEN — on the third attempt. The first two were red and both are recorded
+  below verbatim, because one of them was a real defect in this task.
+- **Tests:** backend 661 (+5 over the 656 this task first collected: 4 new here, 1 from
+  splitting the compose-env guard out), vitest 96, Playwright 4;
+  0 failed / 0 skipped / 0 xfailed / 0 deselected.
+- **Command:** `make gate`
+- **Artifacts:** `backend/app/controlplane/runner.py` (`ReconciliationWorker`,
+  `pending_timeout_sweep`, `drift_sweep`), migration `c41e9b7d3a58`
+  (`deployment.pending_timeout_seconds`, `deployment.auto_reconcile`,
+  `config_revision.published_at`), `POST /revisions/{revision_id}/publish`,
+  `MqttClientManager.start_or_retry`, the `worker` compose service, the API lifespan,
+  `service_unavailable` in the D8 vocabulary, `backend/tests/test_reconciliation_worker.py`,
+  `guide/e3-verification.md` §7, and the INTERFACES worker / policy / publish-route sections.
+- **Both halves of the phase acceptance are in the suite**, against a real broker:
+  `test_the_full_journey_publish_ack_drift_republish_and_timeout` walks publish → ack → drift
+  injection → operator re-publish → timeout in order, and
+  `test_a_restarted_worker_resumes_the_windows_it_did_not_start` has one worker publish a
+  revision and a DIFFERENT one time it out, with the retained desired message still readable
+  by a device that connects after both. Nothing is handed between them: the window is
+  `config_revision.published_at` and the config is a retained message (spec 14.3).
+- **RED GATE 1, verbatim: `3 failed, 653 passed`.** `test_compose_stack` and `test_verify_tool`
+  failed on `Bind for 0.0.0.0:18883 failed: port is already allocated` — the QA stack from the
+  manual walkthrough was still up, which the guide's own D44 warning predicts.
+  `test_mqtt_manager::test_shutdown_leaves_no_running_tasks` failed on
+  `tasks outlived stop(): ['Task-1072']`, a leaked aiomqtt `_misc_loop`; it passed 21/21 in
+  isolation immediately after and in both later full runs, so it was contention from the QA
+  stack plus parallel image builds. **Recorded rather than dismissed:** a test that fails only
+  under load is a latent gate flake, and the next session that sees it should read this entry
+  before assuming its own change caused it.
+- **RED GATE 2, verbatim: `2 failed, 654 passed`, and this one was a defect (D87).**
+  `container eoe-gate-test-api-1 exited (3)` — uvicorn's code for a lifespan that raised. With
+  `EOE_PUBLISH_ENABLED` on, the D86 lifespan awaited a bare `MqttClientManager.start()`, which
+  reads the `deployment_service` rows once; the API comes up beside Postgres in compose, beat
+  the migrations to that table, and died of `UndefinedTable` — taking every route unrelated to
+  publishing with it. **This would have broken every `compose up` at E3.13**, where the flag
+  defaults on. Fixed by moving the retry INTO the manager as `start_or_retry()`, which also
+  deletes the worker's private `_connect_with_retry`: the worker having that guard while the
+  API did not is exactly what shipped the bug. Verified by mutation — restoring the bare
+  `start()` turns `test_the_api_starts_even_when_the_broker_rows_cannot_be_read` red.
+- **Why CI could not have caught it, and the second fix.** Compose interpolates `${VAR}` from
+  the process environment first and `deploy/.env` second, and `compose_env()` left five
+  variables unpinned — so the container tests read them from a developer's scratch `.env`,
+  which §7 instructs you to fill with `EOE_PUBLISH_ENABLED=true`. The gate tested a different
+  stack on a walkthrough machine than in CI, where no `.env` exists. Every interpolated
+  variable is now pinned and guarded by
+  `test_compose_env_pins_every_variable_the_compose_file_interpolates`, which found three more
+  on its first run — including `EOE_CORS_ORIGINS`, whose walkthrough value still names the
+  pre-PHASE0-2-02 port.
+- **RED GATE 3 was self-inflicted and is noted for honesty:** `5 failed` on the worker suite
+  because `StubManager` did not model the new `start_or_retry` contract. Test-double gap, not
+  production code; fixed by giving the double the contract.
+- **Manual verification:** the owner drove `guide/e3-verification.md` §7 against the live QA
+  stack through the worker-startup, gated-publish, timeout, drift and restart blocks, and the
+  worker log corroborates all of them — `drifted from revision ... (1 differing key(s))`,
+  `timed out after 12s with no device report`, and a restart at 00:17:50 whose new process
+  failed out a window it never opened. §7's last two blocks (the inert `auto_reconcile` flag
+  and the 403/404/503 refusals) were NOT driven by hand: each is covered by a named,
+  substantive test, and re-deriving them through hand-made accounts would have added no
+  information the suite does not already carry. Recorded plainly rather than implied.
+
 ## 2026-08-10: E3.5 reported consumer — the loop closes on real device reports (Gate 44 GREEN)
 
 - **Tasks closed:** E3.5 (branch `e3-batch-1`; DECISIONS D76-D79). No plan change: batch 2 runs

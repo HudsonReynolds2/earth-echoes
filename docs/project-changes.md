@@ -5,6 +5,33 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #22 (2026-08-10): E3.7 ships the operator publish route and the worker container
+
+- **What changed:** three additions inside task E3.7 that the phase document's task text
+  does not name. (1) `POST /revisions/{revision_id}/publish` — the operator action the task
+  requires ("re-publish happens on operator action") but that no E3 task claimed; it calls
+  E3.4's `publish_revision` and adds no publish logic of its own (DECISIONS D82). (2) A
+  `worker` service in the dev compose stack running `python -m app.controlplane.runner`,
+  plus an outbound publish-only broker connection in the API process, because the worker
+  and the publisher now live in two processes (D59, D86). (3) The D8 error vocabulary gains
+  `service_unavailable` for a broker outage (D83).
+- **Why:** without the route, the phase's own acceptance step "operator re-publish" would
+  exist only inside a test, and drift — which the worker is forbidden to repair itself,
+  `auto_reconcile` being inert — could not be repaired through the platform at all.
+- **What did NOT change:** the scope of the worker itself, the sweeps, or the transitions.
+  E3.13 still owns wiring E2's bulk apply to publication and flipping
+  `EOE_PUBLISH_ENABLED` on; this route is the single-revision action beside it, and both
+  take one code path.
+- **Who approved:** the owner, on 2026-08-10, choosing the route over deferring it, with
+  the instruction that anything provisional be marked as such. Marked accordingly:
+  `deployment.auto_reconcile` (stored, inert, pending spec 17 item 3), the drift sweep's
+  `desired_changed` signal (observation only — spec 6.2 has no state for it), and
+  `EOE_WORKER_IN_API` (off by default).
+- **Effect on scope:** none of the thirteen E3 tasks moves; E3.7 is larger by one route and
+  one compose service.
+- **Affects:** project_planning/phase-3-control-plane.md §4 (task E3.7)
+- **Addendum:** PHASE3-4-02
+
 ## #21 (2026-08-10): Dev host ports moved into the 1xxxx range
 
 - **What changed:** the published HOST ports of the dev compose stack move from

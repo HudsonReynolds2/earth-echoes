@@ -57,6 +57,21 @@ class Settings(BaseSettings):
     # revisions UNCONDITIONALLY - the flag exists so E3 can flip it, nothing
     # in E2 reads it beyond reporting it in the apply response.
     publish_enabled: bool = Field(default=False, validation_alias="EOE_PUBLISH_ENABLED")
+    # E3.7 (D59): the reconciliation worker runs as its own process in the dev
+    # and production stacks. This flag runs it inside the API process instead,
+    # from the same module - one deployment mode for the simplest self-hosted
+    # install (spec 15.1), and OFF by default so an API replica never quietly
+    # becomes a second worker competing for the same revisions.
+    worker_in_api: bool = Field(default=False, validation_alias="EOE_WORKER_IN_API")
+    # How often the worker fails out timed-out pending revisions (spec 6.4
+    # item 4). Well under the 300s default window, so the window is what
+    # decides a timeout and the cadence only decides how promptly it is seen.
+    timeout_sweep_seconds: int = Field(default=30, validation_alias="EOE_TIMEOUT_SWEEP_SECONDS")
+    # How often the worker re-compares applied devices (spec 6.4 item 5).
+    # Slower than the timeout sweep on purpose: it recomputes effective config
+    # per applied device, and a device that diverges tells us so on its next
+    # report anyway - this sweep is the backstop for the one that does not.
+    drift_sweep_seconds: int = Field(default=300, validation_alias="EOE_DRIFT_SWEEP_SECONDS")
 
     @property
     def cors_origin_list(self) -> list[str]:

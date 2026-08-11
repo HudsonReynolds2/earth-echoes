@@ -218,7 +218,11 @@ class InboundMessage:
     retain: bool
 
 
-MessageHandler = Callable[[InboundMessage], Awaitable[None]]
+#: A handler's return value is IGNORED by the dispatcher — `Awaitable[object]`
+#: rather than `Awaitable[None]` so a handler may return its own decision to
+#: its own callers (E3.5's `handle` returns a `ReportOutcome`, which E3.7's
+#: worker counts) without a wrapper existing only to discard it.
+MessageHandler = Callable[[InboundMessage], Awaitable[object]]
 
 #: Given a deployment slug, the topic filters a handler wants on that
 #: deployment. `app.contracts.mqtt.deployment_subscriptions` has exactly this
@@ -274,6 +278,8 @@ class MqttClientManager:
         self._connected: dict[uuid.UUID, asyncio.Event] = {}
         self._stopping = asyncio.Event()
         self._running = False
+        #: The background `start_or_retry` task, when one is in flight.
+        self._retry: asyncio.Task[None] | None = None
 
     # -- registration --
 
@@ -306,6 +312,55 @@ class MqttClientManager:
             )
         log.info("mqtt client manager started for %d deployment(s)", len(self._tasks))
 
+    async def start_or_retry(self) -> bool:
+        """`start()`, but a failure schedules a retry instead of raising.
+
+        `start()` reads the `deployment_service` rows ONCE, so the thing that
+        fails here is the DATABASE, not a broker — an unreachable broker is
+        the connection loop's own problem and never reaches this. Both hosts
+        of a manager come up beside Postgres in compose and can win the race
+        against the migrations that create the table, and neither should die
+        of it: the worker would need a restart policy to do what waiting does,
+        and an API that exited here would take every unrelated route down with
+        it because publishing was switched on.
+
+        Returns True if the connections are open now, False if a retry is
+        running in the background. `stop()` cancels that retry.
+        """
+        try:
+            await self.start()
+        except Exception:
+            log.exception("could not read broker coordinates yet; retrying in the background")
+            self._retry = asyncio.create_task(self._start_with_retry(), name="mqtt-start-retry")
+            return False
+        return True
+
+    async def _start_with_retry(self) -> None:
+        """Keep trying until the coordinates load or `stop()` is called.
+
+        `stop()` first on every attempt, because a manager whose `start()`
+        raised part-way still counts itself started and would refuse the next
+        one with 'already started'.
+        """
+        delay = 2.0
+        while not self._stopping.is_set():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), delay)
+            if self._stopping.is_set():
+                return
+            await self.stop()
+            # `stop()` sets the stopping flag as its first act; this retry is
+            # the one caller that must clear it to try again.
+            self._stopping.clear()
+            try:
+                await self.start()
+            except Exception:
+                delay = min(delay * 2, 60.0)
+                log.warning("broker coordinates still unreadable; retrying in %.0fs", delay)
+            else:
+                log.info("broker connections opened after retrying")
+                return
+
     async def stop(self) -> None:
         """Stop every connection and wait for the tasks to finish.
 
@@ -314,6 +369,12 @@ class MqttClientManager:
         'Task was destroyed but it is pending'.
         """
         self._stopping.set()
+        retry = self._retry
+        self._retry = None
+        if retry is not None and retry is not asyncio.current_task():
+            retry.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await retry
         tasks = list(self._tasks.values())
         for task in tasks:
             task.cancel()

@@ -284,10 +284,20 @@ def transition(
     than off each call site: every state change in the system passes through
     here, so recording the timeline in one place is what makes the timeline
     complete by construction instead of by everyone remembering.
+
+    **`published_at` is stamped here too, for the same reason** (E3.7). Spec
+    6.2 reaches `pending` by three edges — a first publish, a retry after
+    `failed`, a re-publish over `drifted` — and the spec 6.4 item 4 timeout
+    window restarts on all three. Stamping it in the publisher would mean the
+    window depended on which call site moved the revision; stamping it here
+    means it is a property of entering the state.
     """
     source = parse_state(revision.state)
     check(source, target, trigger)
     revision.state = target.value
+    at = utcnow()
+    if target is RevisionState.PENDING:
+        revision.published_at = at
     return TransitionRecord(
         revision_id=revision.id,
         target_type=revision.target_type,
@@ -296,7 +306,7 @@ def transition(
         source=source,
         target_state=target,
         trigger=trigger,
-        at=utcnow(),
+        at=at,
         actor_user_id=actor_user_id,
         detail=detail,
     )

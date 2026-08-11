@@ -21,8 +21,40 @@ services:
       EOE_KEK: ${EOE_KEK:?set in deploy/.env, see .env.example}
       REDIS_URL: ${REDIS_URL:-}
       EOE_CORS_ORIGINS: ${EOE_CORS_ORIGINS:-http://localhost:15173}
+      EOE_PUBLISH_ENABLED: ${EOE_PUBLISH_ENABLED:-false}
     depends_on:
       postgres:
+        condition: service_healthy
+
+  # The reconciliation worker (E3.7; spec 3.1 draws Workers as their own box,
+  # D59). Same image and same module as the API — `EOE_WORKER_IN_API` runs it
+  # inside the API process instead, for the single-container deployment.
+  worker:
+    build:
+      context: ../backend
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
+    command:
+      ["/srv/backend/.venv/bin/python", "-m", "app.controlplane.runner"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set in deploy/.env, see .env.example}
+      # Required by Settings even though the worker holds no sessions; it
+      # reads broker passwords through SecretStore, which needs the KEK.
+      EOE_SESSION_SECRET: ${EOE_SESSION_SECRET:?set in deploy/.env, see .env.example}
+      EOE_KEK: ${EOE_KEK:?set in deploy/.env, see .env.example}
+      EOE_TIMEOUT_SWEEP_SECONDS: ${EOE_TIMEOUT_SWEEP_SECONDS:-30}
+      EOE_DRIFT_SWEEP_SECONDS: ${EOE_DRIFT_SWEEP_SECONDS:-300}
+    # The shared image's HEALTHCHECK probes the API's HTTP port, which this
+    # process does not have. Disabled rather than faked with a command that
+    # always succeeds: `compose up --wait` would otherwise wait out a check
+    # that can never pass, and a green tick that proves nothing is worse than
+    # no tick. The worker's liveness is its log and the state it advances.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
         condition: service_healthy
 
   frontend:

@@ -531,3 +531,51 @@ async def test_shutdown_leaves_no_running_tasks(live_broker):
     assert not leaked, f"tasks outlived stop(): {[t.get_name() for t in leaked]}"
     assert manager.deployment_ids == ()
     assert not manager.is_connected(_rc_deployment_id(coords))
+
+
+async def test_start_or_retry_survives_an_unreadable_coordinates_query():
+    """`start()` reads the `deployment_service` rows once, so what fails here
+    is the DATABASE — in compose, the manager's host can win the race against
+    the migrations that create that table (D87). Neither host may die of it.
+    """
+    attempts = []
+
+    def loader():
+        attempts.append(len(attempts))
+        if len(attempts) < 3:
+            raise RuntimeError('relation "deployment_service" does not exist')
+        return []
+
+    manager = MqttClientManager(loader)
+    before = {t for t in asyncio.all_tasks() if not t.done()}
+
+    assert await manager.start_or_retry() is False, "a failed first attempt is not a live start"
+    # The retry backs off from 2s; it must reach a healthy load on its own.
+    for _ in range(100):
+        if len(attempts) >= 3:
+            break
+        await asyncio.sleep(0.1)
+    await manager.stop()
+
+    assert len(attempts) >= 3, f"the background retry stopped trying after {len(attempts)}"
+    leaked = {t for t in asyncio.all_tasks() if not t.done()} - before
+    assert not leaked, f"tasks outlived stop(): {[t.get_name() for t in leaked]}"
+
+
+async def test_start_or_retry_is_a_plain_start_when_the_query_works():
+    manager = MqttClientManager(lambda: [])
+    assert await manager.start_or_retry() is True
+    await manager.stop()
+
+
+async def test_stopping_cancels_a_retry_that_is_still_trying():
+    """A retry left running past `stop()` would hold a session factory open and
+    reconnect a manager its owner already shut down."""
+    manager = MqttClientManager(lambda: (_ for _ in ()).throw(RuntimeError("still down")))
+    before = {t for t in asyncio.all_tasks() if not t.done()}
+
+    assert await manager.start_or_retry() is False
+    await manager.stop()
+
+    leaked = {t for t in asyncio.all_tasks() if not t.done()} - before
+    assert not leaked, f"a retry outlived stop(): {[t.get_name() for t in leaked]}"

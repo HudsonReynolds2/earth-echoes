@@ -45,6 +45,12 @@ TLS 18883. Containers still listen on the standard ports internally; only the pu
 host ports sit in the 1xxxx range, so the stack coexists with other local services
 (project-changes #21).
 
+The stack also runs a `worker` container (`python -m app.controlplane.runner`, E3.7): the
+reconciliation loop — the MQTT subscriptions, the pending-revision timeout sweep, and the
+periodic drift re-comparison. It publishes no ports and holds no HTTP surface. Set
+`EOE_WORKER_IN_API=1` to run it inside the API process instead of as its own container.
+Nothing reaches a device until `EOE_PUBLISH_ENABLED` is on (E3.13 flips the default).
+
 ## Development MQTT broker
 
 The control plane runs over MQTT (spec section 7). Development uses one Mosquitto

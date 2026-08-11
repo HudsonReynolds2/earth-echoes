@@ -37,6 +37,10 @@ only the published host side moved, so the stack coexists with other local servi
 | `EOE_KEK` | yes | base64 platform key-encryption key (SecretStore, E0.11) |
 | `REDIS_URL` | no | enables Redis-backed features (E3, E7) |
 | `EOE_CORS_ORIGINS` | no | comma-separated allowed browser origins (D2/D4) |
+| `EOE_PUBLISH_ENABLED` | no | gates publication AND the API's outbound broker connection (D61, D86); default off until E3.13 |
+| `EOE_WORKER_IN_API` | no | run the reconciliation worker inside the API process instead of the `worker` container (E3.7, D59); default off |
+| `EOE_TIMEOUT_SWEEP_SECONDS` | no | pending-timeout sweep cadence, default 30 (E3.7) |
+| `EOE_DRIFT_SWEEP_SECONDS` | no | drift re-comparison cadence, default 300 (E3.7) |
 
 No secret defaults are committed; `deploy/.env.example` documents names only, never values.
 Settings precedence: environment variable over TOML config file over default (D5).
@@ -857,6 +861,13 @@ reimplement their logic.** Signatures, verbatim:
   `deployment_ids`. `filters` has the signature of
   `contracts.mqtt.deployment_subscriptions` — `(slug) -> Sequence[str]` — which is how E3.5
   registers the whole device-to-platform set.
+- **`start_or_retry() -> bool`** (E3.7, D87) — what long-lived hosts call instead of `start()`.
+  `start()` reads the `deployment_service` rows ONCE and raises if it cannot, and both hosts of
+  a manager (the API lifespan, the worker) come up beside Postgres in compose and can beat the
+  migrations to that table. Returns True when the connections are open, False when a retry is
+  backing off in the background; `stop()` cancels it. **An unreachable BROKER never reaches
+  here** — that is the connection loop's own affair. Use `start()` only where a failure should
+  propagate, i.e. in tests.
 - **The contract with callers: a broker outage is not an event handlers see.** No
   connection-lost callback, no resubscribe hook. Handlers receive `InboundMessage`
   (`deployment_id`, `deployment_slug`, `topic`, RAW `payload` bytes, `qos`, `retain`) and
@@ -1066,3 +1077,66 @@ reimplement their logic.** Signatures, verbatim:
   entry. The NULLS clause is load-bearing — without it only Listener events would dedupe.
   Requires Postgres 15+. The same code at a different instant is a different event.
   `ix_device_event_timeline (aggregator_uuid, at)` pre-pays E3.11's query.
+
+### The reconciliation worker (E3.7; spec 6.4, 14.3; D80-D81, D84-D86) — E3.8-E3.12 EXTEND IT
+
+- **Path:** `backend/app/controlplane/runner.py`. The process that runs the spec 6.4 loop:
+  it owns an `MqttClientManager` with E3.5's `ReportedConsumer` registered on it, and
+  schedules the two things no message-driven code could do.
+- **Two entrypoints, one module (D59):** `python -m app.controlplane.runner` (the compose
+  `worker` service) and the API lifespan under `EOE_WORKER_IN_API` (default off).
+- **API:** `ReconciliationWorker(session_factory, secret_store, *, timeout_interval=30.0,
+  drift_interval=300.0, manager=None, consumer=None)` · `async start()` / `stop()` /
+  `__aenter__` / `wait_closed()` · `.manager` (the live client manager — E3.13 and the API
+  publish through one) · `.counters` (diagnostics only; all real state is in Postgres).
+- **`pending_timeout_sweep(session_factory, *, now=None) -> TimeoutSweepReport`** (spec 6.4
+  item 4): `pending` revisions whose deployment window has elapsed go
+  `failed(timeout)`, with a `revision.timeout` audit row and `actor_user_id is None`. Report
+  carries `failed` · `overtaken` (an ack won the race under the row lock) · `unanchored`.
+- **`drift_sweep(session_factory) -> DriftSweepReport`** (spec 6.4 item 5): stored
+  `device_state` vs the applied revision → `drifted(report_diverged)` plus a
+  `revision.drift` audit row (detail names differing KEYS, never values); recomputed
+  effective config vs that revision → `desired_changed`, an **observation with no
+  transition** (D85). Report carries `drifted` · `desired_changed` · `unresolvable` ·
+  `unreported` · `auto_reconcile_requested`.
+- **The sweeps are module-level functions** taking a session factory: the suite drives them
+  with no event loop, no broker and no worker. One transaction per revision; the scan is
+  lockless and every transition re-reads under `load_for_transition` (D80).
+- **Nothing here republishes.** `deployment.auto_reconcile` is stored, default off, INERT
+  pending spec 17 item 3 (D81) — the worker reads it only to report it. Drift is repaired
+  by `POST /revisions/{id}/publish`.
+- **Suite:** `backend/tests/test_reconciliation_worker.py` (gate 45), including both halves
+  of the phase acceptance against a real broker: the full journey (publish → ack → drift →
+  operator re-publish → timeout) and a worker restart mid-flight.
+
+### Reconciliation policy and the window anchor (E3.7; D81, D84) — **E7 MAY EXTEND**
+
+- **`deployment.pending_timeout_seconds`** (migration `c41e9b7d3a58`): int, default 300,
+  CHECK > 0. The spec 6.4 item 4 window, per deployment. A PLATFORM setting — never a
+  catalog key, because a catalog key would be merged into effective config and published to
+  devices. A revision whose deployment row is gone falls back to
+  `models.DEFAULT_PENDING_TIMEOUT_SECONDS` (300) rather than sitting `pending` forever.
+- **`deployment.auto_reconcile`**: bool, default false, **inert** (D81). The phase that
+  implements the spec 17 item 3 policy is the phase that may act on it.
+- **`config_revision.published_at`** (same migration): nullable timestamptz, indexed,
+  written by `revision_state.transition` on EVERY edge into `pending` and by nothing else
+  (D84). **This extends an E2-owned table**: E2 owns the row up to `draft`, E3 owns every
+  state after it. Not backfilled; a `pending` row without it is reported, never timed out.
+
+### `POST /revisions/{revision_id}/publish` (E3.7; spec 6.2, 6.4; D82-D83, D86)
+
+- **The operator half of the loop**, on the E2.6 revisions router. CSRF; two-step scoping —
+  `VIEW_STATUS` decides 404 (the D35 existence-oracle rule), `MANAGE_CONFIG` decides 403.
+  Calls E3.4's `publish_revision` and adds no publish logic of its own.
+- **Response:** `{revision_id, topic, deployment_id, checksum, state, trigger,
+  transitioned, superseded[]}`. `transitioned: false` is the idempotent re-publish (D72).
+- **Refusals:** publication disabled → 409 · stale/superseded/device-gone → 409 · broker
+  down → **503 `service_unavailable`** (the D8 vocabulary's seventh code, D83) · revision
+  vanished → 404. Nothing is half-done on any of them (D74).
+- **`app.state.mqtt`** is the API's own publish-only manager, started by the lifespan **only
+  when `EOE_PUBLISH_ENABLED` is on**, and None otherwise (D86). It registers no
+  subscriptions, so it never consumes what the worker consumes. E3.13 publishes E2's apply
+  through the same attribute.
+- **Compose:** the `worker` service (no ports, `python -m app.controlplane.runner`) joins
+  `COMPOSE_SERVICES` in `backend/tests/test_repo_layout.py`, the same deliberate-extension
+  discipline as `E0_TABLES`.
