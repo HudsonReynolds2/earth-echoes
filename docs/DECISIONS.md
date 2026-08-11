@@ -4,6 +4,159 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D109 (2026-08-11): The shutdown settle window goes to 30 seconds, and stays name-blind
+(SIM.2/SIM.3 gate, fixing the same E3.2 test as D97)
+
+- **The failure.** The folded SIM.1-3 gate went red on
+  `test_mqtt_manager.py::test_shutdown_leaves_no_running_tasks` —
+  `tasks outlived stop(): ['Task-125']`, an aiomqtt `Client._misc_loop()` parked in
+  `await asyncio.sleep(1)`. The same test passed 5 runs out of 5 standalone. This is D97's flake
+  again, at a wider load: D97's 5-second settle window was simply not long enough.
+- **Nothing in `/sim` can have caused it.** The harness is a separate uv project and touches no
+  backend module; the failing test exercises `MqttClientManager`, which this epic does not import.
+  Recorded here rather than in an E3 document because this gate is where it surfaced and this
+  session is what repaired it, exactly as SIM.0 did for D97.
+- **Decision:** the window widens from 5s to 30s. It is NOT a retry-until-green loop, and the
+  reason is structural rather than statistical. `_misc_loop` is
+  `while client.loop_misc() == MQTT_ERR_SUCCESS: await sleep(1)`, and `loop_misc` returns
+  `MQTT_ERR_NO_CONN` as soon as `client._sock is None` — so a misc loop whose socket has gone
+  ends itself within one iteration, and a cancelled one ends on the next loop turn. Both are
+  bounded by the library's own one-second sleep plus scheduling latency, which five seconds does
+  not reliably cover: the run that went red was sharing one Docker daemon and one WSL2 host with
+  a SECOND full suite, running concurrently from the `e5-batch-1` worktree. Shared CI runners
+  impose the same kind of contention, so the window is sized for a loaded host rather than an
+  idle one. **The leak D94 was
+  written for is the opposite case by construction:** a `_misc_loop` left running over a LIVE
+  socket, where `loop_misc()` returns success forever. It is still there at 30 seconds exactly as
+  it was at 5. The discriminator is the socket, not the clock, which is what makes a longer
+  deadline honest here and would not make it honest for a different failure.
+- **Rejected: excusing the task by name.** The first proposal at this gate was to assert only on
+  the manager's own `mqtt-{slug}` tasks and let anonymous library tasks through — on the reading,
+  taken from D97's own summary, that D94's leak had been a `_connection_loop`. **D97 is wrong on
+  that point.** D94 records the leaked task as `Client._misc_loop`, anonymous, and calls it "a
+  slow leak of tasks and sockets in a process designed to run for months — the flake was the
+  symptom, not the disease". A name filter would have deleted the detector that found a real
+  platform bug while leaving the test green, which is the worst of the available outcomes. D97's
+  characterisation should be read as corrected by this entry.
+- **Also rejected: reaching into `_misc_task`** from `_close_client` to cancel and await it
+  deterministically. That is a private attribute of a third-party client, and D97 already weighed
+  it as a worse defect than the flake; nothing has changed that.
+- **Reference:** D94, D97; backend/tests/test_mqtt_manager.py `_tasks_outliving`;
+  app/controlplane/broker.py `_close_client`.
+
+## D108 (2026-08-11): An in-process kill SHUTS DOWN the socket; closing it takes the event loop
+with it (SIM.3)
+
+- **Decision:** `MockAggregator.kill()` calls `socket.shutdown(SHUT_RDWR)` on the paho socket
+  and leaves the descriptor for the ordinary teardown to close, rather than closing it outright.
+  The broker cannot tell the two apart — either way the transport ends without a DISCONNECT
+  packet, so the will is owed and published, which is the entire point of the method — but
+  asyncio can: a closed socket's `fileno()` is -1 while the loop still holds a reader and a
+  writer against it, and the next callback paho registers raises `ValueError: Invalid file
+  descriptor: -1` **inside the event loop**, not inside the device. anyio surfaces that as a
+  failure of whatever test happened to be running.
+- **How it was found, and why that matters.** The `disconnect` scenario failed on its first real
+  run with a traceback that named `selectors.py` and nothing in this repository. The bug is not
+  in the scenario, the platform or the contract; it is in the harness's idea of what "the power
+  went out" means at the transport layer. SIM.1's LWT acceptance never hit it because D103
+  SIGKILLs a whole subprocess, where the operating system closes the descriptor after the
+  process holding the event loop is already gone. The in-process path is the one SIM.3's
+  catalogue and SIM.4's fleet use, so it is the one that had to be made to work.
+- **`disconnect()` now also suppresses `MqttError` when awaiting its cancelled tasks.** After a
+  kill the reader task is already dead of the connection it was reading, and awaiting a task
+  that failed re-raises what failed it — so a device that could not be shut down *because it had
+  crashed* would be the one state this harness exists to produce.
+- **Reference:** D103; spec 9.3; phase-SIM SIM.3; sim/device.py `kill`, `disconnect`.
+
+## D107 (2026-08-11): A scenario file is fully validated at load, and its name must match its
+filename (SIM.3)
+
+- **Decision:** `load_scenario` raises `ScenarioError` — one exception type, because a TOML
+  syntax error and an out-of-range parameter are the same problem to whoever has to fix them —
+  and every message names the file, and every message about a value names the key. Behaviour
+  parameters are Pydantic models with `extra="forbid"`, so a misspelled key is an error rather
+  than a silent fall back to the default; field constraints (`gt=0`, `le=MAX_WAIT_SECONDS`) turn
+  an impossible value into an error naming the bound it broke; and `mac` and `event_code` are
+  typed as the contract's own `MacAddress` and `EventCode`, so a malformed one is refused at load
+  by the same rules the wire enforces.
+- **Why the whole directory loads eagerly.** `load_scenarios` stops on the first bad file rather
+  than skipping it. A loader that skipped what it could not parse would let a fleet run start
+  with the scenario the operator actually asked for silently missing, and report success.
+- **`name` must equal the file stem.** A scenario whose name disagrees with its filename is a
+  rename somebody stopped halfway through, and every later reference then picks one of the two.
+  Enforcing the agreement costs one line and removes a class of "the catalogue says it ran" that
+  cannot otherwise be distinguished from the truth.
+- **`expects` is prose and is not asserted against anything.** It records what the file says the
+  PLATFORM should end up doing, kept beside the behaviours because a scenario nobody can read the
+  expected outcome of gets run once and interpreted differently every time after. The assertion
+  lives in `tests/test_scenario_outcomes.py`, where it can name the table it reads.
+- **Reference:** D5; phase-SIM SIM.3 acceptance; sim/scenarios.py, sim/scenarios/*.toml.
+
+## D106 (2026-08-11): The apply hook lives on the device, not in the scenario module (SIM.3)
+
+- **Decision:** `MockAggregator.apply_hook` is an attribute of the device — `None`, meaning
+  "apply it verbatim", by default — and the `apply_error` behaviour installs one. The device
+  therefore has exactly ONE apply path and no `if scenario:` branches accumulate inside it; a
+  scenario changes what the device holds, never what the device's code does.
+- **Which keeps every misbehaviour producible the way a real device produces it.** An apply error
+  is a device reporting a config that is not the revision's, with the checksum of what it
+  genuinely now holds, while that revision is pending — spec 6.2's "device reports an error
+  applying", a definite negative answer, so the revision fails at once rather than waiting out
+  the pending window and blaming a timeout on a device that answered immediately. Drift is the
+  same mechanism after an apply. Neither writes to a database and neither changes platform
+  behaviour, which is phase-SIM section 1's rule stated as code rather than as a promise.
+- **Deliberately not an event.** A device that only complained on the event topic while reporting
+  the right config would leave the platform correct to mark the revision applied. The scenario is
+  about reported state, so it is produced in reported state.
+- **Reference:** spec 6.2; phase-SIM section 1, SIM.3; sim/device.py `_apply`, sim/scenarios.py.
+
+## D105 (2026-08-11): The harness carries its own copy of the spec 5.3 defaults, and sweeps its
+own clock (SIM.2)
+
+- **Decision:** `DEFAULT_WAKE_GRACE_SECONDS` and `DEFAULT_CAPTURE_MODE` are written out in
+  `sim/device.py` rather than imported from `app.config.catalog`, for D101's reason one level up:
+  firmware ships with its own defaults and only learns the platform's when a revision arrives, so
+  a harness that read the catalogue would hide the day the two disagree — and that day is the day
+  every un-provisioned device in the field behaves differently from every document about it.
+  `wake_grace_seconds` is read off the device's OWN applied config, so an operator who publishes
+  a longer grace changes device behaviour rather than only a database row, which is the whole
+  claim the setting makes. A value the platform could not have sent logs and falls back rather
+  than killing the sweep: a device whose liveness detection had stopped would look like a fleet
+  that never sleeps, and the cause would be invisible.
+- **The sweep runs in the device, every 0.5s, not in the test.** A device that noticed missed wake
+  windows only when a test asked it to would make spec 6.5 a property of the suite rather than of
+  the fleet, and a SIM.3 scenario could not produce one at all. Spec 6.5 makes this the only
+  liveness work in the system — nothing to send, nothing to poll — so it is cheap enough to run
+  often, and often is what lands `listener_missed_wake_window` near the grace expiry rather than
+  up to a sweep later. The sweep is idempotent: a Listener already `offline` is not overdue
+  again.
+- **Reference:** D101; spec 5.3, 6.5; phase-SIM SIM.2; sim/device.py.
+
+## D104 (2026-08-11): The local link is a method call that REFUSES contradictions (SIM.2)
+
+- **Decision:** `MockListener` holds no MQTT session and no credential, and that is structural
+  rather than decorative — there is no client on the object to publish with, so every method ends
+  in a call to the parent. Spec 17 item 2 still owns the framing of the real HaLow link, so the
+  harness models it as an in-process call and invents no wire format for it (phase-SIM section 3
+  makes that binding).
+- **The link raises `LocalLinkError` on two things a Listener cannot mean.** A Listener under
+  `capture.mode=continuous` cannot declare an off-window, because spec 6.5 says no wake window
+  applies at all under that mode; and a sleeping Listener cannot report a `listener_stream_gap`,
+  because a gap during a declared off-window IS the off-window. Both are refused at the source
+  rather than published, since the platform's entire ability to tell expected silence from
+  failure rests on the two never being confused before they reach it — and a mock that could
+  manufacture a healthy-looking silence no correctly configured Listener can produce would prove
+  the platform right about a fleet that cannot exist. This is what makes the fourth SIM.2
+  acceptance claim ("distinguishable from an expected off-window") assertable at all.
+- **`expected_wake_at` is cleared on every exit from `sleeping`** — waking, and missing the
+  window. A spent promise left lying around is a time something downstream eventually compares a
+  clock against. The contract model already requires the field present exactly while sleeping, so
+  a transition that got this wrong fails validation at the DEVICE rather than at the platform.
+- **A newly attached Listener is `streaming`.** `sleeping` would claim a wake time nobody
+  declared and `offline` would accuse a device that has done nothing wrong.
+- **Reference:** spec 6.4, 6.5, 7.3, 17 item 2; phase-SIM section 3, SIM.2; sim/device.py
+  `MockListener`.
+
 ## D103 (2026-08-11): A mock Aggregator announces `offline` when it leaves politely, and the
 LWT acceptance kills a real process (SIM.1)
 

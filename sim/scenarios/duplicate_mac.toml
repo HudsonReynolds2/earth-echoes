@@ -1,0 +1,20 @@
+# Scenario: two Aggregators claiming one Listener MAC (task SIM.3; spec 4.3
+# item 2).
+#
+# Two devices flashed with one identity, or a Listener physically moved
+# between Pods without inventory being told. The reporting Aggregator publishes
+# on the MAC from inside its OWN subtree, which its ACL allows because a broker
+# cannot know whose MAC is whose — the platform is what has to decide, through
+# the E1.5 identity services, and its answer is to quarantine the report and
+# leave inventory exactly as it was.
+name = "duplicate_mac"
+description = "An Aggregator reports a Listener MAC that inventory has filed under a different parent."
+expects = "the report is quarantined with a `duplicate_identity` alert, and the Listener's inventory row is unchanged"
+
+[[behaviour]]
+name = "duplicate_mac"
+# The canonical demo hierarchy's first Listener (`alder-creek-01`, on
+# `demo-agg-rc-01`), so this file works against a seeded dev stack out of the
+# box. Point it at a MAC that belongs to a DIFFERENT Aggregator than the one
+# running the scenario — a device reporting its own Listener is not a conflict.
+mac = "02:EE:0E:01:01:01"

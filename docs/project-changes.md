@@ -5,6 +5,38 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #24 (2026-08-11): SIM.1, SIM.2 and SIM.3 share one gate
+
+- **What changed:** the three tasks are gated together, once, after SIM.3, rather than each
+  ending in its own gate as rule R0 reads and as the SIM progress ledger's reserved gate numbers
+  (54, 55, 56) anticipated. SIM.4 and SIM.5 are unaffected and gate individually.
+- **Why:** `/sim`'s suite is not in `gate.sh` until SIM.5, so a per-task gate for SIM.1-3 buys
+  nothing the folded gate does not — the accumulated suite being asserted is the same backend,
+  frontend and container suite in all three cases, plus a `/sim` suite run by hand beside it in
+  all three cases. What the three tasks share is one contiguous body of work against one
+  contract; splitting the gate would have paid for three full runs of an unchanged suite. The
+  gate itself is NOT weakened: one unfiltered `make gate` over the entire accumulated suite, 0
+  failed / 0 skipped / 0 xfailed / 0 deselected, plus `/sim`'s own quality and protocol runs,
+  all three green before anything is committed or tagged.
+- **What this cost, and it is worth recording.** SIM.3's work was written before SIM.2 had been
+  gated, which is the sequencing R0 exists to prevent. The first full run of the combined suite
+  found a real defect in the harness that a per-task gate would have caught a task earlier
+  (DECISIONS D108: an in-process kill closed a socket the event loop still held watchers on, and
+  took the loop down rather than the device). It was found before anything was committed, which
+  is the outcome R0 is after, but it was found later than R0 would have found it.
+- **The folded gate landed as gate 55, not 54.** The ledger had reserved 54 for SIM.1 while this
+  epic was the only work in flight; gate 54 was taken in the meantime by the concurrent
+  `e5-batch-1` checkpoint (tag `gate-54`, commit 050cd4b, "Records for gate-54: C1 green"), which
+  is on a separate line of work and already pushed. Gate numbers are global to the repository and
+  tags are never moved (rule R3), so SIM.1-3 take the next free number and SIM.4/SIM.5 shift to 56
+  and 57 in the ledger.
+- **Who approved:** the owner, on 2026-08-11 — the folded gate at SIM.1 (recorded in that
+  task's commit message), and again on 2026-08-11 when this session confirmed the plan before
+  gating.
+- **Affects:** project_planning/phase-sim-simulation-harness.md §4 (SIM.1-SIM.3),
+  project_planning/sim-progress-ledger.md
+- **Addendum:** PHASESIM-4-01
+
 ## #23 (2026-08-11): The SIM phase document, and the simulation scale it fixes
 
 - **What changed:** epic SIM gains its phase document,

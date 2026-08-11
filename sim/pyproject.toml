@@ -58,7 +58,7 @@ mypy_path = "../backend"
 # The harness modules only. The suite is excluded for the reason the backend
 # excludes its own: the shared fixtures it calls are deliberately untyped, and
 # strict mode would report every call to them as an error about the fixture.
-files = ["checksum.py", "device.py"]
+files = ["checksum.py", "device.py", "scenarios.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

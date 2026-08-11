@@ -131,6 +131,14 @@ them in capability, never by deleting them.
 
 ## 4. Task list
 
+> **Addendum PHASESIM-4-01 (2026-08-11, ref project-changes #24):** SIM.1, SIM.2 and SIM.3 share
+> one gate, taken after SIM.3, rather than one gate each. `/sim`'s suite does not join `gate.sh`
+> until SIM.5, so the accumulated suite a per-task gate would assert is identical for all three;
+> the folded gate runs one unfiltered `make gate` plus `/sim`'s quality and protocol runs, with
+> R0's counts unchanged. SIM.4 and SIM.5 gate individually as written. The cost is recorded in
+> project-changes #24: SIM.3 was written before SIM.2 was gated, and the combined suite's first
+> run found a harness defect (DECISIONS D108) a task later than per-task gating would have.
+
 **SIM.1 Mock Aggregator.** The `/sim` project skeleton (pyproject, lint and type configuration,
 test conftest bridging to the backend fixtures), `sim/checksum.py`, and one `MockAggregator`: a
 TLS connection on its own devbroker credential with the `offline` `StatusMessage` registered as

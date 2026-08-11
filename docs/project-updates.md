@@ -1,5 +1,67 @@
 # Project Updates
 
+## 2026-08-11: SIM.1-SIM.3 — a mock fleet that misbehaves on demand (Gate 55 GREEN)
+
+- **Tasks closed:** SIM.1 (mock Aggregator), SIM.2 (mock Listener behaviour) and SIM.3 (scenario
+  scripting) on branch `sim-batch-1`, under one folded gate (project-changes #24, addendum
+  PHASESIM-4-01). DECISIONS D100-D109.
+- **Gate 55 GREEN:** `make gate`, 766 backend / 114 vitest / 4 Playwright, 0 failed / 0 skipped /
+  0 xfailed / 0 deselected; backend stage 260.8s. Beside it, by hand because `/sim` does not join
+  `gate.sh` until SIM.5: `sim-quality` clean (ruff, ruff format, mypy over three harness modules)
+  and the `/sim` suite at **54 passed**, 191.7s.
+- **Numbered 55 rather than 54.** The ledger had reserved 54 for SIM.1 back when this epic was
+  the only work in flight; the concurrent `e5-batch-1` checkpoint took `gate-54` (commit 050cd4b)
+  first. Gate numbers are global and tags are never moved, so SIM.1-3 take 55 and the ledger's
+  SIM.4/SIM.5 rows shift to 56 and 57.
+- **What shipped.** `MockListener`, which holds no MQTT session of its own (spec 6.4) and reaches
+  the broker only through the Aggregator that owns it; the spec 6.5 liveness machine — `streaming`
+  / `sleeping` with a self-declared `expected_wake_at` / `offline` — with the AGGREGATOR computing
+  grace from its own applied `listener.wake_grace_seconds` and raising
+  `listener_missed_wake_window`, never the platform and never the Listener. Then a typed behaviour
+  registry with Pydantic-validated parameters, six scenario TOMLs (`apply_error`, `drift`,
+  `disconnect`, `missed_wake_window`, `duplicate_mac`, `unprovisioned_aggregator`), and a test per
+  scenario asserting the **platform's** reaction through the E1.5 services E3.5 already wires:
+  `failed`, `drifted`, LWT offline, Listener offline, `duplicate_identity` quarantine with the
+  inventory row provably untouched, and `provisioning_required`.
+- **The local link refuses what a Listener cannot mean (D104).** A `capture.mode=continuous`
+  Listener cannot declare an off-window, and a sleeping one cannot report a `listener_stream_gap`.
+  Refused at the source rather than published, because the platform's whole ability to tell
+  expected silence from failure rests on the two never being confused before they reach it — which
+  is what makes SIM.2's fourth acceptance claim assertable at all.
+- **Two real defects, found by running the code rather than reading it (D108).** The SIM.2/SIM.3
+  work was written in a previous session and had never been executed. Its first run failed:
+  `kill()` closed the paho socket while asyncio still held a reader and a writer on it, so the next
+  callback raised `ValueError: Invalid file descriptor: -1` inside the EVENT LOOP rather than in
+  the device; and `disconnect()` awaited its cancelled reader suppressing only `CancelledError`, so
+  a device that had actually crashed could not be shut down. `kill()` now shuts the socket down and
+  leaves closing to teardown — the broker sees the same will-owed disconnect either way.
+- **Manual verification** ran outside the suite: `load_scenarios()` over the shipped catalogue in a
+  plain interpreter — six scenarios, every behaviour instantiated, the loaded set asserted equal to
+  the registry — and then six deliberate corruptions of a copied scenario file. An unknown
+  behaviour name, a misspelled parameter, `sleep_seconds = 0`, a malformed MAC, a `name` that
+  disagrees with its filename, and syntactically broken TOML: each refused at LOAD, each message
+  naming the file and, where a value was at fault, the key. That is SIM.3's acceptance criterion
+  and the difference between a typo caught in a second and a typo caught at hour two of a load run.
+  (The first probe of the six was written wrongly — its `str.replace` matched nothing, so it tested
+  an unmodified file and appeared to pass the bad case. Rewritten against the behaviour table's own
+  `name`, it refuses as it should. Worth recording because a verification that silently tests
+  nothing is the failure mode this whole exercise exists to catch.)
+- **One E3 test repaired under R0, not re-rolled (D109).** The first gate went red on
+  `test_mqtt_manager.py::test_shutdown_leaves_no_running_tasks` — D97's flake again, at a wider
+  load. The settle window goes 5s → 30s and stays name-blind. A name filter was considered and
+  REJECTED: D94's leak was an anonymous `Client._misc_loop`, so excusing unnamed tasks would have
+  deleted the detector for a real per-reconnect leak while leaving the test permanently green.
+  D97's description of that leak as a `_connection_loop` is corrected by D109.
+- **A second red gate was environmental and is worth recording.** 759 passed / 7 errors, every one
+  of them `test_audit.py` failing to reach its ephemeral Postgres on a published host port. A
+  concurrent full suite was running from the `e5-batch-1` worktree against the same Docker daemon;
+  a container was observed coming up with no host port published at all. The green above was taken
+  on a quiet host. `ephemeral_postgres` probes readiness with `pg_isready` INSIDE the container and
+  never checks the host forward, which is why the failure surfaces as a migration error rather than
+  as a fixture error — worth a look before CI ever runs two suites side by side.
+- **Two containers leaked by an interrupted session** (`eoe-mqtt-961700caf6`, `eoe-pg-23037728f6`,
+  8 hours old, holding host ports) were removed on the owner's instruction.
+
 ## 2026-08-11: The gate runs in parallel — 541s to 260s (Gate 53 GREEN)
 
 - **Not a SIM task.** Taken between SIM.0 and SIM.1, on the owner's instruction, because five

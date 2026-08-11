@@ -513,9 +513,9 @@ async def test_a_broker_that_never_answers_is_retried_rather_than_abandoned(live
             await manager.publish(deployment_id, f"{deployment_root(RC)}/x", b"{}")
 
 
-async def _tasks_outliving(before: set[asyncio.Task], settle: float = 5.0) -> set[asyncio.Task]:
+async def _tasks_outliving(before: set[asyncio.Task], settle: float = 30.0) -> set[asyncio.Task]:
     """Tasks still alive after `stop()`, allowing cancellation already in
-    flight to land (D97).
+    flight to land (D97, widened by D109).
 
     The wait is not a fudge factor, it is the only honest way to ask the
     question. aiomqtt cancels its own `_misc_loop` with
@@ -525,10 +525,26 @@ async def _tasks_outliving(before: set[asyncio.Task], settle: float = 5.0) -> se
     can make a third party's `call_soon_threadsafe` synchronous, short of
     reaching into private attributes of the library.
 
-    So "leaves no running tasks" means what it says: not there afterwards. A
-    genuinely leaked task — a connection loop that survived, the leak D94 was
-    written for — is still running when the deadline expires and still fails
-    this. A cancellation mid-flight clears within a loop turn or two.
+    So "leaves no running tasks" means what it says: not there afterwards.
+
+    **Why a longer deadline cannot buy a false green.** `_misc_loop` is
+    `while client.loop_misc() == MQTT_ERR_SUCCESS: await sleep(1)`, and
+    `loop_misc` returns `MQTT_ERR_NO_CONN` the moment `client._sock is None`.
+    A misc loop whose socket is gone therefore ends itself within one
+    iteration, and a cancelled one ends on the next loop turn — both bounded
+    by the library's own 1-second sleep plus whatever scheduling latency six
+    xdist workers and their containers impose, which is what this deadline is
+    sized for. The leak D94 was written for is the opposite case BY
+    CONSTRUCTION: a `_misc_loop` left running over a LIVE socket, where
+    `loop_misc()` goes on returning success indefinitely. That task is still
+    here at 30 seconds exactly as it was at 5, and still fails this. The
+    discriminator is the socket, not the clock.
+
+    Which is also why this deliberately does NOT excuse tasks by name. D94's
+    leak was an anonymous `Client._misc_loop`, not the manager's own
+    `mqtt-{slug}` connection task, so filtering to platform-named tasks would
+    delete the detector that found a real per-reconnect leak of tasks and
+    sockets in a process meant to run for months.
     """
     deadline = asyncio.get_running_loop().time() + settle
     while True:
