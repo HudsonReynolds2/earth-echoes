@@ -566,11 +566,18 @@ class DeviceState(Base):
     there", so idempotency comes from `applied_revision_id` plus checksum as
     spec 7.4 words it, rather than from a timestamp shortcut.
 
-    **E3.8 AND E3.9 EXTEND THIS TABLE** (the `deployment_service` pattern):
-    E3.8 adds the LWT-driven online state that spec 9.3 makes authoritative
-    for an Aggregator's live verdict, E3.9 the spec 6.5 Listener liveness
-    block. E3.5 deliberately stores neither, so that no column here is a
-    half-implementation of a task that has not run.
+    **E3.9 EXTENDS THIS TABLE** with the spec 6.5 Listener liveness block,
+    which arrives inside a report and so belongs here. E3.5 deliberately
+    stores none of it, so that no column is a half-implementation of a task
+    that has not run.
+
+    **E3.8 did NOT extend it, though E3.5 anticipated it would** (D88). LWT
+    online state went to `aggregator_status` instead: `reported_at`,
+    `checksum` and `config` are NOT NULL and a device publishes `online`
+    before it has ever reported a config, so a status-only row would have
+    required making three of them nullable — dissolving the invariant that a
+    row here IS a report. An `offline` LWT is also published by the BROKER on
+    the device's behalf, which is precisely the state the device did not send.
 
     `entity_type`/`entity_id` follow the `config_revision` convention exactly
     — aggregators by PLATFORM UUID (`aggregator.id`), listeners by MAC (D75)
@@ -661,6 +668,65 @@ class DeviceEvent(Base):
     level: Mapped[str] = mapped_column(String(10))
     code: Mapped[str] = mapped_column(String(64))
     detail: Mapped[str | None] = mapped_column(Text, default=None)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AggregatorStatus(Base):
+    """An Aggregator's live online verdict, driven by MQTT (task E3.8; spec 9.3, 7.2, 7.3).
+
+    Spec 9.3 makes MQTT the AUTHORITATIVE real-time liveness signal for an
+    Aggregator, and deliberately not Prometheus: the remote-write agent
+    buffers to a write-ahead log and backfills on reconnect (spec 10.4), so
+    central Prometheus lags real time by design. This row is what the status
+    dot reads.
+
+    **Not a column on `device_state`, though E3.5's docstring anticipated
+    one.** Three reasons, and the third is decisive. `device_state` is defined
+    as "the last state the device REPORTED" and its `reported_at`, `checksum`
+    and `config` are NOT NULL, but a device publishes `online` before it has
+    ever reported a config — so a status-only row could not be written without
+    making three of E3.5's columns nullable and dissolving the invariant that
+    a `device_state` row IS a report. LWT is also Aggregator-only (Listeners
+    hold no MQTT session, spec 6.4/9.3, and E3.9 stores their liveness on the
+    report where it belongs). And an `offline` LWT is published by the BROKER
+    on the device's behalf: it is precisely the state the device did not send.
+
+    **`at` is NOT an ordering key, and this is the trap the table exists to
+    avoid.** A device composes its will at CONNECT time and the broker holds
+    those exact bytes until the session dies, so the `at` on an `offline`
+    message is older than every `online` heartbeat that followed it — often by
+    hours. Ordering status by the payload clock the way spec 7.4 orders
+    reports would reject every LWT as stale and leave dead devices reading
+    online forever. Receipt order is the truth here: one broker, QoS 1, one
+    ordered session per device, and a retained replay always carries the
+    CURRENT value. `declared_at` is stored because the device said it, and
+    read by nothing that decides anything.
+    """
+
+    __tablename__ = "aggregator_status"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    #: Real FK with a cascade, unlike `device_state.entity_id`: there is one
+    #: target table here rather than two, and this is CURRENT state, not
+    #: evidence — it dies with its device instead of outliving it. The
+    #: `device_event` rows keep the history.
+    aggregator_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("aggregator.id", ondelete="CASCADE"), unique=True
+    )
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    #: The spec 9.3 verdict. No `unknown` third state: a device that has never
+    #: spoken has no row at all, which is a different question from one the
+    #: platform has heard call itself offline.
+    online: Mapped[bool] = mapped_column()
+    #: The payload's own `at`. Stored as sent, never compared — see the class
+    #: docstring. On an LWT this is the moment the device CONNECTED.
+    declared_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: When `online` last actually changed value, which is what "offline since"
+    #: means on screen. A retained replay of the same state must not move it.
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: Platform receipt, and the real ordering key.
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

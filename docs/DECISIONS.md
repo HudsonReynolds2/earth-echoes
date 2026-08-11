@@ -4,6 +4,81 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D90 (2026-08-10): The QA stack's compose project name is pinned in every document
+(E3.8, found by the gate)
+
+- **What went wrong:** gate 46 went red on the two container tests with
+  `Bind for 0.0.0.0:15173 failed: port is already allocated`, and the holder was a full
+  stack under the compose project **`deploy`** — not the `eoe-qa` one the walkthrough talks
+  to. `qa-stack.ps1` passes `-p eoe-qa`, but the guide's POSIX §0 path and the README both
+  omitted `-p`, so Compose fell back to naming the project after the directory.
+- **Why it is worse than a cosmetic mismatch:** a POSIX reader who follows §0 gets a stack
+  called `deploy`, and then every later command in the walkthrough — all of which pass
+  `-p eoe-qa` — silently addresses a stack that does not exist, while the one they are
+  actually running keeps holding the fixed host ports. The D44 pre-gate warning names
+  `.\qa-stack.ps1 down`, which does not touch it either. The failure surfaces as an
+  unexplained port collision with no documented command to clear it.
+- **Decision:** `-p eoe-qa` is pinned in the guide's POSIX path and in the README's dev
+  setup, with a note saying it is not optional; the pre-gate warning now gives the POSIX
+  teardown alongside the PowerShell one and says the gate collides with ANY running stack,
+  not only a `qa-stack.ps1` one.
+- **Not fixable in the test harness**, unlike D87: `FIXED_PORTS` is a deliberate contract
+  (the walkthrough tells you to open `localhost:15173`), so the container tests bind those
+  exact ports by design and no amount of pinning inside `compose_env` lets a gate coexist
+  with a running stack. The fix belongs in the documents that bring the stack up.
+
+## D89 (2026-08-10): Per-task project-updates entries are batched to the end of E3
+(owner instruction)
+
+- **Decision:** E3.8 through E3.13 do not each get a dated `docs/project-updates.md` entry.
+  One consolidated entry covering the batch lands when E3.13 closes the epic. Every other
+  part of R0/R1 is unchanged: each task still ends in its own FULL green gate, its own
+  commit, its own push and its own `gate-{N}` tag, and every deviation still gets a
+  DECISIONS entry as it happens.
+- **Why:** the owner asked for it on 2026-08-10, having watched the per-task entries grow
+  into the largest artifact of each task.
+- **Recorded rather than silently followed** because R1 says "dated entry after each gate
+  PASSES", and a rule the project binds itself to is not one a session may quietly drop. The
+  consolidated entry is the compromise: the batch is not allowed to land with no dated
+  record at all, which is the thing R1 exists to prevent.
+- **Consequence to watch:** a red gate mid-batch has nowhere to be recorded until the end.
+  Where one happens, it goes in the commit message of the task that fixed it, the way
+  gate 45's three red runs did.
+
+## D88 (2026-08-10): LWT online state is its own table, and receipt order — not the
+payload clock — decides it (E3.8)
+
+- **Decision:** `aggregator_status` (migration `d3b1a7f45e92`), one row per Aggregator:
+  `online`, `declared_at`, `changed_at`, `received_at`, a cascading FK to `aggregator.id`.
+  E3.5's `DeviceState` docstring anticipated these as columns on `device_state`; they are
+  not, and that docstring is amended.
+- **Why not `device_state`:** three reasons, the third decisive. (1) `reported_at`,
+  `checksum` and `config` are NOT NULL there, and a device publishes `online` before it has
+  ever reported a config — a status-only row would need three of E3.5's columns made
+  nullable, dissolving the invariant that a row there IS a report. (2) LWT is
+  Aggregator-only: Listeners hold no MQTT session (spec 6.4/9.3), and E3.9 stores their
+  liveness on the report where it arrives. (3) An `offline` LWT is published by the BROKER
+  on the device's behalf. `device_state` is defined as "the last state the device sent", and
+  a will is precisely the state the device did not send.
+- **Decision (ordering), and the trap it avoids:** status carries NO staleness comparison.
+  A device composes its will when it CONNECTS, so the broker holds those bytes — with that
+  connect-time `at` — until the session dies; every `online` heartbeat published afterwards
+  carries a later timestamp. Applying spec 7.4's rule here, correct as it is for reports,
+  would reject the LWT as stale and **leave a dead device reading online forever**, which is
+  the exact failure spec 9.3 makes MQTT authoritative in order to prevent. Receipt order is
+  the truth: one broker, QoS 1, one ordered session per device, and a retained replay always
+  carries the current value. `declared_at` is stored because the device said it and is read
+  by nothing that decides anything. Pinned by
+  `test_an_lwt_whose_timestamp_predates_the_last_heartbeat_still_wins`.
+- **`changed_at` moves only on a real change.** The broker replays the retained status on
+  every platform reconnect; rewriting it there would reset the whole fleet's "offline since"
+  to the moment the platform restarted, telling an operator the outage began when their own
+  service did.
+- **No `unknown` third state.** A device that has never spoken has no row, which is a
+  different question from one the platform has heard call itself offline.
+- **Verified by mutation:** removing the SIGKILL from the acceptance test leaves the device
+  online and turns it red, so the flip is genuinely the broker's will and not a side effect.
+
 ## D87 (2026-08-10): Opening broker connections may never kill its host, and the
 container tests pin every compose variable (E3.7, found by the gate)
 

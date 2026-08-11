@@ -1140,3 +1140,29 @@ reimplement their logic.** Signatures, verbatim:
 - **Compose:** the `worker` service (no ports, `python -m app.controlplane.runner`) joins
   `COMPOSE_SERVICES` in `backend/tests/test_repo_layout.py`, the same deliberate-extension
   discipline as `E0_TABLES`.
+
+### `aggregator_status` — the live online verdict (E3.8; spec 9.3; D88)
+
+- **Table** (migration `d3b1a7f45e92`), one row per Aggregator: `aggregator_id` (unique, FK
+  to `aggregator.id` **ON DELETE CASCADE**), `deployment_id`, `online` (bool),
+  `declared_at`, `changed_at`, `received_at`. Spec 9.3 makes MQTT the authoritative
+  real-time liveness signal and explicitly NOT Prometheus, whose remote-write agent buffers
+  and backfills (spec 10.4).
+- **NOT columns on `device_state`**, though E3.5's docstring anticipated them. That row is a
+  REPORT with three NOT NULL columns a status message cannot fill; LWT is Aggregator-only
+  (Listeners hold no MQTT session — E3.9 stores their liveness on the report); and an
+  `offline` will is published by the BROKER, so it is the one state the device did not send.
+- **`declared_at` IS NOT AN ORDERING KEY, and must never become one.** A device composes its
+  will at CONNECT time, so an LWT's `at` is older than every `online` that followed it.
+  Ordering status the way spec 7.4 orders reports would reject the will as stale and leave a
+  dead device reading online forever. **Receipt order decides.** `changed_at` moves only when
+  `online` actually changes, so a retained replay on platform reconnect is not a new outage.
+- **No `unknown` state:** a device that has never spoken has no row. "Never heard from" and
+  "told us it is offline" are different questions and the UI must be able to tell them apart.
+- **Consumed by:** `ReportedConsumer._status`, returning `ReportOutcome.ONLINE` / `OFFLINE`.
+  **E3.11** puts the transitions on the timeline, **E3.12** pushes them over the websocket,
+  and **E6** paints the map dot from `online`. The Listener half of spec 9.3's verdict is
+  E3.9's and lives on `device_state`, not here.
+- **Suite:** `backend/tests/test_lwt_status.py` (gate 46), including the phase acceptance
+  against a real Mosquitto: a real client registers a real will and is SIGKILLed, so the
+  broker — not the test — composes and publishes the `offline` message.

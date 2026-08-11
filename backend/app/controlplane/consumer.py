@@ -1,11 +1,12 @@
-"""The reported consumer (task E3.5; spec 6.1, 6.4, 7.3, 7.4, 4.3).
+"""The reported consumer (task E3.5, extended by E3.8; spec 6.1, 6.4, 7.3, 7.4, 4.3, 9.3).
 
 The second half of the spec 6.4 loop. E3.4 publishes desired config to a
 retained topic and stops; this module listens to everything a device says
-back — reported Aggregator state, reported Listener state, and events — and
-turns it into three things: revision transitions through the E3.6 machine,
-`device_state` rows (spec 6.1's "last state the device sent"), and
-`device_event` rows.
+back — reported Aggregator state, reported Listener state, events, and the
+retained status topic — and turns it into four things: revision transitions
+through the E3.6 machine, `device_state` rows (spec 6.1's "last state the
+device sent"), `device_event` rows, and `aggregator_status` rows (spec 9.3's
+live online verdict).
 
 It is a LIBRARY, like the client manager it sits on. `ReportedConsumer.handle`
 satisfies `broker.MessageHandler`, so E3.7's worker wires the two together
@@ -46,18 +47,19 @@ edit drops it:
    `drifted`, `failed`, `superseded` — are checked for FIRST and left alone,
    rather than offered to the machine and allowed to raise.
 
-One thing this module deliberately does not do: handle the retained status
-topic, which arrives on the same subscription set. Spec 9.3 makes LWT the
-authoritative Aggregator liveness verdict and E3.8 owns it; until then a
-status message is recognized, counted and dropped, so the seam is visible
-rather than silent.
+The status topic (E3.8) is the one path here that does NOT obey property 3,
+and the exception is load-bearing rather than an oversight: a device composes
+its will at CONNECT time, so an LWT's `at` predates every `online` that
+followed it. Ordering status by the payload clock would reject the single
+message that matters most and leave dead devices reading online forever. See
+`_status` and `models.AggregatorStatus`.
 """
 
 import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -75,6 +77,7 @@ from app.contracts.mqtt import (
     PayloadError,
     ReportedAggregatorState,
     ReportedListenerState,
+    StatusMessage,
     TopicError,
     TopicKind,
     decode,
@@ -99,7 +102,7 @@ from app.inventory.identity import (
     quarantine_report,
     require_known_aggregator,
 )
-from app.models import DeviceEvent, DeviceState, Pod
+from app.models import AggregatorStatus, DeviceEvent, DeviceState, Pod
 
 log = logging.getLogger(__name__)
 
@@ -156,7 +159,13 @@ class ReportOutcome(StrEnum):
     #: A known device reporting on a deployment that is not the one it lives
     #: in, or naming a revision that belongs to another device.
     MISROUTED = "misrouted"
-    #: A topic this task does not own. Status is E3.8's.
+    #: An Aggregator called itself online, or its LWT said offline (E3.8).
+    #: Both spellings of the spec 9.3 verdict, counted apart because a
+    #: fleet going quiet is the shape of an outage.
+    ONLINE = "online"
+    OFFLINE = "offline"
+    #: A topic this consumer does not own — a desired or cmd message the
+    #: platform published, echoed back by a hand-rolled subscription.
     NOT_MINE = "not_mine"
 
 
@@ -241,9 +250,7 @@ class ReportedConsumer:
             case TopicKind.AGGREGATOR_EVENT:
                 return self._event(message, topic)
             case TopicKind.AGGREGATOR_STATUS:
-                # Spec 9.3's authoritative liveness signal, and E3.8's task.
-                log.debug("status message on %s ignored until E3.8", message.topic)
-                return ReportOutcome.NOT_MINE
+                return self._status(message, topic)
             case _:
                 # A desired or cmd topic: the platform's own publishes coming
                 # back. `deployment_subscriptions` excludes them precisely so
@@ -357,6 +364,69 @@ class ReportedConsumer:
             )
             db.commit()
             return outcome
+
+    # -- LWT status ----------------------------------------------------------
+
+    def _status(self, message: InboundMessage, topic: ParsedTopic) -> ReportOutcome:
+        """The spec 9.3 live verdict for one Aggregator (task E3.8).
+
+        Retained, so the broker replays the current value to the platform on
+        every reconnect — which is the property that makes a restarted
+        platform learn the fleet's liveness without asking anyone. That replay
+        must be a no-op when nothing changed, or every platform restart would
+        rewrite the whole fleet's "offline since".
+
+        There is deliberately NO staleness comparison here. See
+        `models.AggregatorStatus`: a will is composed at connect time, so an
+        LWT's `at` predates every `online` that followed it, and comparing it
+        would reject the one message that matters most.
+        """
+        payload = self._decode(StatusMessage, message)
+        if payload is None:
+            return ReportOutcome.MALFORMED
+
+        with self._sessions() as db:
+            try:
+                aggregator = require_known_aggregator(db, topic.agg)
+            except ProvisioningRequiredError:
+                db.commit()
+                log.info("status from unprovisioned aggregator %s", topic.agg)
+                return ReportOutcome.UNPROVISIONED
+
+            deployment_id = db.scalars(
+                select(Pod.deployment_id).where(Pod.id == aggregator.pod_id)
+            ).one()
+            if deployment_id != message.deployment_id:
+                return self._misrouted(topic.agg, deployment_id, message.deployment_id)
+
+            online = payload.state == "online"
+            stored = db.scalars(
+                select(AggregatorStatus)
+                .where(AggregatorStatus.aggregator_id == aggregator.id)
+                .with_for_update()
+            ).first()
+            now = datetime.now(UTC)
+            if stored is None:
+                db.add(
+                    AggregatorStatus(
+                        aggregator_id=aggregator.id,
+                        deployment_id=deployment_id,
+                        online=online,
+                        declared_at=payload.at,
+                        changed_at=now,
+                    )
+                )
+                log.info("aggregator %s is %s (first status)", topic.agg, payload.state)
+            else:
+                stored.deployment_id = deployment_id
+                stored.declared_at = payload.at
+                stored.received_at = now
+                if stored.online != online:
+                    stored.online = online
+                    stored.changed_at = now
+                    log.info("aggregator %s is now %s", topic.agg, payload.state)
+            db.commit()
+            return ReportOutcome.ONLINE if online else ReportOutcome.OFFLINE
 
     # -- events --------------------------------------------------------------
 

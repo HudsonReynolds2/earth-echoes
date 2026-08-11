@@ -28,8 +28,10 @@ Repository layout (fixed by phase-0-foundations.md section 2):
    each one; never commit `.env`).
 4. Generate the dev broker's TLS material — `cd backend` then
    `uv run python -m app.devbroker --certs-only` — and run
-   `docker compose -f deploy/docker-compose.yml up -d --build`. Mosquitto will not
-   start without those files; see "Development MQTT broker" below.
+   `docker compose -f deploy/docker-compose.yml -p eoe-qa up -d --build`. Mosquitto will
+   not start without those files; see "Development MQTT broker" below. Keep `-p eoe-qa`:
+   without it Compose names the project after the directory and the guides' commands, which
+   all pass `-p eoe-qa`, address a stack you do not have (D90).
 5. Seed the initial owner: `cd backend` then `uv run python -m app.seed` (with
    `DATABASE_URL` pointing at the stack's Postgres); the credentials print exactly once.
 6. Open the API at `http://localhost:18000` and the frontend at `http://localhost:15173`,
@@ -81,7 +83,7 @@ The second — after `app.seed --demo` has created deployments — writes one pl
 per deployment, one device account per Aggregator, the matching ACL grants, and the
 `deployment_service` row the platform reads its broker coordinates from (the password goes
 through `SecretStore`, never into the row). Restart the broker afterwards so it re-reads
-the files: `docker compose -f deploy/docker-compose.yml restart mosquitto`.
+the files: `docker compose -f deploy/docker-compose.yml -p eoe-qa restart mosquitto`.
 
 `--host` is the hostname the **platform** dials: `mosquitto` from inside the compose
 network, `localhost` when running the API or worker on the host. Device credentials for

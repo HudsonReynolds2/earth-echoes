@@ -44,6 +44,7 @@ from app.contracts.mqtt import (
     ListenerLiveness,
     ReportedAggregatorState,
     ReportedListenerState,
+    StatusMessage,
     encode,
     event_topic,
     listener_reported_topic,
@@ -73,6 +74,7 @@ from app.devbroker import device_username, load_manifest
 from app.inventory.identity import ALERT_DUPLICATE_IDENTITY, ALERT_PROVISIONING_REQUIRED
 from app.models import (
     Aggregator,
+    AggregatorStatus,
     AuditLog,
     ConfigRevision,
     Deployment,
@@ -130,7 +132,14 @@ def reports(database):
     """The session factory, with everything a report can write reset after it."""
     yield database
     with database() as db:
-        for table in (ConfigRevision, DeviceState, DeviceEvent, QuarantinedReport, InventoryAlert):
+        for table in (
+            ConfigRevision,
+            DeviceState,
+            DeviceEvent,
+            QuarantinedReport,
+            InventoryAlert,
+            AggregatorStatus,  # E3.8 writes here from this module's status test
+        ):
             db.execute(delete(table))
         db.execute(
             delete(AuditLog).where(
@@ -326,13 +335,16 @@ def device_event(
 # --- The boundary: what is not a reconciliation outcome ---------------------
 
 
-def test_a_status_message_is_left_for_e3_8(consumer, reports):
-    """The status topic arrives on the same subscription set and spec 9.3
-    makes it the authoritative Aggregator liveness verdict — E3.8's task. It is
-    recognized and dropped rather than silently swallowed, so the seam between
-    the two tasks is visible in the outcome."""
-    message = inbound(reports, status_topic(RC, AGG), b'{"schema_version":1,"state":"online"}')
-    assert consumer.consume(message) is ReportOutcome.NOT_MINE
+def test_a_status_message_is_not_a_reported_state(consumer, reports):
+    """E3.8 claimed the status topic (this test previously asserted the E3.5
+    seam, `NOT_MINE`). The boundary it now guards is the one that still
+    matters: a status message says whether the device is REACHABLE, and never
+    a word about what config it is running. It must not create or touch a
+    `device_state` row — `test_lwt_status.py` owns the rest of the behaviour.
+    """
+    payload = encode(StatusMessage(state="online", at=datetime.now(UTC)))
+    message = inbound(reports, status_topic(RC, AGG), payload)
+    assert consumer.consume(message) is ReportOutcome.ONLINE
     assert stored_state(reports, "aggregator", platform_uuid_of(reports)) is None
 
 

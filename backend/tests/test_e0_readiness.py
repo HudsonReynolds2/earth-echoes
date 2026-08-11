@@ -165,11 +165,17 @@ E0_TABLES = {
     "deployment_service",
     # E3.5 (gate 44): what a device reports back. `device_state` is spec 6.1's
     # "last state the device sent", one row per device replaced in place, and
-    # E3.8/E3.9 EXTEND it with LWT online state and spec 6.5 Listener
-    # liveness. `device_event` is the spec 7.3 event stream as immutable
+    # E3.9 EXTENDS it with the spec 6.5 Listener liveness block, which arrives
+    # inside a report. `device_event` is the spec 7.3 event stream as immutable
     # evidence, deduped per (emitter, instant, code) against QoS 1 redelivery.
     "device_state",
     "device_event",
+    # E3.8 (gate 46): the spec 9.3 live online verdict, LWT-driven. A table of
+    # its own rather than the `device_state` columns E3.5 anticipated: that
+    # row is a REPORT (three NOT NULL columns a status message cannot fill),
+    # LWT is Aggregator-only, and an `offline` will is published by the broker
+    # rather than by the device. See D88.
+    "aggregator_status",
 }
 
 
