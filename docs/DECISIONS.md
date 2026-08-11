@@ -4,6 +4,37 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D99 (2026-08-11): The backend suite runs in parallel, grouped by module (SIM.0)
+
+- **Decision:** `-n 6 --dist loadgroup` with a `tryfirst` `pytest_collection_modifyitems` hook
+  in `tests/conftest.py` that marks every test with an `xdist_group` named after its module.
+  **Backend gate time: 541s → 260s.** On the owner's instruction, after a run of gates where
+  the waiting was the dominant cost of doing the work.
+- **Grouped by MODULE, and it has to be.** Nearly every suite here hangs a module-scoped
+  Postgres or Mosquitto off a fixture, and many are deliberately order-dependent within their
+  file — `test_uniqueness` creates `sensor`, then asserts the next create becomes `sensor-2`.
+  Per-test distribution scatters those across six workers, each paying for its own container
+  and each seeing none of the others' state. Observed exactly that: six tests, six workers,
+  four failures.
+- **`tryfirst` is not decoration.** xdist reads the `xdist_group` mark inside its OWN
+  `pytest_collection_modifyitems` and bakes the group into the nodeid there. A mark added after
+  that hook runs is never seen, and everything scatters as if unmarked — silently, since the
+  suite still runs. That cost a red gate to find, which is why the hook says so in its
+  docstring.
+- **The fixed-port modules share one group.** `test_compose_stack` and `test_verify_tool` both
+  bring the real deploy stack up on the `FIXED_PORTS` pins, and there is exactly one host port
+  15173. A shared group is xdist's own guarantee of "same worker", therefore never concurrent.
+- **`docker_retry` for the forwarder, and only the forwarder.** Docker Desktop returns
+  `/forwards/expose returned unexpected status: 500` when several containers publish ports at
+  once; it also did so serially, twice, during this task. The helper retries exactly three
+  known-transient strings and passes anything else straight back on the first attempt, because
+  a blanket retry would turn a genuinely broken image into a slow silent timeout. `docker run
+  --name` retries remove the half-created container first, or the retry reports "name already
+  in use" and hides the real fault.
+- **R0 is untouched.** The whole suite still runs, unfiltered, in one invocation; the gate
+  guard's counts are unaffected. Parallelism changes how long the truth takes to arrive, not
+  what counts as true.
+
 ## D98 (2026-08-11): The suite carries a 300-second per-test deadman switch (SIM.0)
 
 - **Decision:** `addopts` gains `--timeout=300 --durations=10` (pytest-timeout, a dev

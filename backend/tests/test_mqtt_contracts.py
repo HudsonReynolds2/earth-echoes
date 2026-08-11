@@ -398,7 +398,27 @@ def test_the_spec_7_3_examples_parse_as_written():
         Command(at=WHEN, command="resync"),
         Command(at=WHEN, command="flush_buffer"),
     ],
-    ids=lambda p: f"{type(p).__name__}-{id(p) % 1000}",
+    # Named, not numbered. The ids used to be `f"{type(p).__name__}-{id(p) % 1000}"`,
+    # which reads as a nice disambiguator and is actually a MEMORY ADDRESS: a
+    # different string in every process, so parallel workers collected
+    # different test ids and refused to run at all (D99). These say which case
+    # each one is, which is what the numbers were standing in for anyway.
+    ids=[
+        "desired-aggregator",
+        "desired-listener",
+        "reported-full",
+        "reported-nothing-applied-yet",
+        "listener-streaming",
+        "listener-sleeping",
+        "listener-offline",
+        "status-online",
+        "status-offline",
+        "event-stream-gap",
+        "event-apply-failed",
+        "command-restart",
+        "command-resync",
+        "command-flush-buffer",
+    ],
 )
 def test_every_payload_round_trips_through_the_wire_form(payload):
     """The acceptance criterion: encode, ship, decode, and get the same object

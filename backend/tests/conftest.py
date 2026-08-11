@@ -34,6 +34,44 @@ hypothesis_settings.register_profile("gate", derandomize=True, deadline=None)
 hypothesis_settings.load_profile("gate")
 
 
+#: Modules that bring the REAL deploy stack up on the `FIXED_PORTS` pins.
+#: There is exactly one host port 15173, so these may never run at the same
+#: time as each other — they share one xdist group, which puts them on one
+#: worker and back in sequence.
+FIXED_PORT_MODULES = frozenset({"test_compose_stack", "test_verify_tool"})
+
+#: The group those modules share. Any name will do; it only has to collide.
+FIXED_PORT_GROUP = "deploy-stack-fixed-ports"
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items) -> None:
+    """Pin every test to an xdist group, so `--dist loadgroup` parallelizes by
+    MODULE rather than by test (D99).
+
+    **`tryfirst` is load-bearing.** xdist reads the `xdist_group` mark in its
+    OWN `pytest_collection_modifyitems` and bakes the group into the nodeid
+    there; a mark added after that hook has run is simply never seen, and every
+    test scatters across workers as if unmarked. That failure is silent — the
+    suite still runs, it just runs wrong — and it cost a red gate to find.
+
+    Two properties have to hold at once and neither is xdist's default. Most
+    suites here hang a module-scoped Postgres or Mosquitto container off a
+    fixture; splitting one module across workers would start that container
+    once per worker and make the suite slower, not faster. And the two modules
+    that publish the fixed host ports would deadlock each other on 15173 if
+    they overlapped.
+
+    Grouping by module name gets the first. Overriding that name for the
+    fixed-port modules gets the second, because a shared group is exactly
+    xdist's promise of "same worker, therefore never concurrent".
+    """
+    for item in items:
+        module = item.module.__name__.rsplit(".", 1)[-1] if item.module else "orphan"
+        group = FIXED_PORT_GROUP if module in FIXED_PORT_MODULES else module
+        item.add_marker(pytest.mark.xdist_group(group))
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     """Async tests (E3.2 onward) run on anyio's pytest plugin, which ships
@@ -77,7 +115,7 @@ def ephemeral_postgres(migrate: bool = True):
     name = f"eoe-pg-{uuid.uuid4().hex[:10]}"
     secret = uuid.uuid4().hex
     env = docker_env()
-    run = subprocess.run(
+    run = docker_retry(
         [
             docker_cli(),
             "run",
@@ -90,9 +128,9 @@ def ephemeral_postgres(migrate: bool = True):
             f"POSTGRES_PASSWORD={secret}",
             "postgres:16-alpine",
         ],
-        capture_output=True,
-        text=True,
-        env=env,
+        env,
+        what="ephemeral postgres",
+        cleanup_name=name,
     )
     assert run.returncode == 0, f"could not start ephemeral postgres: {run.stderr}"
     try:
@@ -148,6 +186,52 @@ def bootstrap_broker_material() -> None:
     assert result.returncode == 0, (
         f"devbroker --certs-only failed:\n{result.stdout}\n{result.stderr}"
     )
+
+
+#: Docker Desktop's port forwarder fails like this, transiently, when several
+#: containers publish ports at once — which is exactly what a parallel suite
+#: does (D99). It is a fault in the forwarder, not in the container: the same
+#: command succeeds a moment later.
+_TRANSIENT_DOCKER = (
+    "/forwards/expose returned unexpected status: 500",
+    "port is already allocated",
+    "failed to set up container networking",
+)
+
+
+def docker_retry(
+    argv: list[str],
+    env: dict[str, str],
+    attempts: int = 5,
+    what: str = "docker command",
+    cleanup_name: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a docker command, retrying ONLY the known-transient port-forwarder
+    faults (D99).
+
+    Deliberately narrow. A retry loop around every docker failure would turn a
+    genuinely broken image or a bad flag into a slow, silent timeout; these
+    three strings are the forwarder giving up under concurrency, and nothing
+    else. Anything unrecognised comes straight back to the caller on the first
+    attempt, still failing, still with its own message.
+
+    `cleanup_name` is required for `docker run --name`: a run that fails at the
+    networking stage has ALREADY created the container, so a bare retry hits
+    "name is already in use" and reports the wrong fault entirely. `start` on
+    an existing container needs no such thing and passes None.
+    """
+    result = subprocess.run(argv, capture_output=True, text=True, env=env)
+    for attempt in range(1, attempts):
+        if result.returncode == 0 or not any(fault in result.stderr for fault in _TRANSIENT_DOCKER):
+            return result
+        time.sleep(attempt)
+        print(f"{what}: retrying past a transient Docker fault ({attempt}/{attempts - 1})")
+        if cleanup_name is not None:
+            subprocess.run(
+                [docker_cli(), "rm", "-f", "-v", cleanup_name], capture_output=True, env=env
+            )
+        result = subprocess.run(argv, capture_output=True, text=True, env=env)
+    return result
 
 
 def free_port() -> int:
@@ -218,9 +302,7 @@ class Broker:
         """Bring it back and wait until it accepts again. Only meaningful for
         a broker created on an explicit host port (see free_port)."""
         env = docker_env()
-        started = subprocess.run(
-            [docker_cli(), "start", self.name], capture_output=True, text=True, env=env
-        )
+        started = docker_retry([docker_cli(), "start", self.name], env, what="broker restart")
         assert started.returncode == 0, f"could not restart the broker: {started.stderr}"
         _wait_until_accepting(self.name, env)
 
@@ -271,9 +353,7 @@ def ephemeral_broker(dev_dir: Path, host_port: int | None = None):
                 env=env,
             )
             assert copied.returncode == 0, f"docker cp {source} failed: {copied.stderr}"
-        started = subprocess.run(
-            [docker_cli(), "start", name], capture_output=True, text=True, env=env
-        )
+        started = docker_retry([docker_cli(), "start", name], env, what="broker start")
         assert started.returncode == 0, f"broker would not start: {started.stderr}"
 
         ports = subprocess.run(

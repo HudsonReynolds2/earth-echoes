@@ -1,5 +1,25 @@
 # Project Updates
 
+## 2026-08-11: The gate runs in parallel — 541s to 260s (Gate 53 GREEN)
+
+- **Not a SIM task.** Taken between SIM.0 and SIM.1, on the owner's instruction, because five
+  more task gates had to be paid for and the waiting had become the dominant cost of the work.
+  DECISIONS D99.
+- **Gate 53 GREEN:** 766 backend / 114 vitest / 4 Playwright, 0 failed / 0 skipped / 0 xfailed
+  / 0 deselected. Backend stage **260s, down from 541s**; the whole `make gate` now finishes in
+  4m38 rather than a little over ten minutes.
+- **What changed.** `-n 6 --dist loadgroup`, with a `tryfirst` collection hook marking every
+  test with an `xdist_group` named after its module. Module granularity is forced by the suite
+  as written: module-scoped container fixtures, and files whose tests deliberately build on
+  each other. `test_compose_stack` and `test_verify_tool` share one group, because there is one
+  host port 15173 and they both want it.
+- **Two defects surfaced by turning it on, both real.** A parametrization keyed on `id(p)` — a
+  memory address — collected different test ids in every process and made xdist refuse to run;
+  the ids are now named after the cases they describe. And Docker Desktop's port forwarder
+  returns `/forwards/expose ... 500` under concurrent publishes, which had already cost two
+  serial gates today; `conftest.docker_retry` now retries exactly that fault and nothing else.
+- **R0 is untouched:** one unfiltered invocation of the whole suite, same guard, same counts.
+
 ## 2026-08-11: SIM.0 — the SIM phase document, and two gate repairs (Gate 52 GREEN)
 
 - **Task closed:** SIM.0 (phase document and records) on branch `sim-batch-1`. DECISIONS

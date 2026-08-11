@@ -27,6 +27,7 @@ dev = [
     "pyyaml>=6.0",
     "hypothesis>=6.100",
     "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.mypy]
@@ -45,7 +46,7 @@ pythonpath = ["."]
 # on a wedged Docker socket or a broker that never accepts now DIES and names
 # itself, instead of holding the whole gate hostage. Tests that legitimately
 # build container images carry their own longer @pytest.mark.timeout.
-addopts = "-ra --durations=10 --timeout=300"
+addopts = "-ra --durations=10 --timeout=300 --timeout-method=thread -n 6 --dist loadgroup"
 markers = [
     "integration: exercises the real Docker compose stack; a hard gate prerequisite (rule R0)",
 ]
