@@ -1454,7 +1454,68 @@ reimplement their logic.** Signatures, verbatim:
   the body carries credentials. **It writes no status** — `deployment_service.status` and
   `deployment.services_status` are E5.5's. Audited as `services.test` with detail
   `{"outcomes": {service_key: outcome}}` and nothing else.
-- **`testers.REGISTRY` is empty until E5.4a-e**, and is read through the module rather than a
+- **`testers.REGISTRY` fills across E5.4a-e**, and is read through the module rather than a
   from-import so registration at import time is visible to the endpoint. A service with no
   registered tester is simply absent from `results`.
 - **Suite:** `backend/tests/test_service_testers.py`.
+
+### The MQTT tester and the dynsec probe (E5.4a; spec 16.2 row 1, 16.4, 16.5; fixed choice 4)
+
+- **`app/services/clients/mqtt.py::MqttServiceClient`** is how a deployment's broker is dialled
+  for a test. It builds a `BrokerCoordinates` and calls **`broker.py::tls_context`** rather than
+  growing a second TLS rule, so D65's pinned-CA property — the stored PEM is the *only* trust
+  anchor, never "the system store as well" — holds identically for a candidate that has never
+  been saved and for a stored row. `password` is `repr=False` behind a `__str__` naming only the
+  deployment and the socket (D66). Keep both.
+- **The reserved round-trip leaf is `eoe/{slug}/_selftest`**, built through
+  `contracts.mqtt.deployment_root` and never written as a literal. It is inside the single grant
+  the platform account already holds (`topic readwrite eoe/{slug}/#`), so a correctly cut ACL
+  passes without being widened. Published QoS 1 and **never retained** — a retained self-test
+  would be delivered to every device that later subscribed to the deployment root.
+- **`classify_connect_error` maps a dial failure onto `kind` ∈ `authentication` | `tls_trust` |
+  `tls_handshake` | `dns` | `unreachable`**, keyed on the exception's `__cause__` type rather
+  than its message, because aiomqtt wraps everything below it in `MqttError` whose `str` is the
+  underlying exception's. Recognised branches may quote `ssl`'s verification reason and `errno`
+  text, which are credential-free; the unrecognised branch falls back to the exception **type**,
+  keeping `base.py::_crashed`'s rule exactly where its reasoning applies.
+- **`app/services/dynsec.py` is the `$CONTROL/dynamic-security/v1` channel** — the probe now,
+  and **E5.6 CONSUMES AND EXTENDS THIS**, adding mint and revoke through the same `call()`. It
+  operates on an already-connected client and never on `MqttClientManager`, whose subscription
+  set is fixed before `start()` (D64) and which only knows deployments that already have a row.
+- **The probe has three verdicts and the discriminator is the SUBACK on the response topic**,
+  not the publish:
+
+  | broker | SUBACK | reply | verdict |
+  | --- | --- | --- | --- |
+  | `acl_file`, no plugin | Granted QoS 1 | none | `absent` |
+  | dynsec, client holding `admin` | Granted QoS 1 | yes | `available` |
+  | dynsec, client without `admin` | Not authorized | none | `denied` |
+
+  A Mosquitto using `acl_file` **grants** a subscription to a topic its file never mentions and
+  then silently refuses the matching publish, so "the publish was refused" cannot separate a
+  missing plugin from an unprivileged account; dynsec refuses the SUBSCRIBE. Established by
+  experiment against real brokers rather than from documentation.
+- **A non-`available` verdict FAILS the tester** (fixed choice 4); it does not warn. dynsec is
+  required for v1, so `absent` and `denied` both keep `services_status` off `verified`, which by
+  spec 16.5 blocks bundle generation. `DynsecProbe.usable` is the single predicate, and E5.6
+  reads it before attempting a mint.
+- **The probe never publishes to `$CONTROL` on a broker that has not accepted it**, and that is
+  structural rather than a rule to remember: a refused SUBACK returns before the publish. Note
+  for anyone testing it — the plugin **consumes** a control publish and never distributes it, so
+  no subscriber can witness one; the broker's log at `log_type all` is the only witness.
+- **`ServiceCredentials` gained `deployment_id` and `deployment_slug`**, keyword-only and
+  defaulted on `resolve_credentials`, for the one tester whose target topic is a function of the
+  deployment. The other four dial a URL that carries no deployment identity and ignore both.
+- **`app/services/clients/` must not import from `app/services/testers/`.** `testers/__init__`
+  imports every tester to populate `REGISTRY`, so a client reaching back for `ServiceCredentials`
+  closes an import cycle and fails at import. Converting credentials into a client is the
+  tester's job (`testers/mqtt.py::client_for`). This is the layering E7 wants regardless: clients
+  dial, and know nothing about verdicts.
+- **Test fixtures:** `conftest.dynsec_broker(tmp_path, slug)` stands the same container up with
+  the plugin loaded instead of the `acl_file`, carrying one administrator and one plain account
+  in a single `dynamic-security.json` — so `available` and `denied` are a property of which
+  credential the test dials with, which is also what they are in reality. `ephemeral_broker`
+  gained a `conf` parameter so one container recipe serves both. `Broker.logs()` returns the
+  broker's own record. **E5.8a replaces the hand-written `dynamic-security.json` with a
+  generated one.**
+- **Suite:** `backend/tests/test_tester_mqtt.py`.

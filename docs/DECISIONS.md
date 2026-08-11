@@ -4,6 +4,89 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D116 (2026-08-11): `app/services/clients/` may not import `app/services/testers/`, and the
+credential set grew a deployment identity (E5.4a)
+
+- **The cycle.** `testers/__init__` imports every tester so `REGISTRY` is populated at import
+  time — which is what makes the endpoint's "read through the module" rule work. A client that
+  imported `ServiceCredentials` from `testers/base` therefore closed the loop, and E5.4a hit it
+  as a real `ImportError` on the first run rather than as a design worry.
+- **The fix is the layering that was wanted anyway.** Clients dial and know nothing about
+  verdicts, credential resolution or the tester framework; turning a `ServiceCredentials` into a
+  client is the tester's job (`testers/mqtt.py::client_for`). Phase-5 fixed choice 8 promises E7
+  will extend these clients, and a client that depends on E5's tester framework is a worse
+  inheritance than one that does not. **The import cycle now enforces the rule**, which is
+  better than a convention in a docstring: E5.4b-e cannot violate it without the suite failing
+  at collection.
+- **`ServiceCredentials` gained `deployment_id` and `deployment_slug`.** The MQTT tester's
+  target topic is a function of the deployment — the reserved leaf is built through
+  `contracts.mqtt.deployment_root` so it lands inside the platform account's single ACL grant —
+  and `resolve_credentials` had no way to carry that. They are keyword-only and default to
+  `None` because the other four testers dial a URL that contains no deployment identity: a
+  required field that four callers pass through untouched is a field that eventually gets passed
+  wrong. The MQTT tester rejects their absence explicitly rather than building a wrong topic.
+- **Reference:** `app/services/clients/mqtt.py`, `app/services/testers/mqtt.py::client_for`,
+  `app/services/testers/base.py::ServiceCredentials`; phase-5 fixed choice 8.
+
+## D115 (2026-08-11): `app/services/dynsec.py` is created by E5.4a, one unit before the phase
+document places it (E5.4a)
+
+- **What moved.** The phase document names `app/services/dynsec.py` under **E5.6**. E5.4a needs
+  the same thing E5.6 needs — a short-lived client that publishes to
+  `$CONTROL/dynamic-security/v1`, correlates the reply on the response topic, and interprets an
+  error — so the module is created here and E5.6 adds `mint` and `revoke` to it through the
+  `call()` entry point that already exists.
+- **Why, and what it is not.** The alternative was a probe living inside the MQTT tester with
+  E5.6 unifying later, which guarantees two implementations of one round trip in the tree
+  between now and then, and a refactor of working tested code at the moment E5.6 is trying to
+  get credential minting right. **Nothing about E5.6's scope moves**: `BrokerCredentialProvider`,
+  the `broker_credential` table, the mint and revoke endpoints and `aggregator_acl_grants` are
+  all still E5.6's, and this module contains none of them. Decided by the owner when the
+  question was put, rather than taken unilaterally.
+- **The E5.6 constraints are already honoured here**, so E5.6 inherits them rather than
+  re-establishing them: a dedicated short-lived client and never `MqttClientManager` (whose
+  subscription set is fixed before `start()` per D64, and which only knows deployments that
+  already have a row, while a test runs against candidate coordinates); `broker.py::tls_context`
+  reused so D65's pinned-anchor property holds identically.
+- **Reference:** `app/services/dynsec.py`; phase-5 section 4, E5.6; D64, D65.
+
+## D114 (2026-08-11): The dynsec probe's three verdicts are decided by the SUBACK, not by the
+publish — and the obvious discriminator does not work (E5.4a)
+
+- **The requirement.** Phase-5 fixed choice 4 makes dynsec required for v1, so the probe's
+  verdict is part of broker verification, and it has to be three-valued: `absent` (no plugin)
+  and `denied` (plugin present, this account is not an administrator) have completely different
+  remedies — "enable the plugin" versus "grant this account the admin role" — and are different
+  people doing different things. A boolean collapses them.
+- **What was measured, before any of it was written.** Three broker shapes, one probe:
+
+  | broker | SUBACK on the response topic | reply |
+  | --- | --- | --- |
+  | `acl_file`, no plugin, platform account | Granted QoS 1 | none |
+  | dynsec, client holding `admin` | Granted QoS 1 | well-formed |
+  | dynsec, client without `admin` | Not authorized (0x87) / Unspecified error (0x80) | none |
+
+- **The load-bearing surprise is the first row.** A Mosquitto using `acl_file` **grants** a
+  subscription to a topic its file never mentions, and then silently refuses the matching
+  publish (PUBACK reason 135, which aiomqtt does not surface). So the intuitive discriminator —
+  "was the control publish refused?" — is identical for a broker with no plugin and a broker
+  whose account lacks the role, and a probe built on it would report `denied` for the dev broker.
+  The phase document requires `absent` there. **Dynsec refuses the SUBSCRIBE**, so the SUBACK is
+  the thing that actually carries the information: a refused SUBACK means something is enforcing
+  ACLs on the control topics, which is the plugin; a granted SUBACK followed by silence means
+  nothing is listening on them at all.
+- **A consequence worth having.** "The probe never publishes to `$CONTROL` on a broker it has not
+  first confirmed accepts the connection" becomes structural rather than a rule someone has to
+  remember — a refused SUBACK returns before the publish line is reached.
+- **And a trap for whoever tests this next.** The plugin **consumes** a `$CONTROL` publish and
+  never distributes it, so no subscriber — not even an administrator holding
+  `subscribePattern $CONTROL/dynamic-security/#` — can witness one. The first version of that
+  assertion used a watching subscriber and failed against the *authorized* case, which is how
+  this was found. The broker's own log at `log_type all` is the only witness that exists, and
+  `Broker.logs()` exists for it.
+- **Reference:** `app/services/dynsec.py`; `backend/tests/test_tester_mqtt.py`;
+  `backend/tests/conftest.py::dynsec_broker`; phase-5 fixed choice 4; spec 17 item 14.
+
 ## D113 (2026-08-11): D112's fix is adopted from the SIM branch rather than written again, and
 D112's interim rule is retired
 

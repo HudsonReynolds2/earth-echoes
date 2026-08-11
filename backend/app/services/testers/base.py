@@ -32,6 +32,7 @@ this module computes evidence and returns it.
 import asyncio
 import logging
 import time
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -107,6 +108,16 @@ class ServiceCredentials:
     service_key: str
     settings: Mapping[str, Any]
     secrets: Mapping[str, str] = field(repr=False, default_factory=dict)
+    #: Which deployment this is, for the one tester whose target topic is a
+    #: function of it. E5.4a builds its reserved leaf through
+    #: `contracts.mqtt.deployment_root`, so the round trip lands inside the
+    #: single grant the platform account holds (`topic readwrite eoe/{slug}/#`)
+    #: and a broker whose ACL is cut correctly passes without widening it.
+    #: Optional because the other four dial a URL that carries no deployment
+    #: identity at all, and a required field four testers pass through
+    #: untouched is a field that eventually gets passed wrong.
+    deployment_id: uuid.UUID | None = None
+    deployment_slug: str | None = None
 
     def __str__(self) -> str:
         return f"{self.service_key}({', '.join(sorted(self.settings))})"
@@ -301,6 +312,9 @@ def resolve_credentials(
     stored: DeploymentService | None,
     candidate: ServiceSettings | None,
     secret_getter: Callable[[str], str],
+    *,
+    deployment_id: uuid.UUID | None = None,
+    deployment_slug: str | None = None,
 ) -> ServiceCredentials | None:
     """What to dial one service with, or None if there is nothing to dial.
 
@@ -314,6 +328,11 @@ def resolve_credentials(
     credential set without that field, and the tester fails on the resulting
     auth error with a real remedy - which is a better answer than a 500 that
     tells the operator nothing about the other four services.
+
+    `deployment_id` and `deployment_slug` ride through untouched for the one
+    tester that needs them (E5.4a; see `ServiceCredentials`). They are
+    keyword-only and defaulted so the four testers that do not care never
+    mention them.
     """
     model = SERVICE_SCHEMAS[service_key]
     plain_fields = [name for name in model.model_fields if name not in model.secret_fields]
@@ -334,7 +353,13 @@ def resolve_credentials(
             value = _fetch(secret_getter, service_key, stored_name)
             if value is not None:
                 secrets[name] = value
-        return ServiceCredentials(service_key=service_key, settings=settings, secrets=secrets)
+        return ServiceCredentials(
+            service_key=service_key,
+            settings=settings,
+            secrets=secrets,
+            deployment_id=deployment_id,
+            deployment_slug=deployment_slug,
+        )
 
     for name in plain_fields:
         settings[name] = getattr(candidate, name)
@@ -349,4 +374,10 @@ def resolve_credentials(
                 secrets[name] = value
         elif submitted is not None:
             secrets[name] = submitted
-    return ServiceCredentials(service_key=service_key, settings=settings, secrets=secrets)
+    return ServiceCredentials(
+        service_key=service_key,
+        settings=settings,
+        secrets=secrets,
+        deployment_id=deployment_id,
+        deployment_slug=deployment_slug,
+    )

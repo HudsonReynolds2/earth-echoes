@@ -303,16 +303,17 @@ async def test_services(
     endpoint computes evidence and returns it, so re-running a test can never
     itself change a verdict of record.
 
-    **`testers_module.REGISTRY` is empty until E5.4a-e.** Until then this honestly reports no
-    results rather than inventing verdicts nothing computed.
+    **`testers_module.REGISTRY` fills up across E5.4a-e** (`mqtt` is in it as of E5.4a). A
+    service with no tester yet is simply absent from the results rather than carrying a
+    verdict nothing computed.
     """
-    _get_deployment(db, deployment_id)
+    deployment = _get_deployment(db, deployment_id)
     store = request.app.state.secret_store
     submitted = (body.services if body is not None else ServicesIn()).by_key()
 
     # Read through the MODULE, not a from-import: E5.4a-e register into
     # `testers_module.REGISTRY` at import time, and a rebound name here
-    # would silently keep the empty dict this task ships with.
+    # would silently keep whichever dict was current when this module loaded.
     registry = testers_module.REGISTRY
     testers = [registry[key] for key in SERVICE_KEYS if key in registry]
     credentials = {
@@ -321,6 +322,11 @@ async def test_services(
             load_service(db, deployment_id, tester.service_key),
             submitted.get(tester.service_key),
             store.get,
+            # For the one tester whose target topic is a function of the
+            # deployment (E5.4a's reserved leaf under `deployment_root`).
+            # The other four dial a URL and ignore both.
+            deployment_id=deployment_id,
+            deployment_slug=deployment.slug,
         )
         for tester in testers
     }
