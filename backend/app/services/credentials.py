@@ -65,8 +65,9 @@ import aiomqtt
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.brokerconfig import AclGrant, aggregator_acl_grants, device_username
 from app.controlplane.broker import BrokerCoordinates, load_broker_coordinates
-from app.devbroker import AclGrant, aggregator_acl_grants, device_username, load_manifest
+from app.devbroker import load_manifest
 from app.models import BrokerCredential
 from app.secrets import SecretStore
 from app.services import dynsec

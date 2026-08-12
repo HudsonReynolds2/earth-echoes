@@ -25,69 +25,70 @@ accounts and reloads the broker.
 """
 
 import argparse
-import base64
-import datetime as dt
-import hashlib
-import ipaddress
 import json
-import os
 import secrets
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.contracts.mqtt import aggregator_root, deployment_root
+from app.brokerconfig import (
+    CERT_HOSTNAMES,
+    CERT_IPS,
+    PW_HASH_BYTES,
+    PW_ITERATIONS,
+    PW_SALT_BYTES,
+    Account,
+    AclGrant,
+    aggregator_acl_grants,
+    device_username,
+    generate_tls_material,
+    password_file_text,
+    password_hash,
+    platform_username,
+)
+from app.contracts.mqtt import deployment_root
 from app.db import create_session_factory
 from app.models import Aggregator, Deployment, DeploymentService, Pod
 from app.secrets import SecretStore
 from app.settings import Settings
+
+#: Re-exported so E3.1's callers and `tests/test_dev_broker.py` keep importing
+#: the broker material from here. E5.8a moved the implementations to
+#: `app.brokerconfig` because the generated stack needs the same renderers; the
+#: names this module has always exposed are deliberately unchanged.
+__all__ = [
+    "CERT_HOSTNAMES",
+    "CERT_IPS",
+    "DEV_CERTS",
+    "PW_HASH_BYTES",
+    "PW_ITERATIONS",
+    "PW_SALT_BYTES",
+    "AclGrant",
+    "Account",
+    "acl_file_text",
+    "aggregator_acl_grants",
+    "device_username",
+    "generate_tls_material",
+    "load_manifest",
+    "main",
+    "password_file_text",
+    "password_hash",
+    "plan_accounts",
+    "platform_username",
+    "register_services",
+    "secret_name",
+    "write_artifacts",
+]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEV_CERTS = REPO_ROOT / "deploy" / "dev-certs"
 
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 8883
-
-#: Mosquitto 2.x PBKDF2-SHA512 password file format; 101 iterations and a
-#: 12-byte salt are `mosquitto_passwd`'s own defaults.
-PW_ITERATIONS = 101
-PW_SALT_BYTES = 12
-PW_HASH_BYTES = 64
-
-#: SAN entries the dev broker answers to: `mosquitto` inside the compose
-#: network, localhost/127.0.0.1 from the host and from the test suite.
-CERT_HOSTNAMES = ("mosquitto", "localhost")
-CERT_IPS = ("127.0.0.1",)
-
-
-@dataclass(frozen=True)
-class Account:
-    """One broker login. `kind` decides the ACL cut: a platform account gets
-    its whole deployment namespace, a device account gets exactly the spec 7.2
-    direction table for its own subtree — read what the platform sends it,
-    write what it reports back, and nothing else, in either direction."""
-
-    username: str
-    password: str
-    kind: str  # "platform" | "device"
-    deployment_slug: str
-    aggregator_uuid: str | None = None
-
-
-def platform_username(slug: str) -> str:
-    return f"platform-{slug}"
-
-
-def device_username(aggregator_uuid: str) -> str:
-    return f"dev-{aggregator_uuid}"
 
 
 def secret_name(deployment_id: object, service_key: str = "mqtt") -> str:
@@ -96,78 +97,12 @@ def secret_name(deployment_id: object, service_key: str = "mqtt") -> str:
     return f"deployment:{deployment_id}:{service_key}_password"
 
 
-# --- Mosquitto password file ------------------------------------------------
-
-
-def password_hash(password: str, salt: bytes, iterations: int = PW_ITERATIONS) -> str:
-    """One `$7$` field group exactly as Mosquitto 2.x writes it: PBKDF2-HMAC-
-    SHA512 over the raw password with the raw salt, both halves base64'd."""
-    digest = hashlib.pbkdf2_hmac("sha512", password.encode(), salt, iterations, PW_HASH_BYTES)
-    encoded_salt = base64.b64encode(salt).decode()
-    encoded_hash = base64.b64encode(digest).decode()
-    return f"$7${iterations}${encoded_salt}${encoded_hash}"
-
-
-def password_file_text(accounts: list[Account]) -> str:
-    """The whole password file. Mosquitto 2.0 dropped plain-text password
-    files, so every line carries a hash and the plaintext exists only in
-    `accounts.json` and SecretStore."""
-    lines = [
-        f"{account.username}:{password_hash(account.password, os.urandom(PW_SALT_BYTES))}"
-        for account in accounts
-    ]
-    return "".join(f"{line}\n" for line in lines)
-
-
 # --- Mosquitto ACL file -----------------------------------------------------
-
-
-@dataclass(frozen=True)
-class AclGrant:
-    """One permission an Aggregator holds on one topic filter.
-
-    `access` is the `acl_file` vocabulary (`read` = the device may subscribe
-    and be delivered to, `write` = the device may publish) because that file
-    is where these grants were first written down. `dynsec_role_acls` in
-    `app/services/credentials.py` translates it into the plugin's three
-    acltypes; nothing else may re-derive it.
-    """
-
-    access: str  # read | write
-    topic: str
-
-
-def aggregator_acl_grants(slug: str, aggregator_uuid: str) -> tuple[AclGrant, ...]:
-    """**The one list of what an Aggregator may do on its broker** (E5.6).
-
-    Spec 7.2's Direction column read literally, and the isolation guarantee of
-    spec 7.1: a device may read its own `desired`, `cmd` and its Listeners'
-    `desired`, and may write its own `reported`, `status`, `event` and its
-    Listeners' `reported`. Nothing else, in either direction.
-
-    **Why this is a function and not two literal blocks.** Two authorization
-    backends now render these grants — the dev broker's `acl_file` (E3.1) and
-    the dynamic security role each minted credential holds (E5.6) — and two
-    literal readings of the same spec table will eventually disagree. The
-    disagreement that matters is a single missing line: an Aggregator that may
-    publish to its own `desired` topic can manufacture agreement with itself
-    and defeat drift detection entirely. So both renderers read THIS, and a
-    test asserts both against it (phase-5 E5.6 acceptance).
-
-    E5.8a moves this to `app/brokerconfig.py` along with the rest of the
-    broker material; it lives here now because `acl_file_text` is its first
-    caller and a move is a separate, provable step.
-    """
-    root = aggregator_root(slug, aggregator_uuid)
-    return (
-        AclGrant("read", f"{root}/desired"),
-        AclGrant("read", f"{root}/cmd"),
-        AclGrant("read", f"{root}/lst/+/desired"),
-        AclGrant("write", f"{root}/reported"),
-        AclGrant("write", f"{root}/status"),
-        AclGrant("write", f"{root}/event"),
-        AclGrant("write", f"{root}/lst/+/reported"),
-    )
+#
+# The password file and the TLS material are rendered by `app.brokerconfig`
+# (E5.8a); this file is the dev broker's own authorisation mechanism and stays
+# here, because a generated stack authorises with the dynamic security plugin
+# instead and never writes one.
 
 
 def acl_file_text(accounts: list[Account]) -> str:
@@ -202,64 +137,6 @@ def acl_file_text(accounts: list[Account]) -> str:
             "",
         ]
     return "\n".join(blocks)
-
-
-# --- TLS material -----------------------------------------------------------
-
-
-def _rsa_key() -> rsa.RSAPrivateKey:
-    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
-
-def _pem_private(key: rsa.RSAPrivateKey) -> bytes:
-    return key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-
-
-def generate_tls_material() -> dict[str, bytes]:
-    """A private CA and one server certificate signed by it. Both are
-    short-lived dev artifacts; the platform trusts the CA (stored on the
-    deployment_service row) rather than disabling verification, so the TLS
-    path is genuinely exercised instead of merely configured."""
-    now = dt.datetime.now(dt.UTC)
-    ca_key = _rsa_key()
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Echoes of Earth dev CA")])
-    ca_cert = (
-        x509.CertificateBuilder()
-        .subject_name(ca_name)
-        .issuer_name(ca_name)
-        .public_key(ca_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - dt.timedelta(minutes=5))
-        .not_valid_after(now + dt.timedelta(days=825))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-        .sign(ca_key, hashes.SHA256())
-    )
-
-    server_key = _rsa_key()
-    alt_names: list[x509.GeneralName] = [x509.DNSName(host) for host in CERT_HOSTNAMES]
-    alt_names += [x509.IPAddress(ipaddress.ip_address(ip)) for ip in CERT_IPS]
-    server_cert = (
-        x509.CertificateBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, CERT_HOSTNAMES[0])]))
-        .issuer_name(ca_name)
-        .public_key(server_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - dt.timedelta(minutes=5))
-        .not_valid_after(now + dt.timedelta(days=825))
-        .add_extension(x509.SubjectAlternativeName(alt_names), critical=False)
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .sign(ca_key, hashes.SHA256())
-    )
-    return {
-        "ca.crt": ca_cert.public_bytes(serialization.Encoding.PEM),
-        "ca.key": _pem_private(ca_key),
-        "server.crt": server_cert.public_bytes(serialization.Encoding.PEM),
-        "server.key": _pem_private(server_key),
-    }
 
 
 # --- Writing the artifact directory ----------------------------------------
