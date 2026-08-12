@@ -29,16 +29,34 @@ ROOT = "echoes-stack"
 #: rather than a lie about when the bundle was made.
 EPOCH = 0
 
-#: Config files are readable by the compose services; private keys and `.env`
-#: are not. The broker container reads its own key as uid 1883, so the key is
-#: 0644 by necessity and the archive's own warning is what protects it (the
-#: same trade `devbroker.write_artifacts` documents).
 MODE_FILE = 0o644
 MODE_SECRET = 0o600
+#: The dynamic security plugin REWRITES this file as the platform mints each
+#: device's client (E5.6), and it arrives from the host owned by whoever
+#: unpacked the archive rather than by the broker's uid.
+MODE_DYNSEC = 0o666
 
-#: Files whose contents are credentials in directly usable form. Kept 0600 so
-#: an unpacked bundle is at least not world-readable on a shared host.
-SECRET_PATHS = frozenset({".env", "mosquitto/server.key", "prometheus/scrape_password"})
+#: Files kept 0600, so an unpacked bundle is not readable by every account on
+#: a shared host.
+#:
+#: **Only `.env` qualifies, and the reason is worth stating because the
+#: intuitive list is wrong.** These files are bind-mounted into containers that
+#: drop to unprivileged users — Mosquitto to uid 1883, Prometheus to nobody —
+#: and a 0600 file owned by the host user is unreadable to them. Setting the
+#: broker's private key to 0600 does not protect it; it stops the broker from
+#: starting at all, with `Unable to load server key file` and an OpenSSL
+#: permission error. The keystone test found exactly that, which is what the
+#: keystone is for.
+#:
+#: So the credential files the CONTAINERS read stay 0644 and the archive's own
+#: "treat this as a credential" section is what protects them — the same trade
+#: `devbroker.write_artifacts` documents for the dev broker. `.env` is
+#: different: it is read by the `docker compose` CLI as the operator, so 0600
+#: costs nothing.
+SECRET_PATHS = frozenset({".env"})
+
+#: Read by a container that has dropped privileges, so it cannot be 0600.
+CONTAINER_READ_PATHS = frozenset({"mosquitto/server.key", "prometheus/scrape_password"})
 
 
 def bundle_files(
@@ -77,7 +95,12 @@ def build_archive(files: Mapping[str, str]) -> bytes:
             info = tarfile.TarInfo(name=f"{ROOT}/{path}")
             info.size = len(payload)
             info.mtime = EPOCH
-            info.mode = MODE_SECRET if path in SECRET_PATHS else MODE_FILE
+            if path in SECRET_PATHS:
+                info.mode = MODE_SECRET
+            elif path == "mosquitto/dynamic-security.json":
+                info.mode = MODE_DYNSEC
+            else:
+                info.mode = MODE_FILE
             info.uid = info.gid = 0
             info.uname = info.gname = ""
             archive.addfile(info, io.BytesIO(payload))

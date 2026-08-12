@@ -222,15 +222,24 @@ def test_archive_entries_carry_no_host_identity(owner, dep_id):
             assert info.uname == "" and info.gname == ""
 
 
-def test_the_private_key_and_env_are_not_world_readable(owner, dep_id):
-    """An unpacked bundle on a shared host should at least not hand its
-    credentials to every account on the machine."""
+def test_env_is_private_but_container_read_files_stay_readable(owner, dep_id):
+    """The intuitive permissions are wrong, and the keystone proved it.
+
+    `.env` is read by the `docker compose` CLI as the operator, so 0600 costs
+    nothing. The broker's private key and the scrape password are bind-mounted
+    into containers that drop to unprivileged users, and 0600 there does not
+    protect them — it stops Mosquitto from starting, with `Unable to load
+    server key file`. `dynamic-security.json` has to be WRITABLE by the broker
+    because the plugin rewrites it as devices are minted (E5.6).
+    """
     generate(owner, dep_id, hostname="broker.example")
     archive = owner.get(f"{stack_url(dep_id)}/download").content
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
         modes = {info.name: info.mode for info in tar.getmembers()}
     assert modes["echoes-stack/.env"] == 0o600
-    assert modes["echoes-stack/mosquitto/server.key"] == 0o600
+    assert modes["echoes-stack/mosquitto/server.key"] == 0o644
+    assert modes["echoes-stack/prometheus/scrape_password"] == 0o644
+    assert modes["echoes-stack/mosquitto/dynamic-security.json"] == 0o666
 
 
 # --- Permissions -------------------------------------------------------------
