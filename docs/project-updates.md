@@ -1,5 +1,125 @@
 # Project Updates
 
+## 2026-08-12: E5.6, E5.7a and E5.7b — credentials a device can use, and settings that reach it (Gate 59 GREEN)
+
+- **Tasks closed:** E5.6 (per-device broker credential minting), E5.7a (the service-settings
+  projection and the privileged write), E5.7b (the two authorized E3-owned edits). Checkpoint
+  **C3**. DECISIONS D120-D127, project-changes #27 and #28, addenda PHASE5-2-02 and PHASE5-4-01.
+- **Gate:** 59, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **999 backend / 115 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage **299.16s** (+20.1s over C2 for 57 new backend tests). ruff,
+  `ruff format`, `mypy app` and the frontend typecheck all clean.
+- **Command:** `make gate`.
+- **The gate was green on the first full run of this batch**, which is worth saying plainly
+  after C2's first run was red: the discipline that produced it was running the AFFECTED suites
+  after each unit rather than only the new ones — the D118 lesson from C2. Three of those
+  intermediate runs found real problems (below) before a gate ever saw them.
+
+### What E5.6 built
+
+- `app/services/credentials.py`: the `BrokerCredentialProvider` protocol **E4.6 imports rather
+  than declares** (D105's reversal, now real), `DynsecCredentialProvider`,
+  `DevBrokerCredentialProvider`, and `drain_pending_revocations`. Plus `broker_credential`
+  (migration `c4e9b21f83da`), three routes on `/aggregators/{id}/broker-credential`, and
+  `aggregator_acl_grants` extracted from `devbroker.acl_file_text`.
+- **The ACL grants now have exactly one source, and the second renderer needed a grant the
+  first does not have** (D120). `read` in an `acl_file` becomes TWO dynsec acltypes:
+  `subscribePattern` decides whether the SUBSCRIBE is accepted, `publishClientReceive` whether
+  a matching message is actually delivered. Granting only the first produces a device that
+  subscribes successfully and then receives nothing — indistinguishable, from the device's side,
+  from a platform that never published. Both renderers now read one list and a test checks each
+  against it; `test_dev_broker.py` passes **unchanged**, which is the proof the ACL file's bytes
+  did not move.
+- **Three credential states, not two, on the owner's decision** (D121, project-changes #27).
+  Deleting an Aggregator whose broker is unreachable returns 204, leaves `revoke_pending`, and
+  the worker's sweep finishes the revocation. Refusing the delete would let one deployment's
+  outage block inventory work; passing silently would strand a live credential forever. A CHECK
+  ties `revoked_at` to the `revoked` state so the third value cannot make the timestamp
+  ambiguous, and an unreachable broker (retried) is distinguished from a plugin that answered
+  and REFUSED (raised and logged — retrying a configuration fault hides it).
+
+### What E5.7a built, and the defect it closed
+
+- `app/services/projection.py` (twelve keys, `PROJECTION` asserted against `CATALOG` at import),
+  the `allow_write_restricted` flag, and `publisher.publish_all` with both callers on it.
+- **`changed_keys` was comparing raw effective maps including the write-restricted keys** (D124,
+  the E2-owned defect phase-5 §2 names). One services save therefore marked every Listener in
+  the deployment as changed and minted a revision — and a retained publish — per Listener whose
+  bytes were byte-identical to the previous one. On the SIM fleet this repository's own harness
+  runs, that is **~600 pointless revisions and ~600 pointless retained publishes per save.** It
+  now composes through `snapshot_from_raw`, the same function the payload and the drift sweep
+  use, so the three cannot disagree. Measured by hand: one save on a deployment with one
+  Aggregator and thirty Listeners produces **exactly one revision**.
+- **The flag is four signatures, not the three fixed choice 3 counted** (D122), because
+  `apply_change_plan` calls `put_overrides`. It also carries the "regenerated wholesale, never
+  merged" behaviour the same fixed choice requires — so an S3 endpoint an operator clears leaves
+  the projection instead of surviving forever.
+
+### What E5.7b built
+
+- `MqttClientManager.refresh()` and refresh loops in **both** hosts, `_async_sweep_loop`, and two
+  sweep registrations: `service-config` (spec 16.4's late-device delivery) and
+  `broker-credential` (D121's retry). **D125 states the whole E3-owned surface taken and, just
+  as importantly, what was not.**
+- **`services_recheck_sweep` is still NOT registered**, though E5.5's notes and the INTERFACES
+  entry both said E5.7b would do it. Both have been corrected rather than left to imply
+  otherwise. Spec 16.5's periodic re-checks need a production `ServiceTestRunner` dialling every
+  deployment's real services on a timer — a behaviour no unit in this phase scoped — and it is
+  now recorded in the ledger as **outstanding and a stop-and-ask**.
+
+### Three things the intermediate runs found, recorded rather than smoothed over
+
+1. **A test asserted plaintext where the contract says markers** (D126). E5.7b's acceptance
+   words the retained message as "carrying all twelve keys", and the first version of the test
+   read that as twelve VALUES. It is twelve keys with the four secrets as D51 markers — the E3.4
+   contract, correct, and now pinned by an assertion that ALSO requires no plaintext anywhere in
+   the payload. If a later change ever puts a credential in a retained broker message, that test
+   fails.
+2. **A "rotation" test was passing for the wrong reason.** `ephemeral_broker` ships files in with
+   `docker cp` rather than a bind mount (a deliberate cross-platform choice), so rewriting the
+   host password file and SIGHUPing changed nothing the broker could see. The test now copies
+   the file into the container; the suite also dropped from 29s to 9s once the rotation actually
+   worked.
+3. **The gate-locked readiness suite caught the two new env vars missing from `.env.example`**
+   — exactly what it is for.
+
+### Two efficiency defects found by this session's own review of the cross-epic diff
+
+- `restricted_keys()` walks the whole catalog and was being called **once per key** inside the
+  plan's write-target loop. Hoisted.
+- `service_config_sweep` built a full change plan for every deployment with any service row —
+  loading every hierarchy table and recomputing effective config for every device under it, once
+  a minute. The case that hits it is a deployment with only its `mqtt` row, which is **every**
+  deployment with a working control plane and an unfinished wizard. It now returns before
+  planning when there is nothing to deliver and nothing to withdraw, pinned by a test that makes
+  the planner raise if it is reached.
+
+- **Manual verification** (outside pytest, against a real Postgres container, a real
+  `alembic upgrade head`, a real dynsec Mosquitto, a real uvicorn process and real HTTP —
+  **28 checks, all passing**):
+  - **E5.7a:** saved four services; all twelve keys landed in `entity_override` with every
+    secret as a `$secret` MARKER and **no plaintext anywhere in the row or in any response**;
+    **exactly one revision, for the Aggregator, with thirty Listeners present**; saving twice
+    with identical input minted **zero** new revisions; `GET config/effective` showed all twelve
+    at `source: deployment` with credentials redacted; and `PUT .../config/overrides` was walked
+    through **all twelve keys one at a time** and 422'd `service_restricted` on every one.
+  - **E5.6:** minted over HTTP — the response carries no password field at all, and the
+    plaintext was retrievable only from SecretStore. The device then **logged in to the real
+    broker with that password**, was **refused on its own `desired` topic**, and the paired
+    authorized publish to the same topic **did** arrive (the control, because denial looks like
+    silence). After `DELETE`, the broker **refused that login**. On a broker with no dynsec
+    plugin the mint was refused 422 with a message naming the remedy (fixed choice 4).
+  - **E5.7b, proven behaviourally rather than from a log:** a config apply to a deployment with
+    no broker row left its revision `draft`; the row was then added **while uvicorn kept
+    running**, and one refresh interval later the same apply reached **`pending`** — which is
+    only possible if the live process holds a real connection. No restart.
+  - **A pre-existing defect this exposed** (D127): the first attempt proved the above by
+    grepping the uvicorn log, and found nothing — **including for the deployment connected since
+    startup**. Every `app.*` INFO line in the API process is dropped, because uvicorn leaves the
+    root logger bare, and `runner.py::main`'s docstring asserts the opposite. Not fixed here:
+    logging configuration for the whole API is E0-owned and a stop-and-ask.
+  - No plaintext credential appeared in the uvicorn log.
+
 ## 2026-08-12: E5.4a-e and E5.5 — five testers, one container rig, and a rollup that reproduces itself (Gate 57 GREEN)
 
 - **Tasks closed:** E5.4a (verified, not authored, this session), E5.4b, E5.4c, E5.4d, E5.4e,

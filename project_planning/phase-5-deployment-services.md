@@ -179,6 +179,18 @@ stop-and-ask.
    KEK, both covered by `rotate_kek`, neither ever in a response, is the right price for
    keeping the two lifecycles independent. **Do not "fix" this.**
 
+   > **Addendum PHASE5-2-02 (2026-08-12, ref project-changes #28):** the flag is **four**
+   > signatures, not three: `apply_change_plan` calls `put_overrides`, so the flag has to reach
+   > it or the plan a caller was handed cannot be executed. Same default, same meaning
+   > (DECISIONS D122). The same entry records the second thing the flag carries, which this
+   > choice requires but does not say in the signature list: with it on, every write-restricted
+   > key stored at the write target is **dropped before the change map is applied**, which is
+   > what makes "regenerated wholesale, never merged" true of a cleared optional field rather
+   > than only of a changed one. Separately, the epic's open question about what makes object
+   > storage `not_required` is **closed**: E5.4e's "both credentials absent" reading stands, the
+   > platform supports raw audio only for now, and no `upload.raw_audio_enabled` catalog key is
+   > added (DECISIONS D123).
+
 4. **dynsec is required for v1.** This resolves **spec 17 item 14** in the direction the item
    offers as the alternative: the platform mints per-device broker credentials through the
    Mosquitto dynamic security API, and a broker without it cannot be verified. There is no
@@ -499,6 +511,20 @@ publishes to the aggregator's `reported` topic and is **refused** on its `desire
 the denial assertion paired with an authorized publish to the same topic because denial looks
 like silence; deleting an aggregator revokes its dynsec client against a real broker and leaves
 the row `revoked`, so a decommissioned Pi cannot reach the control plane.
+
+> **Addendum PHASE5-4-01 (2026-08-12, ref project-changes #27):** `broker_credential.state` has
+> **three** values, not the two this task lists: `minted`, `revoke_pending`, `revoked`. This
+> task does not say what happens when the broker is unreachable during a delete, and it will be
+> — decommissioning is exactly the work that happens while a site is offline. The owner's
+> decision on 2026-08-12: the delete **proceeds** (204), the row lands in `revoke_pending`, and
+> `credentials.drain_pending_revocations` retries on the worker's sweep until the broker
+> confirms. A CHECK ties `revoked_at` to the `revoked` state so the extra value cannot make the
+> timestamp ambiguous, and an unreachable broker (retried) is distinguished from a plugin that
+> answered and REFUSED (raised and logged, because retrying a configuration fault hides it).
+> The consequence for section 2's E3-owned budget is that **E5.7b registers a second sweep**
+> for the retry beside the authorized `service_config_sweep`; both bodies are E5-owned and the
+> E3-owned diff is registrations. DECISIONS D121 and D125 — the latter states the whole surface
+> taken and what was deliberately not taken.
 
 **E5.7a Projection and privileged write.** `app/services/projection.py::service_settings`, the
 `allow_write_restricted` flag of fixed choice 3, the `changed_keys` fix above, and the services

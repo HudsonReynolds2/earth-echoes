@@ -4,6 +4,241 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D127 (2026-08-12): Every `app.*` INFO log is invisible in the API process, and `runner.py`'s
+docstring says the opposite (found by C3's manual verification; NOT fixed here)
+
+- **What was observed, and how.** C3's manual walkthrough first asserted that the API's new
+  refresh loop had connected to a late deployment by grepping its uvicorn log for
+  `connected to the c3later broker`. The line was absent — **and so was the identical line for
+  the deployment that had been connected since startup.** A WARNING from the same module
+  (`lost the c3manual broker at ...`) WAS present. So the assertion was measuring log
+  visibility, not behaviour.
+- **The cause.** `app/controlplane/runner.py::main` configures logging for the worker process
+  and its docstring explains why the API does not need to: "under uvicorn the server installs
+  the handlers". That is true of the `uvicorn.*` loggers and **false of `app.*`** — uvicorn's
+  default config attaches handlers to its own loggers and leaves the ROOT logger bare, so
+  Python's last-resort handler passes WARNING and above and silently drops everything below.
+  Every INFO line the API emits — broker connected, coordinates refreshed, publish outcomes —
+  goes nowhere.
+- **Why it matters more after E5.7b than before.** The API now runs a coordinates poll whose
+  only intended operator-visible output is an INFO line. An operator watching for "did my new
+  deployment's broker connect?" would see nothing and conclude it had not.
+- **What the walkthrough does instead, and it is the better test anyway.** It applies a config
+  change to the late deployment's Aggregator and reads the revision's `state`: `draft` before
+  the broker row exists, `pending` after one refresh interval, same process, no restart. A
+  revision only reaches `pending` if the manager holds a LIVE connection, so this answers the
+  acceptance decisively and without depending on a log line at all.
+- **Deliberately NOT fixed in C3.** The fix is one call to `configure_logging()` plus a
+  `basicConfig` in `create_app`, but logging configuration for the whole API process is
+  E0-owned, it changes log volume for the compose stack and CI, and no unit in this phase
+  scoped it. **It is a stop-and-ask** (rule R2), recorded here and in the E5 ledger rather than
+  taken quietly on the way past.
+- **Reference:** `backend/app/main.py`, `backend/app/controlplane/runner.py::main` (the
+  docstring that is wrong), `backend/app/middleware.py::configure_logging`.
+
+## D126 (2026-08-12): A retained desired message carries secret MARKERS, and E5's projection is
+pinned to that boundary rather than allowed to cross it (E5.7b)
+
+- **Found by a test that asserted the wrong thing, which is why it is worth an entry.** The
+  E5.7b acceptance says a cold-start Aggregator finds "a retained desired message carrying all
+  twelve keys". The first version of `test_a_late_aggregator_finds_the_twelve_keys_retained_at_the_broker`
+  read that as twelve VALUES and asserted the Influx token arrived as plaintext. It does not,
+  and it must not.
+- **The contract it collided with is E3.4's and it is correct.** A `config_revision.snapshot`
+  holds the D51 secret markers E2 put there (spec 5.4, 8); `publisher.desired_payload` sends
+  `revision.snapshot` verbatim and the module docstring says it "has no secret-handling of its
+  own and must never grow any". So the twelve keys all arrive; the eight non-secret ones as
+  values and the four secret ones as `{"$secret": "config:deployment:{id}:{key}"}`. The
+  plaintext reaches a device through E4's provisioning bundle, which is a file an operator
+  carries, not a message on a broker every device in the deployment can be told to subscribe
+  near.
+- **What changed as a result: nothing in the code, and one assertion in the test.** It now
+  asserts the markers explicitly AND that no plaintext appears anywhere in the payload
+  (`"late-influx-token" not in json.dumps(payload)`). That second half is the point of keeping
+  it: if a later change ever put a credential into a retained broker message, this is the test
+  that fails.
+- **Recorded because the misreading is the natural one.** "Delivered post-connect" (spec 16.4)
+  reads like "the device gets the credential over MQTT", and the next session to read the E5.7b
+  acceptance will read it the same way.
+- **Reference:** `backend/app/controlplane/publisher.py::desired_payload`,
+  `backend/tests/test_broker_refresh.py`, phase-5 section 4 (E5.7b), D51, D55.
+
+## D125 (2026-08-12): The E3-owned surface E5.7b actually took is three sweep registrations and
+two refresh loops, not the one registration the phase document counted
+
+- **What the document authorized.** Phase-5 section 2 names two discretionary E3-owned edits,
+  both in E5.7b: `MqttClientManager.refresh()` plus "the refresh loops in both hosts", and
+  `service_config_sweep` on the existing sweep runner. "A third discretionary E3 edit is a
+  stop-and-ask."
+- **What was taken, stated exactly.** In `app/controlplane/broker.py`: `refresh()`, plus
+  `_begin`/`_cancel` extracted so `start()` and `refresh()` create a task and its bookkeeping in
+  one place. In `app/controlplane/runner.py`: `_async_sweep_loop`, `_refresh_loop`, and **three**
+  registrations — `service-config`, `broker-credential`, and the refresh task. In
+  `app/main.py`: `_refresh_forever` and its task. Nothing in `consumer.py`,
+  `revision_state.py` or `contracts/mqtt.py`.
+- **Why the second registration is not a third EDIT.** `broker-credential` is the retry loop
+  D121 promises. It is the same mechanism as the one the document authorized — a `(name,
+  interval, callable)` entry on a runner explicitly built generic for exactly this — with an
+  E5-owned body, and it exists because the owner chose `revoke_pending` over a 503 on
+  2026-08-12. Registering it elsewhere would mean a second scheduler in the codebase to avoid
+  a second line in an authorized diff.
+- **Why `_async_sweep_loop` is a second loop and not a branch in the first.** The two existing
+  sweeps are blocking SQLAlchemy and go through `asyncio.to_thread`; these await a broker and
+  must not. A single loop branching on `inspect.iscoroutinefunction` would hide that difference
+  at the one point where it decides whether the event loop blocks.
+- **The refresh task is deliberately OUTSIDE `_sweeps`.** `_sweeps` is what the heartbeat
+  vouches for. A worker whose coordinates poll died is still reconciling every deployment it
+  already holds, and widening "healthy" to include the poll would make a new deployment's
+  absence look like a dead worker.
+- **What was NOT taken, and stays a stop-and-ask.** `services_recheck_sweep` (E5.5's spec 16.5
+  periodic re-check) is still an unregistered callable. Registering it needs a production
+  `ServiceTestRunner` that dials every deployment's real services on a timer, and that is a
+  behaviour no unit in this phase scoped. It is named in the E5 ledger as outstanding.
+- **Reference:** phase-5 section 2 ("The E3-owned edits this phase is authorized to make"),
+  `app/services/config_sweep.py`, `app/services/credentials.py::drain_pending_revocations`,
+  D108 (the three edits authorized in advance), D121.
+
+## D124 (2026-08-12): `changed_keys` is computed through `snapshot_from_raw`, closing the
+E2-owned defect that made one services save mint a revision per Listener (E5.7a)
+
+- **The defect, as phase-5 section 2 describes it.** `DevicePlan.changed_keys` compared the raw
+  before/after effective maps **including** the write-restricted keys, while its sibling
+  `snapshot_from_raw` correctly strips them from Listener snapshots. So one services save marked
+  every Listener in the deployment as changed, `no_op` was False, and `apply_change_plan` minted
+  a revision per Listener whose published snapshot — after stripping — was byte-identical to the
+  previous one.
+- **The scale, which is what makes it a defect rather than an inefficiency.** On the SIM fleet
+  this phase's own harness runs (20 x 30), that is ~600 pointless revisions and ~600 pointless
+  retained publishes **per services save**, each one a row, a state machine transition, a
+  `reconciliation_event` and a message a device has to parse to discover nothing changed.
+- **The fix is at the source and uses the composition rule that already existed.** `changed` is
+  now `snapshot_from_raw(target_type, before)` versus `snapshot_from_raw(target_type, after)`.
+  That is the same function `revision_snapshot` and E3.7's drift sweep compose through, so the
+  three cannot disagree about what a device is actually told.
+- **It also makes preview honest.** "This listener is unaffected" is now true rather than
+  nearly-true, which matters because the E2.6 acceptance is that preview matches what apply
+  produces.
+- **Pinned so it cannot be dropped as an optimization**, as the phase document asks:
+  `test_service_projection.py` asserts one revision for the Aggregator and zero for thirty
+  Listeners, and separately asserts the thirty Listener snapshots are byte-identical across a
+  services save — the second one is about the BYTES a device would have received, so it holds
+  even if the plan's bookkeeping is later rewritten.
+- **Reference:** `backend/app/config/plan.py::build_change_plan`, phase-5 section 2 ("The
+  E2-owned defect this phase must fix on the way through"), D55, D56.
+
+## D123 (2026-08-12): Object storage stays conditionally required on "both credentials absent",
+and the platform supports raw audio only (owner, closing the E5 ledger's open question)
+
+- **The question the ledger raised at C2.** Spec 16.2 and section 721 make object storage
+  "required only when raw-audio upload is enabled for the deployment", and **there is no such
+  toggle** — the settings catalog carries `upload.s3_bucket`, `s3_prefix`, `s3_endpoint`,
+  `s3_access_key` and `s3_secret_key`, and nothing that switches the feature on or off. E5.4e
+  therefore keyed `not_required` on the only observable fact available: both credentials absent.
+- **The owner's answer, 2026-08-12: keep that reading. No toggle is added.** The platform
+  supports raw audio only for now, and an operator who is not uploading simply leaves the S3
+  credentials blank. A half-entered form (one credential present) is still tested for real and
+  still fails loudly, so the reading cannot excuse a mistake.
+- **The two alternatives, and why they were declined.** Making object storage unconditionally
+  required would mean no deployment reaches `verified` — and therefore none can generate a
+  bundle under spec 16.5 — until S3 is configured, which punishes every deployment that does not
+  upload. Adding an explicit `upload.raw_audio_enabled` catalog key is an E2-owned catalog change
+  plus a migration, out of E5's scope under rule R2, and would have widened C3 for a flag with
+  one consumer.
+- **This closes the "OPEN QUESTION for the owner" in `e5-progress-ledger.md`.** Nothing in the
+  code changes; E5.4e's reading is now a decision rather than a placeholder, and the note at the
+  top of `app/services/testers/s3.py` stands as written.
+- **Reference:** `backend/app/services/testers/s3.py`, spec 16.2 and section 721,
+  `project_planning/e5-progress-ledger.md`, D111 (the four tester outcomes), D117.
+
+## D122 (2026-08-12): `allow_write_restricted` is four signatures rather than three, and it
+means two things that are one idea (E5.7a)
+
+- **The document said three.** Phase-5 fixed choice 3: the flag is "threaded through
+  `validate_override_map` -> `put_overrides` -> `build_change_plan`. Three signatures, one
+  default, one meaning."
+- **It has to be four.** `apply_change_plan` calls `put_overrides`. Without the flag reaching it,
+  the plan a caller was just handed could not be executed — the write would 422 on the same keys
+  the plan validated. Recorded rather than silently added, because a document that says "exactly
+  three" while the tree has four is worse than no document.
+- **The second thing the flag means, which the document implies but does not say.** Fixed choice
+  3 also requires the projection to be "regenerated wholesale, never merged". That behaviour is
+  carried by the same flag: with it on, every write-restricted key currently stored at the write
+  target is dropped before the change map is applied. Unrestricted keys are untouched either way.
+  Without this, an S3 endpoint an operator cleared would survive in the deployment's overrides
+  forever and keep being delivered to devices — asserted by
+  `test_a_cleared_optional_field_leaves_the_projection`.
+- **The default is proven, not assumed.** `test_config_overrides_still_refuses_every_one_of_the_twelve`
+  walks all twelve keys through `PUT /deployments/{id}/config/overrides` and requires a 422 with
+  code `service_restricted` for each. A separate test asserts the flag does not make validation
+  lenient in any other way: unknown keys, inventory-resolved keys and level violations still fail
+  with it on. That is why the check was gated rather than deleted.
+- **Reference:** `backend/app/config/validation.py`, `backend/app/config/overrides.py`,
+  `backend/app/config/plan.py`, `backend/tests/test_service_projection.py`, phase-5 fixed
+  choice 3.
+
+## D121 (2026-08-12): A broker credential has three states, because deleting a device must
+never be blocked by somebody else's outage and never strand a live login (E5.6, owner)
+
+- **The question the phase document left implicit.** E5.6's acceptance says "deleting an
+  aggregator revokes its dynsec client against a real broker and leaves the row `revoked`", and
+  the table it specifies carries `state` in `minted`/`revoked`. Neither says what happens when
+  the broker is unreachable at that moment — and it will be, because a decommissioning is
+  exactly the kind of work that happens while a site is down.
+- **The two failure modes, both real.** Refusing the delete (503 until the broker answers) lets
+  one deployment's outage block inventory work indefinitely. Letting the delete pass silently
+  leaves a decommissioned Pi holding a working credential for its deployment's broker, forever,
+  with no record that it does.
+- **The owner's decision, 2026-08-12: the delete proceeds and the revocation is retried.** The
+  row lands in `revoke_pending`, `DELETE /aggregators/{id}` still returns 204, and
+  `credentials.drain_pending_revocations` retries on the worker's sweep until the broker
+  confirms. The cost is one extra state beyond the document's two, and it is recorded in
+  project-changes #27 with an addendum on the phase document.
+- **Two things keep the third state from rotting into ambiguity.** A CHECK constraint,
+  `(state = 'revoked') = (revoked_at IS NOT NULL)`, so `revoked_at` means "the broker
+  confirmed" on every row rather than "we asked" on some of them. And the distinction between a
+  broker that is UNREACHABLE (retried) and a plugin that ANSWERED AND REFUSED (raised, logged
+  with a stack trace, counted as a failure) — retrying a configuration fault forever would hide
+  it.
+- **The row outlives the device**, which is why `broker_credential.aggregator_uuid` is a plain
+  string and not a foreign key to `aggregator`. A cascade would delete the platform's only
+  record of a login that is still live on somebody's broker, which is precisely the state this
+  decision exists to make impossible.
+- **Asserted on the broker, not on the row.** `test_deleting_an_aggregator_revokes_its_client_on_the_broker`
+  connects with the minted password before the delete, deletes, and then requires the login to be
+  REFUSED — the row is the platform's belief and the broker is the fact.
+- **Reference:** `backend/app/models.py::BrokerCredential`, migration `c4e9b21f83da`,
+  `backend/app/services/credentials.py`, `backend/app/api/aggregators.py::delete_aggregator`,
+  `backend/tests/test_broker_credentials.py`, phase-5 section 4 (E5.6).
+
+## D120 (2026-08-12): The Aggregator ACL grants are ONE list with two renderers, because two
+literal readings of spec 7.2 eventually disagree by one line (E5.6)
+
+- **Why this needed doing at all.** Until E5.6 there was one authorization backend: the dev
+  broker's `acl_file`, written by `devbroker.acl_file_text`. E5.6 adds a second — the dynamic
+  security role every minted credential holds — reading the same spec 7.2 Direction column.
+- **The disagreement that matters is not cosmetic.** It is a single missing line. An Aggregator
+  that may publish to its own `desired` topic can manufacture agreement with itself and defeat
+  drift detection entirely, which is the one guarantee the whole spec 6.4 loop rests on.
+- **The shape.** `devbroker.aggregator_acl_grants(slug, aggregator_uuid)` returns seven
+  `AclGrant(access, topic)` values built from the topic builders. `acl_file_text` renders
+  `topic {access} {topic}`; `credentials.dynsec_role_acls` renders the plugin's vocabulary.
+  Neither writes a topic literal.
+- **`read` becomes TWO dynsec acltypes, and both are needed.** `subscribePattern` decides
+  whether the SUBSCRIBE is accepted; `publishClientReceive` whether a matching message is
+  actually delivered. Granting only the first produces a device that subscribes successfully and
+  then receives nothing — indistinguishable, from the device's side, from a platform that never
+  published. There is deliberately no `unsubscribePattern` grant: `defaultACLAccess.unsubscribe`
+  is true and a device dropping its own subscriptions harms nobody but itself.
+- **Asserted against the list rather than against two expectations.** Two renderer tests read
+  `aggregator_acl_grants` and check each renderer against it; a third asserts the property about
+  the LIST (no write grant on `desired`), because the first two would both still pass if the
+  list itself grew the line. `test_dev_broker.py` passes unchanged, which is the regression proof
+  that the ACL file's bytes did not move.
+- **E5.8a moves this to `app/brokerconfig.py`.** It lives in `devbroker.py` for now because
+  `acl_file_text` is its first caller and a move is a separate, provable step.
+- **Reference:** `backend/app/devbroker.py`, `backend/app/services/credentials.py`,
+  `backend/tests/test_broker_credentials.py`, phase-5 section 4 (E5.6 acceptance), spec 7.1/7.2.
+
 ## D119 (2026-08-12): Importing a conftest FIXTURE into a test module silently defeats session
 scope, and it cost the rig its whole gate-time design (E5.4b)
 

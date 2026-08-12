@@ -36,6 +36,7 @@ from app.controlplane.consumer import delete_device_state_for
 from app.errors import AppError
 from app.models import Aggregator, Deployment, Listener, Pod, UserSession, utcnow
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
+from app.services.credentials import revoke_for_deleted_aggregator
 
 router = APIRouter(prefix="/aggregators")
 
@@ -195,12 +196,30 @@ def patch_aggregator(
 
 
 @router.delete("/{aggregator_id}", status_code=204)
-def delete_aggregator(
+async def delete_aggregator(
     aggregator_id: uuid.UUID,
     db: DbDep,
     request: Request,
     actor: Annotated[UserSession, Depends(require_csrf)],
 ) -> None:
+    """Remove an Aggregator, **and destroy its broker credential** (E5.6).
+
+    `async` as of E5.6, because revoking a dynsec client is a round trip over
+    MQTT. Nothing else about this endpoint changed: FastAPI runs a `def` route
+    in a threadpool and an `async def` route on the loop, and every call below
+    is the synchronous session work it always was.
+
+    **A decommissioned Pi must not keep a working login.** That is the whole
+    point of the revoke: the device is leaving the fleet, and its credential is
+    the one thing about it that lives somewhere the platform does not control.
+
+    **An unreachable broker does not block the delete.** The row lands in
+    `revoke_pending`, this endpoint still returns 204, and
+    `credentials.drain_pending_revocations` retries on the worker's sweep until
+    the broker confirms. Owner's decision, 2026-08-12 (D121): refusing the
+    delete would let one deployment's outage block inventory work, and letting
+    it pass silently would strand a live credential forever.
+    """
     row, deployment_id = _resolve(db, actor, aggregator_id, Permission.MANAGE_DEVICES)
     refuse_delete_with_children(
         "aggregator",
@@ -208,6 +227,15 @@ def delete_aggregator(
             "listeners": db.scalar(select(func.count()).where(Listener.aggregator_id == row.id))
             or 0,
         },
+    )
+    aggregator_uuid = row.aggregator_uuid
+    credential_state = await revoke_for_deleted_aggregator(
+        db,
+        request.app.state.session_factory,
+        request.app.state.secret_store,
+        request.app.state.credential_provider,
+        deployment_id,
+        aggregator_uuid,
     )
     orphaned_secrets = delete_overrides_for(db, "aggregator", str(row.id))  # E2.4 cleanup (D51)
     delete_device_state_for(db, "aggregator", str(row.id))  # E3.5 cleanup (D76)
@@ -219,7 +247,9 @@ def delete_aggregator(
         entity_id=str(row.id),
         actor_user_id=actor.user_id,
         scope=deployment_id,
-        detail={"aggregator_uuid": row.aggregator_uuid},
+        # `broker_credential` records what happened to the login, so an audit
+        # reader can tell a clean decommission from one still awaiting a broker.
+        detail={"aggregator_uuid": aggregator_uuid, "broker_credential": credential_state},
     )
     db.commit()
     for name in orphaned_secrets:  # D51: only ever AFTER the commit

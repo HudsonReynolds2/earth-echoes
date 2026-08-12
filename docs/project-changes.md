@@ -5,6 +5,54 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #28 (2026-08-12): `allow_write_restricted` is four signatures, and the object-storage
+question is closed without a catalog toggle
+
+- **What changed, part one.** Phase-5 fixed choice 3 says the flag is threaded through
+  "three signatures". It is four: `apply_change_plan` calls `put_overrides`, so without the flag
+  reaching it the plan a caller was handed could not be executed. Same default, same meaning.
+  The flag also carries the "regenerated wholesale, never merged" behaviour the same fixed
+  choice requires, which the document implies but does not state. DECISIONS D122.
+- **What changed, part two.** The E5 ledger's "OPEN QUESTION for the owner" -- what makes object
+  storage `not_required` when spec 16.2 names a raw-audio toggle that does not exist -- is
+  **answered and closed**: E5.4e's reading (both credentials absent) stands, the platform
+  supports raw audio only for now, and **no `upload.raw_audio_enabled` catalog key is added**.
+  That would have been an E2-owned catalog change plus a migration, out of E5's scope under rule
+  R2. DECISIONS D123.
+- **Why:** the first is a document undercounting a signature, recorded because a document that
+  says "exactly three" while the tree has four is worse than no document. The second is a spec
+  gap the owner resolved by declining to widen the catalog for a flag with one consumer.
+- **Who approved:** the owner, on 2026-08-12, choosing the existing reading over both an
+  unconditional requirement and an explicit toggle.
+- **Affects:** project_planning/phase-5-deployment-services.md section 2 (fixed choice 3),
+  project_planning/e5-progress-ledger.md (the open question)
+- **Addendum:** PHASE5-2-02
+
+## #27 (2026-08-12): A broker credential has three states, not two, and revoking one never
+blocks a device delete
+
+- **What changed:** `broker_credential.state` is `minted` / `revoke_pending` / `revoked`, where
+  the E5.6 task description implies two. Deleting an Aggregator whose broker is unreachable
+  still returns 204; the row lands in `revoke_pending` and
+  `credentials.drain_pending_revocations` retries on the worker's sweep until the broker
+  confirms. A CHECK constraint ties `revoked_at` to the `revoked` state so the third value
+  cannot make the timestamp ambiguous.
+- **Why:** E5.6's acceptance ("deleting an aggregator revokes its dynsec client against a real
+  broker and leaves the row `revoked`") does not say what happens when the broker is down, and
+  it will be -- decommissioning is exactly the work that happens while a site is offline. Both
+  two-state answers are bad: refusing the delete lets one deployment's outage block inventory
+  work, and letting it pass silently strands a live credential on somebody's broker forever with
+  no record that it exists.
+- **The consequence for the E3-owned surface, stated rather than buried:** the retry needs a
+  loop, so E5.7b registers a second sweep (`broker-credential`) beside the authorized
+  `service_config_sweep`. Both have E5-owned bodies; the E3-owned diff is registrations.
+  DECISIONS D125 states the whole surface taken, including what was NOT taken.
+- **Who approved:** the owner, on 2026-08-12, choosing the retry over a 503 that refuses the
+  delete.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.6), section 2
+  ("The E3-owned edits this phase is authorized to make")
+- **Addendum:** PHASE5-4-01
+
 ## #26 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4
 
 - **What changed:** `project_planning/phase-4-provisioning.md` §2 fixed choice 1 has E4.6

@@ -162,6 +162,17 @@ E0_ROUTES = {
     # would put a second writer on a column whose whole design is that it has
     # exactly one (phase-5 fixed choice 2).
     ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/status"),
+    # E5.6, spec 16.4: one Aggregator's own broker login. `MANAGE_SERVICES` to
+    # mint and revoke because a broker credential is a grant on the
+    # deployment's broker rather than a property of the inventory row;
+    # `VIEW_SERVICES` to read, because the response carries no password and
+    # cannot - there is no field for one. Revocation ALSO happens implicitly
+    # under `MANAGE_DEVICES` when the aggregator itself is deleted, which is
+    # deliberate: destroying a credential is safe in a way that creating one
+    # is not.
+    ("POST", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
+    ("DELETE", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
 }
 
 E0_TABLES = {
@@ -218,6 +229,12 @@ E0_TABLES = {
     # reference out of it un-FK'd (D33) so history outlives the revision it
     # describes and the device it happened to.
     "reconciliation_event",
+    # E5.6 (C3): the per-device broker logins the platform minted through
+    # Mosquitto's dynamic security plugin. `aggregator_uuid` is deliberately
+    # NOT a foreign key - the row has to OUTLIVE the device, because deleting
+    # a Pi is exactly when its credential must be destroyed and an unreachable
+    # broker means that destruction is retried later (D121).
+    "broker_credential",
 }
 
 

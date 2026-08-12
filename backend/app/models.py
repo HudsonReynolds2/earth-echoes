@@ -59,6 +59,15 @@ SERVICES_STATUS_VOCAB: tuple[str, ...] = (
 )
 
 
+#: The lifecycle of a per-device broker login (E5.6). `revoke_pending` is the
+#: one that needed a decision rather than following from the domain: deleting
+#: an Aggregator while its broker is unreachable must neither block the
+#: operator nor leave a decommissioned Pi holding live credentials, so the
+#: delete proceeds and the revocation is retried. Owner's call, 2026-08-12;
+#: DECISIONS D121, project-changes #27.
+BROKER_CREDENTIAL_STATES: tuple[str, ...] = ("minted", "revoke_pending", "revoked")
+
+
 def _in_vocab(column: str, vocab: tuple[str, ...]) -> str:
     """A SQL `IN` predicate rendered from a vocabulary tuple, so the CHECK and
     the constant can never disagree."""
@@ -657,6 +666,71 @@ class DeploymentService(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    deployment: Mapped[Deployment] = relationship()
+
+
+class BrokerCredential(Base):
+    """One per-device broker login the platform minted (task E5.6; spec 16.4).
+
+    Fixed choice 4 makes Mosquitto's dynamic security plugin required, so this
+    row is the platform's record of a client that exists **on a broker** — a
+    thing outside this database that has to be cleaned up deliberately. That
+    single fact decides most of the shape below.
+
+    **`aggregator_uuid` is a plain string and deliberately NOT a foreign key
+    to `aggregator`.** The row has to OUTLIVE the device: deleting a Pi is
+    exactly when its credential must be destroyed, and a cascade would delete
+    the platform's only record of a login that is still live on the broker.
+    Spec 4.2 also makes `aggregator_uuid` the identifier the device itself
+    carries, which is what the broker knows it by.
+
+    **Three states, not the two the phase document pencilled** (project-changes
+    #27). `minted` and `revoked` are the steady ones; `revoke_pending` exists
+    because a broker that is unreachable must not be able to block an operator
+    from deleting inventory, while a decommissioned Pi must still end up with a
+    dead credential. The owner chose that trade on 2026-08-12. The sweep in
+    `app/services/credentials.py::drain_pending_revocations` is what closes it,
+    and `revoked_at` stays NULL until the broker has actually confirmed.
+
+    Credentials never live here: `password_secret_name` names a SecretStore
+    entry and the plaintext moves only through `app.secrets.SecretStore`
+    (rule R2), exactly as `deployment_service.password_secret_name` does.
+    """
+
+    __tablename__ = "broker_credential"
+    __table_args__ = (
+        # One live credential per device. A rotation REPLACES this row's
+        # password rather than accumulating history: two `minted` rows for one
+        # `aggregator_uuid` would be two logins on the broker and no way to
+        # tell which the device holds.
+        UniqueConstraint("deployment_id", "aggregator_uuid"),
+        CheckConstraint(
+            _in_vocab("state", BROKER_CREDENTIAL_STATES),
+            name="state_vocab",
+        ),
+        # A row is `revoked` exactly when the broker confirmed it. Making the
+        # database say so keeps `revoked_at` from becoming a field that means
+        # "we asked" on some rows and "it is gone" on others.
+        CheckConstraint(
+            "(state = 'revoked') = (revoked_at IS NOT NULL)",
+            name="revoked_at_matches_state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    aggregator_uuid: Mapped[str] = mapped_column(String(64), index=True)
+    username: Mapped[str] = mapped_column(String(200))
+    password_secret_name: Mapped[str] = mapped_column(String(200))
+    state: Mapped[str] = mapped_column(
+        String(20), default="minted", server_default=text("'minted'")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     deployment: Mapped[Deployment] = relationship()
 

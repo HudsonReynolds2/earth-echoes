@@ -35,10 +35,10 @@ SIM sessions keep the primary tree.
 | E5.4e Object storage tester | **done (local)** | C2 | — | `clients/s3.py` + `testers/s3.py`, boto3 through `asyncio.to_thread`. `forbidden` vs `not_found` asserted against a real MinIO user carrying a deny-all policy, with the bucket's existence proven in the same test. Reserved prefix empty after a pass, asserted by listing. **`not_required` keys on both credentials being absent** — see the note below, this is a reading of spec 16.2 rather than a quotation. `boto3` added to deps; mypy override for its missing stubs, `strict` relaxed nowhere else. `test_tester_s3.py` 12 passed. |
 | E5.5 Services status lifecycle | **done (local)** | C2 | D117, D118 | `app/services/status.py` (`roll_up`, `recompute` as its only writer, `DEGRADE_AFTER_FAILURES = 2`, `apply_test_results`, the re-check sweep as a **callable that E5.7b registers** so no third E3-owned edit is taken), `GET .../services/status`, and the save path unverifying a service whose credentials just changed. **D117: `deployment_service.required` is a stored column** (migration `b7d41f0c2e93`), not an argument to `roll_up` — the save path and the invariant sweep recompute with no test results in hand, so a parameter would make the denormalized column irreproducible from its own rows. A test of CANDIDATE credentials is not a verdict of record and writes no status. Targeted: 130 passed across `test_services_status`, `test_services_model`, `test_services_api`, `test_service_testers`, `test_tester_mqtt`, `test_migrations`; ruff, `ruff format`, `mypy app` clean. |
 | **C2 full gate** | **GREEN, gate-57** | — | D117, D118, D119 | 942 backend / 115 vitest / 4 Playwright, 0 failed / 0 skipped / 0 xfailed / 0 deselected. Backend stage **279.06s**. **The first C2 run was RED** and is recorded honestly in project-updates: three failures, none of them contention — the committed-secret scanner tripped on three `*_PASSWORD = "..."` constants, `E0_ROUTES` had never been extended for E5.5's status endpoint, and E5.4a's registry test still asserted `set(REGISTRY) == {"mqtt"}`. Two were latent in `09b5271`, which was committed after running only its own test file. Manual verification ran against a real uvicorn (see project-updates). |
-| E5.6 Broker credential minting (dynsec) | not started | C3 | — | Dedicated short-lived `$CONTROL` client, never `MqttClientManager`. `broker_credential` table. One source for the ACL grants. |
-| E5.7a Projection and privileged write | not started | C3 | — | `allow_write_restricted` through three signatures. Includes the E2-owned `changed_keys` fix and the `publish_all` extraction. |
-| E5.7b The two authorized E3 edits | not started | C3 | — | `MqttClientManager.refresh()` in both hosts, `service_config_sweep`. **A third E3 edit is a stop-and-ask.** |
-| **C3 review + full gate** | — | — | — | Review subagent over the cross-epic diff before the gate. |
+| E5.6 Broker credential minting (dynsec) | **done (local)** | C3 | D120, D121 | `app/services/credentials.py` (the `BrokerCredentialProvider` protocol E4.6 imports, `DynsecCredentialProvider`, `DevBrokerCredentialProvider`, `drain_pending_revocations`), `broker_credential` (migration `c4e9b21f83da`), three routes on `/aggregators/{id}/broker-credential`, and `aggregator_acl_grants` extracted from `devbroker.acl_file_text`. **D120: one grant list, two renderers** — `read` becomes TWO dynsec acltypes, and only `publishClientReceive` beside `subscribePattern` gives a device messages rather than a silent subscription. **D121, owner's call: three states.** An unreachable broker leaves `revoke_pending` and never blocks a device delete; the sweep finishes it. `DELETE /aggregators/{id}` became `async` (its one E1-owned edit). Targeted: `test_broker_credentials.py` 26 passed against a real dynsec broker, plus 90 across the eight affected suites; ruff, `mypy app` clean. |
+| E5.7a Projection and privileged write | **done (local)** | C3 | D122, D124 | `app/services/projection.py` (`PROJECTION` asserted against `CATALOG` at import), `allow_write_restricted` through **four** signatures not three (D122 — `apply_change_plan` calls `put_overrides`), the E2-owned `changed_keys` fix (D124), and `publisher.publish_all` with both callers on it. The flag also carries fixed choice 3's wholesale regeneration, so a cleared optional field leaves the projection instead of surviving forever. `PUT .../services` became `async`. Targeted: `test_service_projection.py` 21 passed, plus 147 across nine E2/E3 suites; ruff, `mypy app` clean. |
+| E5.7b The two authorized E3 edits | **done (local)** | C3 | D125, D126 | `MqttClientManager.refresh()` + `_begin`/`_cancel`, refresh loops in BOTH hosts (`runner.py::_refresh_loop`, `main.py::_refresh_forever`), `_async_sweep_loop`, and **two** sweep registrations — `service-config` (body in `app/services/config_sweep.py`) and `broker-credential` (D121's retry). **D125 states the whole E3-owned surface taken and what was not.** Two settings + `.env.example`. D126: a retained desired message carries secret MARKERS, and the suite now pins E5's projection to that boundary. Targeted: `test_broker_refresh.py` 9 passed against a real broker, plus 126 across seven E3 suites; ruff, `mypy app` clean. |
+| **C3 review + full gate** | — | — | — | Cross-epic diff reviewed INLINE at the owner's instruction (2026-08-12), not by a subagent. |
 | E5.8a Broker material extraction | not started | C4 | — | Move to `app/brokerconfig.py`. `test_dev_broker.py` must pass **unchanged**. |
 | E5.8b Compose and service configs | not started | C4 | — | Dicts + `yaml.safe_dump`, never string-templated. `deploy/stack-templates/`. |
 | E5.9 Stack credential generation | not started | C4 | — | Credentials, secrets and rows committed in one transaction before any byte is rendered. |
@@ -56,21 +56,46 @@ SIM sessions keep the primary tree.
 | Baseline (pre-E5) | ~260s | Reported at gate-53, before SIM.1 landed. |
 | **C1 (E5.0-E5.3)** | **262.7s backend stage** | gate-54. Essentially flat against the baseline: this batch added 73 backend tests and no container fixture. The rig arrives with E5.4b, and the ~300s ceiling in phase-5 §5 is measured from here. |
 | **C2 (E5.4a-e, E5.5)** | **279.06s backend stage** | gate-57. **+16.4s over C1 for the whole rig**, against the ~300s ceiling: five containers, 103 new backend tests (839 → 942). The design held — the rig is built ONCE per gate, and D119 records the run where it was not (three builds, invisible, +27s on four suites alone). Container-test scope did not have to be cut. **The margin is now ~21s**, so E5.8b's compose-config tests and E5.10's keystone bring-up are the next things to measure, not to assume. |
+| **C3 (E5.6, E5.7a, E5.7b)** | **299.16s backend stage** | gate-59. **+20.1s over C2** for 57 new backend tests (942 → 999), and the ~300s ceiling in phase-5 §5 is now **reached rather than approached**. Nothing new is container-heavy — C3 reuses `dynsec_broker` and `ephemeral_broker` and adds no fixture — so the increase is the tests themselves plus two real-broker modules. **E5.8b's compose-config tests and E5.10's keystone bring-up now have NO margin to spend**; the next batch either measures first or raises the ceiling deliberately. The three slowest tests in the suite are still E3's (`test_end_to_end_loop` at 91s each) and unrelated to this batch. |
 
 ## Notes for whoever picks this up next
 
-- **OPEN QUESTION for the owner: what makes object storage "not required"?** Spec 16.2 makes it
-  conditionally required and the phase document's E5.4e acceptance says the tester must answer
-  `not_required` "for a deployment with raw-audio upload disabled". **There is no such toggle.**
-  The settings catalog carries `upload.s3_bucket`, `s3_prefix`, `s3_endpoint`, `s3_access_key`
-  and `s3_secret_key`, and nothing that switches the feature on or off. E5.4e therefore keys
-  `not_required` on the only observable fact available: **both credentials absent** — no access
-  key and no secret key means the platform cannot upload, so it is not uploading. A half-entered
-  form (one credential present) is tested for real and fails loudly, so the reading cannot
-  excuse a mistake. This is a reading of the spec rather than a quotation of it, it is stated at
-  the top of `app/services/testers/s3.py`, and if the owner wants an explicit
-  `upload.raw_audio_enabled` catalog key instead, that is an E2-owned catalog change and a
-  stop-and-ask rather than something E5 should have taken.
+- **ANSWERED (2026-08-12, owner): what makes object storage "not required".** The question was
+  that spec 16.2 and section 721 make object storage conditionally required on "raw-audio upload
+  enabled" and **there is no such toggle** in the settings catalog, so E5.4e keyed `not_required`
+  on the only observable fact available: both S3 credentials absent. **The owner kept that
+  reading.** The platform supports raw audio only for now; an operator who is not uploading
+  leaves the credentials blank, and a half-entered form still fails loudly. **No
+  `upload.raw_audio_enabled` catalog key is added** — that would be an E2-owned catalog change
+  plus a migration and out of E5's scope under rule R2. The alternatives declined were making
+  object storage unconditionally required (which would block every non-uploading deployment from
+  ever reaching `verified`, and therefore from generating a bundle under spec 16.5) and adding
+  the toggle. DECISIONS D123, project-changes #28. Nothing in the code changed; the note at the
+  top of `app/services/testers/s3.py` stands as written.
+
+- **OUTSTANDING, and a stop-and-ask: the API logs nothing below WARNING** (D127). Every
+  `app.*` INFO line in the uvicorn process is dropped, because uvicorn attaches handlers to its
+  own loggers and leaves the root logger bare — and `runner.py::main`'s docstring asserts the
+  opposite ("under uvicorn the server installs the handlers"). Found by C3's manual walkthrough,
+  which first tried to prove `refresh()` had connected by grepping the log and got nothing —
+  including for the deployment connected since startup. The walkthrough now proves it
+  behaviourally instead (draft before the broker row, `pending` after one refresh interval,
+  same process). The fix is small and E0-owned; it was not taken here.
+
+- **OUTSTANDING for a later unit: spec 16.5's periodic re-checks are not running.**
+  `status.py::services_recheck_sweep` is a tested callable with **no caller**. The E5.5 notes and
+  the INTERFACES entry both said E5.7b would register it; **it did not**, and both have been
+  corrected rather than left to imply otherwise (D125). Registering it needs a production
+  `ServiceTestRunner` that dials every deployment's real services on a timer — a behaviour no
+  unit in this phase scoped, and a real decision about cadence and cost. E5.11 (rotation and
+  regeneration) is the natural home; **it is a stop-and-ask, not a gap to fill quietly.**
+
+- **Cross-branch record collision, for whoever merges.** `docs/project-changes.md` numbers
+  **#24, #25 and #26 twice** — once on `e5-batch-1` (E5 topics) and once on `sim-batch-1` (SIM
+  topics). Both branches were appending independently and both are pushed. C3's entries take
+  **#27 and #28** as the next free numbers ON THIS BRANCH. Whoever merges the two lines has to
+  renumber one side and fix the `ref project-changes #N` citations in its addenda; nothing in
+  this epic can fix it from here.
 
 - **On 2026-08-11/12 an agent session died mid-refactor in this worktree, and the recovery is
   worth knowing about.** It had committed E5.4a (`09b5271`) and the harness adoption

@@ -45,6 +45,7 @@ operator re-publishing over drift, and `failed` is an operator retrying.
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -60,6 +61,7 @@ from app.contracts.mqtt import (
     encode,
     listener_desired_topic,
 )
+from app.controlplane.broker import BrokerUnavailable
 from app.controlplane.revision_state import (
     RevisionState,
     TransitionRecord,
@@ -426,3 +428,54 @@ async def publish_revision(
             len(outcome.superseded),
         )
         return outcome
+
+
+async def publish_all(
+    session_factory: sessionmaker[Session],
+    publisher: DesiredPublisher | None,
+    revisions: Sequence[ConfigRevision],
+    *,
+    publish_enabled: bool,
+    actor_user_id: uuid.UUID | None = None,
+) -> set[uuid.UUID]:
+    """Publish a batch of freshly created revisions; return the ids that went out.
+
+    **Extracted from `api/config.py::_publish_applied` by E5.7a**, because E5's
+    services save is the second caller and two divergent publish loops with two
+    error-swallowing policies is a bug that surfaces months later as "some
+    applies publish and some do not". Behaviour is unchanged from E3.13's:
+
+    * Called AFTER the caller's commit, so nothing here can undo an operator's
+      edit. A broker that is down costs a publish and not the work; that
+      revision stays `draft`, is reported as such, and
+      `POST /revisions/{id}/publish` retries it — the same route drift repair
+      uses (D82), so there is one path and one set of refusals.
+    * **One failure does not abort the rest.** A fleet-wide apply can span
+      deployments whose brokers are independent, and failing the whole call
+      over one unreachable broker would leave the operator no way to tell which
+      devices were told.
+    * `publisher` is None when `EOE_PUBLISH_ENABLED` is off, and also in any
+      process that never ran the lifespan (D86) — a test client used without
+      its context manager, for one. Both mean "nothing may reach a device",
+      which is exactly `draft`.
+    """
+    if publisher is None or not publish_enabled or not revisions:
+        return set()
+
+    published: set[uuid.UUID] = set()
+    for revision in revisions:
+        try:
+            await publish_revision(
+                session_factory,
+                publisher,
+                revision.id,
+                publish_enabled=True,
+                actor_user_id=actor_user_id,
+            )
+        except (PublishError, BrokerUnavailable) as error:
+            # Logged, counted, and left as draft. Raising would abort the rest
+            # of a fleet-wide apply over one unreachable deployment.
+            log.warning("could not publish revision %s: %s", revision.id, error)
+            continue
+        published.add(revision.id)
+    return published

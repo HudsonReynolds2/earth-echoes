@@ -311,9 +311,16 @@ class MqttClientManager:
         async with manager:
             ...
 
-    `start()` loads coordinates once. Adding or removing a deployment's broker
-    row therefore takes a restart of the manager, which is honest for E3.2:
-    the reconciliation worker (E3.7) owns the lifecycle and can restart it.
+    `start()` loads coordinates once; **`refresh()` re-reads them and
+    reconciles the running tasks** (E5.7b). Until E5 that was a restart of the
+    manager, which was honest for E3.2 because broker rows only changed when
+    somebody re-ran `app.devbroker`. E5's services onboarding changes them as a
+    matter of course, so both hosts now poll `refresh()` on an interval.
+
+    **Registration is still fixed before `start()`.** `refresh()` starts and
+    stops CONNECTIONS, never subscriptions: `_registrations` is manager-level,
+    so a deployment that arrives an hour late inherits the same filter set as
+    one that was there at startup.
     """
 
     def __init__(
@@ -367,11 +374,7 @@ class MqttClientManager:
         # The loader is synchronous SQLAlchemy; keep it off the event loop.
         coordinates = await asyncio.to_thread(self._loader)
         for coords in coordinates:
-            self._coordinates[coords.deployment_id] = coords
-            self._connected[coords.deployment_id] = asyncio.Event()
-            self._tasks[coords.deployment_id] = asyncio.create_task(
-                self._connection_loop(coords), name=f"mqtt-{coords.slug}"
-            )
+            self._begin(coords)
         log.info("mqtt client manager started for %d deployment(s)", len(self._tasks))
 
     async def start_or_retry(self) -> bool:
@@ -447,6 +450,95 @@ class MqttClientManager:
         self._connected.clear()
         self._coordinates.clear()
         self._running = False
+
+    async def refresh(self) -> tuple[int, int, int]:
+        """Re-read the coordinates and reconcile the running tasks.
+
+        **Added by E5.7a's epic, E5.7b, as one of two authorized E3-owned
+        edits** (phase-5 section 2). Until this phase, "coordinates load once,
+        at `start()`" was an honest limitation: E3 created broker rows through
+        `app.devbroker` and a restart was a fair price. E5 changes broker rows
+        as a matter of course — Path B writes a new one, rotation changes its
+        password, a new deployment gets its first — so the limitation becomes a
+        bug the moment E5 ships.
+
+        Returns `(started, stopped, restarted)`.
+
+        **A rotated password IS a difference**, and the diff is three lines
+        because `BrokerCoordinates` is a frozen dataclass: equality compares
+        every field, so a changed password, host, port or CA all fall out of
+        `!=` without anything here enumerating them. A later session adding a
+        field to that dataclass gets it reconciled for free, which is the whole
+        reason the comparison is not a hand-written list of attributes.
+
+        **`start()`'s semantics are unchanged and `_registrations` is
+        manager-level**, so a task started here inherits the full subscription
+        set — a deployment that arrives late is not a deployment that listens
+        to less.
+
+        **A poll rather than LISTEN/NOTIFY**, deliberately: a new deployment's
+        broker cannot be dialled before the operator has finished configuring
+        it anyway, so a channel, a payload contract and a second delivery path
+        would buy nothing. Both hosts call this on a loop; see `runner.py` and
+        `main.py`.
+
+        Refreshing a manager that is not running is a no-op rather than an
+        error: the hosts' loops keep ticking while `start_or_retry` is still
+        backing off in the background, and making that a raise would fill a
+        log with exceptions describing a state that resolves itself.
+        """
+        if not self._running or self._stopping.is_set():
+            return (0, 0, 0)
+        loaded = await asyncio.to_thread(self._loader)
+        latest = {coords.deployment_id: coords for coords in loaded}
+
+        gone = set(self._coordinates) - set(latest)
+        arrived = set(latest) - set(self._coordinates)
+        changed = {
+            deployment_id
+            for deployment_id in set(latest) & set(self._coordinates)
+            if latest[deployment_id] != self._coordinates[deployment_id]
+        }
+
+        for deployment_id in gone | changed:
+            await self._cancel(deployment_id)
+        for deployment_id in arrived | changed:
+            self._begin(latest[deployment_id])
+
+        if gone or arrived or changed:
+            log.info(
+                "broker coordinates refreshed: %d started, %d stopped, %d reconnected",
+                len(arrived),
+                len(gone),
+                len(changed),
+            )
+        return (len(arrived), len(gone), len(changed))
+
+    def _begin(self, coords: BrokerCoordinates) -> None:
+        """Start one deployment's connection loop. Shared with `start()` so
+        there is one place a task and its bookkeeping are created together."""
+        self._coordinates[coords.deployment_id] = coords
+        self._connected[coords.deployment_id] = asyncio.Event()
+        self._tasks[coords.deployment_id] = asyncio.create_task(
+            self._connection_loop(coords), name=f"mqtt-{coords.slug}"
+        )
+
+    async def _cancel(self, deployment_id: uuid.UUID) -> None:
+        """Stop one deployment's connection and wait for the task to finish.
+
+        Awaited rather than fire-and-forget: a restart that started the new
+        task before the old one had closed its socket would leave two clients
+        with the same identifier, and the broker would evict one of them.
+        """
+        task = self._tasks.pop(deployment_id, None)
+        self._coordinates.pop(deployment_id, None)
+        self._clients.pop(deployment_id, None)
+        self._connected.pop(deployment_id, None)
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
 
     async def __aenter__(self) -> "MqttClientManager":
         await self.start()

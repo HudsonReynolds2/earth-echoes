@@ -163,16 +163,43 @@ class _Hierarchy:
         )
 
 
+def restricted_keys() -> frozenset[str]:
+    """The catalog's write-restricted keys, read from `CATALOG_BY_KEY`.
+
+    Lives here rather than being imported from `app/services/` so that E2-owned
+    code never depends on E5-owned code; `app.services.projection` asserts its
+    own table against the same source, so the two cannot disagree.
+    """
+    return frozenset(
+        key for key, entry in CATALOG_BY_KEY.items() if entry.write_restricted is not None
+    )
+
+
 def build_change_plan(
     db: Session,
     matched: list[MatchedEntity],
     changes: Mapping[str, Any],
     level: str,
     assignments: Iterable[RoleAssignment],
+    *,
+    allow_write_restricted: bool = False,
 ) -> ChangePlan:
     """Resolve write targets, validate the change map at the write level,
     and compute per-device before/after through the pure merge engine -
-    without writing anything."""
+    without writing anything.
+
+    `allow_write_restricted` (E5.7a, phase-5 fixed choice 3) does two things,
+    and they are one idea: it permits the twelve service-onboarding keys, and
+    it makes the write at each target a **wholesale regeneration** of them
+    rather than a merge. Every restricted key currently stored at the target is
+    dropped before `changes` is applied, so a service field an operator cleared
+    disappears from the deployment's overrides instead of surviving forever.
+    Unrestricted keys at the target are untouched either way.
+
+    Off by default, which is what keeps `PUT .../config/overrides` refusing
+    these keys with `service_restricted` — proven by its own test rather than
+    assumed.
+    """
     if not matched:
         raise PlanError("the selection matched no entities")
     hierarchy = _Hierarchy(db)
@@ -181,7 +208,12 @@ def build_change_plan(
     errors = [
         error
         for target_level in target_levels
-        for error in validate_override_map(changes, CATALOG_BY_KEY, entity_level=target_level)
+        for error in validate_override_map(
+            changes,
+            CATALOG_BY_KEY,
+            entity_level=target_level,
+            allow_write_restricted=allow_write_restricted,
+        )
     ]
     if errors:
         raise PlanError(
@@ -222,18 +254,38 @@ def build_change_plan(
     )
     current = {(row.entity_type, row.entity_id): dict(row.overrides) for row in rows}
     modified = dict(current)
+    # Built once, not per key: `restricted_keys()` walks the whole catalog.
+    restricted = restricted_keys() if allow_write_restricted else frozenset()
     for target in targets:
-        modified[target] = {
-            **current.get(target, {}),
-            **_stored_form(changes, target, current.get(target, {})),
-        }
+        stored = current.get(target, {})
+        base = (
+            {key: value for key, value in stored.items() if key not in restricted}
+            if allow_write_restricted
+            else stored
+        )
+        modified[target] = {**base, **_stored_form(changes, target, stored)}
 
     plans = []
     for device in devices:
         target_type, target_id = device
         before = _effective(hierarchy, chains[device], current, target_type, target_id)
         after = _effective(hierarchy, chains[device], modified, target_type, target_id)
-        changed = tuple(sorted(key for key in after if before[key].value != after[key].value))
+        # **Compared through `snapshot_from_raw`, not through the raw maps**
+        # (E5.7a; the E2-owned defect phase-5 section 2 names). The raw
+        # comparison included keys a Listener's snapshot strips, so ONE services
+        # save marked every Listener in the deployment as changed, minted a
+        # revision per Listener whose published bytes were byte-identical to the
+        # previous one, and published all of them. On a SIM fleet that is ~600
+        # pointless revisions and ~600 pointless retained publishes per save.
+        # Composing through the same function that builds the payload also makes
+        # preview honest: "this listener is unaffected" becomes true.
+        before_snapshot = snapshot_from_raw(target_type, before)
+        after_snapshot = snapshot_from_raw(target_type, after)
+        changed = tuple(
+            sorted(
+                key for key, value in after_snapshot.items() if before_snapshot.get(key) != value
+            )
+        )
         name, pod_id, pod_name, deployment_id = hierarchy.device_context(target_type, target_id)
         plans.append(
             DevicePlan(
@@ -374,18 +426,38 @@ def apply_change_plan(
     plan: ChangePlan,
     changes: Mapping[str, Any],
     actor_user_id: uuid.UUID | None,
+    *,
+    allow_write_restricted: bool = False,
 ) -> tuple[list[ConfigRevision], dict[str, list[str]]]:
     """Stage every write in the caller's transaction: merged override maps
     at each write target, one draft revision per non-no_op device. Returns
     (revision rows, changed keys per deployment for the caller's audit
     rows). The caller audits per deployment and commits ONCE; a failure
-    anywhere rolls back everything (the E2.6 transactionality acceptance)."""
+    anywhere rolls back everything (the E2.6 transactionality acceptance).
+
+    `allow_write_restricted` must match what `build_change_plan` was given.
+    It is a fourth signature rather than the three phase-5 fixed choice 3
+    counted, and it is not a fourth MEANING: this function calls
+    `put_overrides`, so the flag has to reach it or the plan the caller was
+    handed could not be executed. Same default, same one idea — permit the
+    twelve keys, and regenerate them wholesale instead of merging.
+    """
     to_delete: list[str] = []
+    restricted = restricted_keys()
     for target_level, target_id in plan.write_targets:
         existing = get_overrides(db, target_level, target_id)
+        if allow_write_restricted:
+            existing = {key: value for key, value in existing.items() if key not in restricted}
         merged = {**existing, **dict(changes)}
         try:
-            change = put_overrides(db, secret_store, target_level, target_id, merged)
+            change = put_overrides(
+                db,
+                secret_store,
+                target_level,
+                target_id,
+                merged,
+                allow_write_restricted=allow_write_restricted,
+            )
         except OverrideValidationError as error:  # pragma: no cover - plan validated already
             raise PlanError(
                 "invalid change map",

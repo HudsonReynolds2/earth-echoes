@@ -40,9 +40,14 @@ from pydantic import BaseModel, ConfigDict
 from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
 from app.auth.rbac import Permission, require_permission
+from app.config.plan import PlanError, apply_change_plan, build_change_plan
+from app.config.selection import MatchedEntity
+from app.controlplane.publisher import publish_all
 from app.errors import AppError
-from app.models import SERVICE_KEYS, Deployment, DeploymentService, UserSession
+from app.models import SERVICE_KEYS, ConfigRevision, Deployment, DeploymentService, UserSession
+from app.secrets import SecretStore
 from app.services import testers as testers_module
+from app.services.projection import service_settings
 from app.services.schemas import (
     GrafanaSettings,
     InfluxSettings,
@@ -266,7 +271,7 @@ def get_services(
 
 
 @router.put("", response_model=ServicesOut, dependencies=[Depends(require_csrf)])
-def put_services(
+async def put_services(
     deployment_id: uuid.UUID,
     db: DbDep,
     request: Request,
@@ -327,9 +332,11 @@ def put_services(
         row.last_test_detail = None
         row.last_tested_at = None
 
+    revisions: list[ConfigRevision] = []
     if plans:
         db.flush()
         recompute(db, deployment_id)
+        revisions = _project_to_config(db, store, deployment_id, actor)
         record_audit(
             db,
             action="services.update",
@@ -338,14 +345,95 @@ def put_services(
             actor_user_id=actor.user_id,
             scope=deployment_id,
             # Field NAMES only. `audited_fields` cannot reach a value.
-            detail={"services": audited_fields(plans)},
+            detail={
+                "services": audited_fields(plans),
+                # E5.7a: how many devices this save actually told. Expected to
+                # be one per Aggregator and ZERO per Listener — spec 5.4 keeps
+                # these keys off Listener-bound config, so their snapshots do
+                # not change and `no_op` is true for every one of them.
+                "revisions": len(revisions),
+            },
         )
     db.commit()
 
     for plan in plans.values():
         for name in plan.secrets_to_delete:  # D51: only ever AFTER the commit
             store.delete(name)
+
+    # AFTER the commit, for E3.13's reason: the operator's save is durable the
+    # moment it lands, and a broker that is down costs them a publish rather
+    # than their work. Each revision that could not go out stays `draft` and
+    # `POST /revisions/{id}/publish` retries it.
+    await publish_all(
+        request.app.state.session_factory,
+        getattr(request.app.state, "mqtt", None),
+        revisions,
+        publish_enabled=request.app.state.settings.publish_enabled,
+        actor_user_id=actor.user_id,
+    )
     return _services_out(db, deployment_id)
+
+
+def _project_to_config(
+    db: DbDep,
+    store: SecretStore,
+    deployment_id: uuid.UUID,
+    actor: UserSession,
+) -> list[ConfigRevision]:
+    """Regenerate the twelve device-facing keys and mint the revisions.
+
+    **Spec 16.4's post-connect delivery, expressed as ordinary config.** The
+    service rows are the source of truth and the deployment's `entity_override`
+    row is a derived cache of them (phase-5 fixed choice 3), so every save
+    replaces the projection wholesale — `allow_write_restricted=True` is what
+    both permits these keys and makes the write a regeneration rather than a
+    merge, so a field the operator cleared disappears instead of surviving.
+
+    **It runs through `build_change_plan` / `apply_change_plan` rather than
+    writing revisions itself**, so a services save and a bulk config edit reach
+    devices through one code path with one set of rules about no-ops, secret
+    markers and checksums. That is also what makes the acceptance measurable:
+    one revision per Aggregator, zero per Listener.
+
+    Staged in the caller's transaction and NOT committed here — the rows, the
+    projection, the revisions and the audit entry are one unit or none of them.
+    """
+    rows = load_services(db, deployment_id)
+    projection = service_settings(rows, store.get)
+    matched = [
+        MatchedEntity(
+            entity_type="deployment",
+            entity_id=str(deployment_id),
+            name="",
+            deployment_id=str(deployment_id),
+            tags=(),
+        )
+    ]
+    try:
+        plan = build_change_plan(
+            db,
+            matched,
+            projection,
+            "deployment",
+            actor.user.role_assignments,
+            allow_write_restricted=True,
+        )
+        revisions, _ = apply_change_plan(
+            db, store, plan, projection, actor.user_id, allow_write_restricted=True
+        )
+    except PlanError as error:
+        # A projection that the catalog refuses is a platform defect, not an
+        # operator mistake: every key comes from `PROJECTION`, which is asserted
+        # against `CATALOG` at import. Surfaced rather than swallowed, with the
+        # per-key detail, because silently saving the services and not
+        # delivering them is the one outcome nobody could diagnose.
+        raise AppError(
+            "validation_error",
+            "the deployment's service settings could not be projected onto device config",
+            status_code=422,
+            detail=error.detail,
+        ) from error
+    return revisions
 
 
 # --- E5.3: the connection test endpoint --------------------------------------

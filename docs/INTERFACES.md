@@ -860,6 +860,14 @@ reimplement their logic.** Signatures, verbatim:
   `desired`/`cmd`/`lst/+/desired`, write `reported`/`status`/`event`/`lst/+/reported`).
   A device therefore cannot publish its own desired config — which would let it manufacture
   agreement and defeat drift detection.
+  **E5.6 made that list have exactly one source (D120):**
+  `devbroker.aggregator_acl_grants(slug, aggregator_uuid) -> tuple[AclGrant, ...]`, where
+  `AclGrant(access, topic)` uses the `acl_file` vocabulary. `acl_file_text` renders
+  `topic {access} {topic}`; `services/credentials.py::dynsec_role_acls` renders the dynamic
+  security plugin's. Neither writes a topic literal, and `read` becomes TWO dynsec acltypes
+  (`subscribePattern` decides whether the SUBSCRIBE is accepted, `publishClientReceive` whether
+  a matching message is delivered — granting only the first yields a device that subscribes
+  successfully and then receives nothing). **E5.8a moves this to `app/brokerconfig.py`.**
 - **Denial looks like silence.** Mosquitto accepts a subscription to a topic its ACL denies
   (SUBACK 0) and then never delivers, and it filters wildcards per message. Every denial
   assertion in `backend/tests/test_dev_broker.py` is therefore paired with a positive
@@ -935,9 +943,27 @@ reimplement their logic.** Signatures, verbatim:
   desired topics (spec 6.4). Client identifier: `{prefix}-{slug}-{8 hex}`, one suffix per
   manager instance, so a reconnect retires its own old session but two API replicas never
   collide.
-- **Coordinates load once, at `start()`.** Adding a deployment's broker row takes a manager
-  restart; E3.7 owns that lifecycle. **Nothing constructs this manager yet** — E3.2 ships the
-  library, the worker (D59) wires it up.
+- **~~Coordinates load once, at `start()`.~~ AMENDED BY E5.7b — `refresh()` re-reads them.**
+  The original contract said adding a deployment's broker row takes a manager restart. That was
+  honest while broker rows only changed when somebody re-ran `app.devbroker`; E5's services
+  onboarding changes them as a matter of course (Path B writes a new row, rotation changes its
+  password, a new deployment gets its first), so it became a bug the moment E5 shipped. This is
+  one of the two discretionary E3-owned edits phase-5 section 2 authorizes.
+  **`refresh() -> (started, stopped, restarted)`** re-runs the loader off the event loop, diffs
+  by `deployment_id`, and starts / cancels / restarts tasks. **A rotated password IS a
+  difference** — `BrokerCoordinates` is a frozen dataclass, so equality compares every field and
+  a later session adding one gets it reconciled for free. `start()`'s semantics are unchanged;
+  `_registrations` stays manager-level, so a task started by a refresh inherits the FULL
+  subscription set. Refreshing a manager that never started is a no-op, not an error — both
+  hosts poll while `start_or_retry` may still be backing off. Idempotent: called with unchanged
+  coordinates it cancels no task, asserted by IDENTITY on the task objects in
+  `tests/test_broker_refresh.py` (counting them would pass on a stop/start cycle that dropped
+  every message in between).
+  **Both hosts poll it**, because they are different processes: `ReconciliationWorker._refresh_loop`
+  and `main.py::_refresh_forever`, both on `EOE_BROKER_REFRESH_SECONDS` (default 30s), both
+  waiting BEFORE the first call since `start()` has just loaded. A poll rather than
+  LISTEN/NOTIFY: a new deployment's broker cannot be dialled before the operator has finished
+  configuring it anyway, so a channel and a second delivery path buy nothing.
 - **New runtime dependency: `aiomqtt`** (the phase-3 fixed client choice), which pulls
   `paho-mqtt`. Async tests run on **anyio's pytest plugin** via the `anyio_backend` fixture in
   `conftest.py` — no pytest-asyncio (D66).
@@ -1591,7 +1617,120 @@ reimplement their logic.** Signatures, verbatim:
   else, and the failure counter resets with it.
 - **The re-check sweep ships as a callable and is NOT registered on the worker.**
   `runner.py` is E3-owned and this phase authorizes exactly two discretionary edits there, both
-  E5.7b's; **E5.7b registers `services_recheck_sweep` in the same edit** that adds
-  `service_config_sweep`.
+  E5.7b's. ~~E5.7b registers `services_recheck_sweep` in the same edit.~~ **Corrected at C3:
+  it did not** (D125). Registering it needs a production `ServiceTestRunner` that dials every
+  deployment's real services on a timer, and no unit in this phase scoped that behaviour;
+  E5.7b's own diff was already carrying `service_config_sweep` plus D121's revocation retry.
+  `services_recheck_sweep` remains a tested callable with no caller, and spec 16.5's "periodic
+  re-checks" is **outstanding** — recorded in `e5-progress-ledger.md` rather than implied
+  complete by this line.
 - **Permissions:** `VIEW_SERVICES` (all four roles) — status renders everywhere and carries no
   credential. **Suite:** `backend/tests/test_services_status.py`.
+
+### Per-device broker credentials and the E4 seam (E5.6; spec 7.1, 7.2, 16.4; D120, D121)
+
+- **Path:** `backend/app/services/credentials.py`; routes in
+  `backend/app/api/broker_credentials.py`; table `broker_credential` (migration
+  `c4e9b21f83da`); the dynsec transport is `app/services/dynsec.py` (E5.4a's, extended by use).
+- **`BrokerCredentialProvider` is defined HERE and consumed by E4.6** — the dependency phase-4
+  fixed choice 1 reversed (D105, addendum PHASE4-2-01). A `Protocol` with
+  `async mint(coordinates, aggregator_uuid) -> DeviceCredential` and
+  `async revoke(coordinates, aggregator_uuid)`. **E4.6 imports it and does not declare one.**
+  Two implementations ship: `DynsecCredentialProvider` (the real one, fixed choice 4) and
+  `DevBrokerCredentialProvider` (reads the accounts `app.devbroker` already generated; it mints
+  nothing and revokes nothing, because the dev broker's password and ACL files are rewritten
+  wholesale by one pass and a second writer is how they drift). `default_provider()` returns the
+  dynsec one; **no setting selects the dev one in production.**
+- **Reached through `app.state.credential_provider`**, set at `create_app`. Routes never call
+  `default_provider()` directly — the same shape `app.state.secret_store` and `app.state.mqtt`
+  have, and what lets a test substitute a provider without a broker.
+- **A mint dials its own short-lived connection, never `MqttClientManager`** (three reasons in
+  the module docstring, any one sufficient). It reuses `MqttServiceClient`, so TLS is
+  `broker.py::tls_context` and D65's pinned-CA rule holds identically.
+- **Every dynsec operation is idempotent by construction.** A mint deletes any existing client
+  and role for the `aggregator_uuid` before creating them, so a rotation and a first mint are
+  one code path and a retry after a partial failure is safe. The deletes tolerate the plugin's
+  "not found" and nothing else.
+- **`_require_admin` runs first.** A `createClient` against a plugin-less broker would time out
+  and report "the plugin did not answer", which is true and useless; the E5.4a probe's verdicts
+  carry the remedy an operator can act on, so those are what surface.
+- **`aggregator_uuid` is NOT a foreign key** and the row **outlives the device** (D121). Deleting
+  a Pi is exactly when its credential must be destroyed, and if the broker is unreachable that
+  destruction is retried later — a cascade would delete the platform's only record of a login
+  still live on somebody's broker.
+- **Three states** (D121, project-changes #27): `minted` / `revoke_pending` / `revoked`, with a
+  CHECK making `revoked_at` non-null **exactly** when `state = 'revoked'`, so the timestamp means
+  "the broker confirmed" on every row. An unreachable broker is retried; a plugin that ANSWERED
+  and refused raises, because retrying a configuration fault hides it.
+- **Routes:** `POST` / `DELETE` / `GET /aggregators/{id}/broker-credential`. **No response
+  carries a password and none can — `BrokerCredentialOut` has no field for one.** `MANAGE_SERVICES`
+  to mint and revoke, `VIEW_SERVICES` to read; every refusal is a 404 (the E1.2 item-route
+  pattern). `POST` is 503 `service_unavailable` on an unreachable broker; `DELETE` returns 200
+  with `state: revoke_pending`, because a 503 would only invite a retry that changes nothing.
+- **`DELETE /aggregators/{id}` is now `async` and revokes on the way through**, its one E1-owned
+  edit. The audit detail carries `broker_credential` so a reader can tell a clean decommission
+  from one still awaiting a broker.
+- **Gate-locked sets extended:** `E0_ROUTES` (three routes) and `E0_TABLES` (`broker_credential`)
+  in `backend/tests/`. **Suite:** `backend/tests/test_broker_credentials.py` (26 tests, real
+  dynsec broker).
+
+### The service-settings projection and the privileged write (E5.7a; spec 5.3, 5.4, 16.4; D122, D124)
+
+- **Path:** `backend/app/services/projection.py`. `service_settings(rows, read_secret) -> dict`
+  is **pure**: the five service rows in, the twelve write-restricted catalog keys out, secrets as
+  PLAINTEXT for `put_overrides` to convert to D51 markers.
+- **`PROJECTION` is a table, and its keys are asserted against `CATALOG` at import time.** A row
+  naming a key the catalog does not mark `write_restricted` raises at import — that would let E5
+  write something an operator may also write, and fixed choice 3's wholesale regeneration would
+  silently resolve the collision in the platform's favour on every save.
+- **The `mqtt` row projects nothing.** Broker coordinates reach a device through E4.6's bootstrap
+  block; a device that could only learn its broker address over the broker could never connect.
+- **A key with no value is ABSENT, not null**, which is what makes omission mean unset under the
+  wholesale regeneration. **An unreadable credential is skipped, not raised on** (the D64 rule):
+  one broken secret degrades one key, not the whole save.
+- **`allow_write_restricted` is keyword-only, defaults off, and threads through FOUR signatures**
+  (D122): `validate_override_map` -> `put_overrides` -> `build_change_plan` -> `apply_change_plan`.
+  It means two things that are one idea: permit the twelve keys, **and** drop every
+  write-restricted key stored at the write target before applying the change map. Unrestricted
+  keys are untouched either way. **`PUT .../config/overrides` still 422s `service_restricted` on
+  all twelve**, walked one key at a time in `test_service_projection.py` — that is why the check
+  was gated rather than deleted.
+- **`put_overrides` remains the only writer of `entity_override`.** E5 did not grow a second one.
+- **`changed_keys` is computed through `snapshot_from_raw`** (D124), closing the E2-owned defect
+  phase-5 section 2 names. A services save now produces **one revision for the Aggregator and
+  zero for its Listeners**, with the Listener snapshots byte-identical before and after; the raw
+  comparison used to mint one per Listener carrying identical bytes (~600 per save on a SIM
+  fleet). Pinned by two acceptance tests so it cannot be dropped as an optimization.
+- **`publisher.publish_all(session_factory, publisher, revisions, *, publish_enabled, actor_user_id)`**
+  is `api/config.py::_publish_applied` extracted, and both callers use it — two publish loops with
+  two error-swallowing policies is a bug that surfaces months later as "some applies publish and
+  some do not". Behaviour unchanged: after the commit, one failure does not abort the rest, a
+  None publisher means `draft`.
+- **`PUT /deployments/{id}/services` is now `async`** and its audit detail gains `revisions`.
+- **Suite:** `backend/tests/test_service_projection.py` (21 tests).
+
+### Delivering service settings to late devices (E5.7b; spec 16.4; D125)
+
+- **Path:** `backend/app/services/config_sweep.py::service_config_sweep`. **The body is E5-owned
+  and `runner.py` only registers it**, which keeps the authorized E3-owned diff to registrations.
+- **It is the same code path as the services save**, deliberately: it recomputes each
+  deployment's projection and runs it through `build_change_plan` / `apply_change_plan`. E5.7a's
+  `changed_keys` fix is what makes that safe on a timer — a device already up to date is `no_op`,
+  so a pass over an unchanged fleet writes and publishes nothing. A bespoke "find devices with no
+  service keys" query would be a second definition of up-to-date.
+- **One transaction per deployment** (`runner.py`'s own rule). A deployment with no service rows
+  is skipped, not written to. `actor_user_id=None`: nobody clicked anything, and the trail is the
+  `reconciliation_event` its transition writes.
+- **Registered sweeps after E5.7b:** `timeout`, `drift` (E3.7), **`service-config`** and
+  **`broker-credential`** (E5.6's D121 revocation retry), plus a `mqtt-coordinates-refresh` task
+  that is deliberately OUTSIDE `_sweeps` — the heartbeat vouches for the sweeps, and a worker
+  whose coordinates poll died is still reconciling everything it holds.
+- **`_async_sweep_loop` is a second loop, not a branch.** The E3.7 sweeps are blocking SQLAlchemy
+  and go through `asyncio.to_thread`; these await a broker and must not. Every other rule is
+  `_sweep_loop`'s: run first and wait after, log and retry a failure rather than let the task die.
+- **New settings:** `EOE_SERVICE_CONFIG_SWEEP_SECONDS` (default 60) and
+  `EOE_BROKER_REFRESH_SECONDS` (default 30), both documented in `deploy/.env.example`.
+- **A retained desired message carries secret MARKERS, not plaintext** (D126) — the E3.4 contract,
+  and E5's projection is pinned to it by a test asserting the marker AND that no plaintext appears
+  anywhere in the payload.
+- **Suite:** `backend/tests/test_broker_refresh.py` (9 tests, real broker, two deployments).
