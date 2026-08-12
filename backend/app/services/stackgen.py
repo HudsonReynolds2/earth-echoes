@@ -325,6 +325,9 @@ def _assemble(
         prometheus_password_bcrypt=secret_store.get(
             stack_secret_name(deployment.id, "prometheus_password_hash")
         ),
+        prometheus_password=_secret_for(
+            secret_store, rows.get("prometheus"), "remote_write_password"
+        ),
         grafana_admin_username="eoe",
         grafana_admin_password=_secret_for(
             secret_store, rows.get("grafana"), "service_account_token"

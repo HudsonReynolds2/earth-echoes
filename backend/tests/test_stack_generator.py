@@ -60,6 +60,7 @@ def _secrets(**overrides) -> StackSecrets:
         "influx_token": INFLUX_BEARER,
         "prometheus_username": "eoe",
         "prometheus_password_bcrypt": PROM_BCRYPT,
+        "prometheus_password": "rigpassword",
         "grafana_admin_username": "eoe",
         "grafana_admin_password": GRAFANA_PW,
         "minio_root_user": "eoe",

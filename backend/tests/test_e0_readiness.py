@@ -162,6 +162,15 @@ E0_ROUTES = {
     # would put a second writer on a column whose whole design is that it has
     # exactly one (phase-5 fixed choice 2).
     ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/status"),
+    # E5.10, spec 16.3: generate the deployment's own service stack, and
+    # download it. BOTH are `MANAGE_SERVICES` — the archive carries every
+    # credential the deployment has in directly usable form, so unlike status
+    # it is not a four-role read. Nothing is stored between the two: the POST
+    # commits credentials and rows, and the GET re-renders from them and
+    # streams, which is what makes two downloads byte-identical (fixed
+    # choice 7).
+    ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/download"),
     # E5.6, spec 16.4: one Aggregator's own broker login. `MANAGE_SERVICES` to
     # mint and revoke because a broker credential is a grant on the
     # deployment's broker rather than a property of the inventory row;

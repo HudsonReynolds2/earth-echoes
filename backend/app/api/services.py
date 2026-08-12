@@ -34,8 +34,8 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.audit import record_audit
 from app.auth.deps import DbDep, require_csrf
@@ -46,6 +46,7 @@ from app.controlplane.publisher import publish_all
 from app.errors import AppError
 from app.models import SERVICE_KEYS, ConfigRevision, Deployment, DeploymentService, UserSession
 from app.secrets import SecretStore
+from app.services import bundle, stackgen
 from app.services import testers as testers_module
 from app.services.projection import service_settings
 from app.services.schemas import (
@@ -577,4 +578,149 @@ async def test_services(
             )
             for result in results
         ],
+    )
+
+
+# --- E5.10: the generated stack bundle --------------------------------------
+#
+# Two endpoints and no storage between them. `POST` generates every credential
+# and commits (E5.9); `GET .../download` re-renders from those committed rows
+# and streams. Fixed choice 7: no blob column, no temp directory, no cleanup
+# job, and no window in which a bundle exists whose credentials the platform
+# cannot verify.
+
+
+class StackGenerateBody(BaseModel):
+    """What the operator chooses about the stack. Everything else is derived."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The address Aggregators and the platform will dial this stack at. Reaches
+    #: the broker certificate's SAN, so it has to be right at generation time —
+    #: a certificate for the wrong name fails verification everywhere.
+    hostname: str = Field(default="localhost", min_length=1, max_length=255)
+    ip: str | None = Field(default=None, max_length=45)
+    #: D123: object storage is conditionally required. An operator not
+    #: uploading raw audio leaves it off and the deployment can still verify.
+    include_object_storage: bool = False
+
+
+class StackOut(BaseModel):
+    deployment_id: str
+    services_status: str
+    services: list[str]
+    #: NOT a credential and not a URL with one in it. The archive is fetched
+    #: through the authenticated download endpoint like anything else.
+    download_path: str
+
+
+def _stack_out(db: DbDep, deployment_id: uuid.UUID) -> StackOut:
+    return StackOut(
+        deployment_id=str(deployment_id),
+        services_status=_deployment_status(db, deployment_id),
+        services=[row.service_key for row in load_services(db, deployment_id)],
+        download_path=f"/deployments/{deployment_id}/services/stack/download",
+    )
+
+
+@router.post("/stack", response_model=StackOut, dependencies=[Depends(require_csrf)])
+def generate_stack_bundle(
+    deployment_id: uuid.UUID,
+    db: DbDep,
+    request: Request,
+    body: StackGenerateBody,
+    actor: Annotated[
+        UserSession, Depends(require_permission(Permission.MANAGE_SERVICES, "deployment_id"))
+    ],
+) -> StackOut:
+    """Generate the deployment's stack: credentials, rows, TLS material.
+
+    **`MANAGE_SERVICES`.** This mints the deployment's keys to everything, and
+    fixed choice 9 keeps that away from a Field Tech whose job is hardware.
+
+    Every service lands `untested`, which by spec 16.5 leaves the deployment
+    short of `verified` until the operator actually runs the stack and tests
+    it. A generated stack does not get to vouch for itself.
+    """
+    deployment = _get_deployment(db, deployment_id)
+    secret_store = request.app.state.secret_store
+
+    stackgen.generate_stack(
+        db,
+        secret_store,
+        deployment,
+        include_object_storage=body.include_object_storage,
+        hostnames=(body.hostname,),
+        ips=(body.ip,) if body.ip else (),
+    )
+    recompute(db, deployment_id)
+    record_audit(
+        db,
+        action="services.stack.generate",
+        entity_type="deployment",
+        entity_id=str(deployment_id),
+        actor_user_id=actor.user_id,
+        scope=deployment_id,
+        # Choices and counts. Not one generated credential, not the hostname's
+        # certificate, nothing that would make the audit log a second copy of
+        # the bundle (rule R2).
+        detail={
+            "include_object_storage": body.include_object_storage,
+            "services": [row.service_key for row in load_services(db, deployment_id)],
+        },
+    )
+    db.commit()
+    return _stack_out(db, deployment_id)
+
+
+@router.get("/stack/download")
+def download_stack_bundle(
+    deployment_id: uuid.UUID,
+    db: DbDep,
+    request: Request,
+    actor: Annotated[
+        UserSession, Depends(require_permission(Permission.MANAGE_SERVICES, "deployment_id"))
+    ],
+) -> Response:
+    """Stream the bundle, re-rendered from the stored rows.
+
+    **`MANAGE_SERVICES`, not `VIEW_SERVICES`.** Status is for everyone
+    (fixed choice 9); this archive contains every credential the deployment
+    has, in usable form, and the README says so in its own section.
+
+    Nothing is written to disk server-side. The archive is built in memory and
+    handed to the response, so there is no path on this host that ever holds a
+    deployment's credentials in the clear.
+    """
+    deployment = _get_deployment(db, deployment_id)
+    secret_store = request.app.state.secret_store
+    try:
+        generated = stackgen.load_generated_stack(db, secret_store, deployment)
+        tls = stackgen.tls_material(secret_store, deployment_id)
+    except stackgen.StackNotGenerated as error:
+        raise AppError(
+            "not_found",
+            "no generated stack for this deployment",
+            status_code=404,
+        ) from error
+
+    archive = bundle.build_archive(bundle.bundle_files(generated, tls))
+    record_audit(
+        db,
+        action="services.stack.download",
+        entity_type="deployment",
+        entity_id=str(deployment_id),
+        actor_user_id=actor.user_id,
+        scope=deployment_id,
+        # Size and nothing else. Who took the deployment's credentials and when
+        # is exactly what this record is for; what was in them is not.
+        detail={"bytes": len(archive)},
+    )
+    db.commit()
+    return Response(
+        content=archive,
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": (f'attachment; filename="echoes-stack-{deployment.slug}.tar.gz"')
+        },
     )

@@ -103,6 +103,16 @@ class StackSecrets:
     influx_token: str = field(repr=False)
     prometheus_username: str
     prometheus_password_bcrypt: str = field(repr=False)
+    #: The SAME password the bcrypt hash above is of, in plaintext.
+    #:
+    #: Both forms are needed and they are not redundant: `web_config.yml`
+    #: authenticates incoming requests against the HASH, while Prometheus's own
+    #: self-scrape is an outgoing request that has to present the PLAINTEXT.
+    #: Without this the scrape config points at a password file the bundle does
+    #: not contain, Docker creates a directory in its place, and Prometheus
+    #: scrapes nothing — which makes `up` absent and E5.4c's read probe fail
+    #: against a stack that is otherwise fine.
+    prometheus_password: str = field(repr=False)
     grafana_admin_username: str
     grafana_admin_password: str = field(repr=False)
     minio_root_user: str = ""
@@ -501,6 +511,10 @@ def render_configs(spec: StackSpec) -> dict[str, str]:
         + "\n",
         "prometheus/prometheus.yml": _dump(prometheus_yml(spec)),
         "prometheus/web_config.yml": _dump(prometheus_web_config(spec)),
+        # The self-scrape's outgoing credential. `password_file` rather than an
+        # inline `password:` so the scrape config itself stays free of
+        # plaintext and one file carries it.
+        "prometheus/scrape_password": spec.secrets.prometheus_password + "\n",
         "grafana/provisioning/datasources/datasources.yml": _dump(grafana_datasources(spec)),
         "grafana/provisioning/alerting/contact-points.yml": _dump(grafana_contact_points(spec)),
     }
