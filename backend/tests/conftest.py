@@ -512,6 +512,31 @@ class Broker:
             [docker_cli(), "kill", "-s", "HUP", self.name], capture_output=True, env=docker_env()
         )
 
+    def refresh(self) -> None:
+        """Re-ship `dev_dir` into the container, then `reload()`.
+
+        Needed because the material arrives by `docker cp` and not by a bind
+        mount (see `ephemeral_broker` on why): re-running `app.devbroker` on the
+        host rewrites `passwd` and `acl` where the container cannot see them, so
+        a SIGHUP alone re-reads the OLD files and every newly minted account is
+        rejected with a bare "not authorised". Added by SIM.4, whose fleet is
+        provisioned into inventory first and given credentials second — which is
+        the only order broker accounts can be minted in.
+        """
+        # `dev_dir/.` and not `dev_dir`: `/mosquitto/dev` exists by now, and
+        # `docker cp` copies a source DIRECTORY into an existing destination
+        # (leaving the files one level too deep) while `dir/.` copies its
+        # CONTENTS over the destination, which is what a refresh means. Built as
+        # a string because `Path` normalizes the trailing "." away.
+        copied = subprocess.run(
+            [docker_cli(), "cp", f"{self.dev_dir}{os.sep}.", f"{self.name}:/mosquitto/dev"],
+            capture_output=True,
+            text=True,
+            env=docker_env(),
+        )
+        assert copied.returncode == 0, f"could not re-ship broker material: {copied.stderr}"
+        self.reload()
+
     def stop(self) -> None:
         """Take the broker down the way an outage does — the container stops,
         every connection drops, and nothing tells the clients (E3.2)."""

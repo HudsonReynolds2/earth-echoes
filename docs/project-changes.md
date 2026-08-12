@@ -5,6 +5,25 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #26 (2026-08-12): SIM.4 and SIM.5 share one gate
+
+- **What changed:** SIM.4 and SIM.5 are gated together at one gate (58) rather than at two.
+  Gate 57 went to the concurrent E5 batch on another branch, so the numbers the SIM ledger
+  reserved (57 and 58) shifted by one; R3 forbids moving a tagged gate commit. Addendum PHASESIM-4-01 had said the two "gate individually as written"; they do not.
+- **Why:** SIM.5 is the task that puts `/sim`'s suite INTO `gate.sh`. A per-task gate for SIM.4
+  could therefore only have been `make gate` (backend and frontend) plus `/sim` run by hand
+  beside it — the same shape SIM.1 to SIM.3 used — while the folded gate runs the harness suite
+  as a registry stage under the R0 runner, which is strictly stronger. Splitting the two would
+  have paid for a second full backend suite to assert something weaker.
+- **The cost, recorded honestly:** the intermediate checkpoint is gone. Both SIM.4 defects found
+  in this batch (DECISIONS D114, D115) were found by the manual 20 × 30 load run rather than by
+  a gate, and a SIM.4 gate would not have caught either — they need a deployed stack and a
+  second run of the same command, neither of which a suite performs. The load run is now written
+  down as a procedure (`guide/sim-verification.md` section 6) precisely so it stops depending on
+  somebody deciding to try it.
+- **Affects:** project_planning/phase-sim-simulation-harness.md section 4
+- **Addendum:** PHASESIM-4-02
+
 ## #25 (2026-08-11): The gate suite becomes safe to run concurrently, on the SIM branch
 
 - **What changed:** `backend/tests/conftest.py` gains cross-process coordination — a machine-wide

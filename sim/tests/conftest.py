@@ -1,6 +1,6 @@
-"""Sim's test configuration (tasks SIM.1, SIM.2, SIM.3).
+"""Sim's test configuration (tasks SIM.1 to SIM.5).
 
-Three jobs, and the first is not to grow a second copy of anything.
+Four jobs, and the first is not to grow a second copy of anything.
 
 **The fixtures are the backend's.** `backend/tests/conftest.py` owns the only
 Mosquitto fixture in this repository and it stays that way (phase doc section
@@ -16,19 +16,29 @@ across xdist workers would start those containers once per worker and make the
 suite slower rather than faster. See the hook below for why `tryfirst` is
 load-bearing.
 
-**The platform under test lives here too** (SIM.2). Three test modules now
-need a migrated database, a provisioned TLS broker and a running API, and the
-`platform` fixture below is module-scoped: each module pays for its own
-containers exactly once and no module can leave state in another's. It was
-SIM.1's, inside `test_mock_aggregator.py`, until there were three callers —
-which is one more than a copy survives.
+**The platform under test lives here too** (SIM.2). Several test modules need a
+migrated database, a provisioned TLS broker and a running API, and the `platform`
+fixture below is module-scoped: each module pays for its own containers exactly
+once and no module can leave state in another's. It was SIM.1's, inside
+`test_mock_aggregator.py`, until there were three callers — which is one more
+than a copy survives.
+
+**And a platform that answers real HTTP** (SIM.4). `platform_stack` is the shared
+body; `platform` is it in-process, and `live_stack` plus `uvicorn_server` is it on
+a socket with the reconciliation worker inside, which is what a REST provisioner
+and a one-command fleet runner have to be tested against.
+
+**R0 belongs to this suite too** (SIM.5). `pytest_sessionfinish` below says so
+loudly; `tests/gate_runner.py` is what makes it a failing exit.
 """
 
 import asyncio
+import contextlib
 import importlib.util
 import os
-import subprocess
 import sys
+import threading
+import time
 import types
 import uuid
 from dataclasses import dataclass
@@ -36,18 +46,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import uvicorn
 from app.auth.passwords import hash_password
 from app.controlplane.revision_state import RevisionState
 from app.controlplane.runner import ReconciliationWorker
 from app.db import create_session_factory
-from app.devbroker import device_username, load_manifest
+from app.devbroker import device_username
 from app.main import API_PREFIX, create_app
 from app.models import (
     Aggregator,
     AggregatorStatus,
     ConfigRevision,
     Deployment,
-    DeploymentService,
     DeviceState,
     Pod,
     RoleAssignment,
@@ -57,9 +67,10 @@ from app.secrets import SecretStore
 from app.seed import seed_demo_hierarchy
 from app.settings import Settings
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from device import BrokerLogin
+from provision import mint_credentials
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND = REPO_ROOT / "backend"
@@ -121,6 +132,31 @@ def pytest_collection_modifyitems(config, items) -> None:
         item.add_marker(pytest.mark.xdist_group(module))
 
 
+def pytest_sessionfinish(session, exitstatus) -> None:
+    """Say loudly when a run under EOE_GATE skipped, xfailed or deselected (R0).
+
+    SIM.5's half of R0 for this suite, and the backend's hook verbatim in
+    behaviour for a reason: the ENFORCEMENT (the nonzero exit) lives in
+    `tests/gate_runner.py`, because pytest 9 ignores exitstatus mutation in this
+    hook (D11). This is the loud line, so a plain `uv run pytest` surfaces the
+    violation too. Filtered runs stay legal while debugging between gates; they
+    are only forbidden as a way to CLEAR a gate.
+    """
+    if os.environ.get("EOE_GATE") != "1":
+        return
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        return
+    counts = {key: len(reporter.stats.get(key, [])) for key in ("skipped", "xfailed", "deselected")}
+    if any(counts.values()):
+        reporter.write_line(
+            f"EOE_GATE violation (rule R0): {counts}. "
+            "Skipped, xfailed, and deselected tests are hard failures at a gate; "
+            "tests/gate_runner.py turns this into a failing exit.",
+            red=True,
+        )
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     """The harness is asyncio (aiomqtt, the phase's fixed client choice), so
@@ -161,36 +197,59 @@ PASSWORD = f"sim-{uuid.uuid4().hex}"
 @dataclass(frozen=True)
 class Platform:
     """Everything a device needs to be talked to, and everything a test needs
-    to check what the platform made of it."""
+    to check what the platform made of it.
+
+    `database_url`, `kek` and `certs` were added by SIM.4: a fleet is
+    provisioned into inventory FIRST and given broker credentials SECOND (that
+    is the only order accounts can be minted in, since they come from inventory),
+    so a test has to be able to re-run the generator against this stack mid-run.
+    """
 
     app: Any
     broker: Any
     factory: Any
     store: SecretStore
     manifest: dict[str, Any]
+    database_url: str
+    kek: str
+    certs: Path
 
 
-def _provision(url: str, kek: str, out_dir: Path) -> None:
+def mint_broker_credentials(
+    url: str, kek: str, out_dir: Path, *, host: str = "localhost", port: int = 8883
+) -> dict[str, Any]:
     """Mint TLS material, broker accounts, ACLs and the `deployment_service`
-    row by running the platform's own generator — the same command the README
-    gives an operator. The harness never writes broker credentials itself."""
-    result = subprocess.run(
-        [sys.executable, "-m", "app.devbroker", "--out", str(out_dir)],
+    rows by running the platform's own generator — the same command the README
+    gives an operator. The harness never writes broker credentials itself.
+
+    Routed through `provision.mint_credentials` (SIM.4) rather than through a
+    second `subprocess.run` written here, so the code path the fleet runner uses
+    in anger is the one every live module in this suite pays for on the way up.
+    `command`/`cwd` override its default `uv run`: there is no uv inside a
+    pytest process, and this interpreter already has the backend importable.
+    """
+    return mint_credentials(
+        out_dir,
+        database_url=url,
+        kek=kek,
+        host=host,
+        port=port,
+        command=[sys.executable, "-m", "app.devbroker"],
         cwd=BACKEND,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "DATABASE_URL": url, "EOE_KEK": kek, "EOE_SESSION_SECRET": "sim1"},
         timeout=180,
     )
-    assert result.returncode == 0, f"devbroker failed: {result.stdout}\n{result.stderr}"
 
 
-@pytest.fixture(scope="module")
-def platform(tmp_path_factory):
+@contextlib.contextmanager
+def platform_stack(out: Path, port: int, **settings: Any):
     """A migrated database, a provisioned TLS broker, and an API whose lifespan
-    has actually run, so `app.state.mqtt` is the real outbound manager."""
-    out = tmp_path_factory.mktemp("sim-certs")
-    port = free_port()
+    has actually run, so `app.state.mqtt` is the real outbound manager.
+
+    A context manager as well as a fixture because SIM.4 needs the same stack
+    with different `Settings` — one that also runs the reconciliation worker
+    in-process — and two copies of this body would drift the day one of them
+    learned something about broker provisioning that the other did not.
+    """
     with ephemeral_postgres() as url:
         kek = make_kek()
         _, factory = create_session_factory(url)
@@ -202,13 +261,11 @@ def platform(tmp_path_factory):
             db.flush()
             db.add(Aggregator(pod_id=pod.id, aggregator_uuid=GHOST_AGG))
             db.commit()
-        _provision(url, kek, out)
-        with factory() as db:
-            # The broker row names `mosquitto:8883` for the compose network;
-            # this test reaches the same broker on a host port, and so does the
-            # device — one broker, two clients, no shortcuts.
-            db.execute(update(DeploymentService).values(host="localhost", port=port))
-            db.commit()
+        # `localhost` and the host port this broker will publish on, written
+        # onto the rows by the generator itself rather than patched in
+        # afterwards: the suite reaches the same broker the device does — one
+        # broker, two clients, no shortcuts.
+        manifest = mint_broker_credentials(url, kek, out, host="localhost", port=port)
         with ephemeral_broker(out, host_port=port) as broker:
             app = create_app(
                 Settings(
@@ -220,6 +277,7 @@ def platform(tmp_path_factory):
                     kek=kek,
                     session_secret="sim-session-secret",
                     cors_origins="",
+                    **settings,
                 )
             )
             with app.state.session_factory() as db:
@@ -232,8 +290,83 @@ def platform(tmp_path_factory):
                 broker=broker,
                 factory=factory,
                 store=SecretStore(factory, kek),
-                manifest=load_manifest(out),
+                manifest=manifest,
+                database_url=url,
+                kek=kek,
+                certs=out,
             )
+
+
+@pytest.fixture(scope="module")
+def platform(tmp_path_factory):
+    out = tmp_path_factory.mktemp("sim-certs")
+    with platform_stack(out, free_port()) as running:
+        yield running
+
+
+@contextlib.contextmanager
+def uvicorn_server(app: Any, *, host: str = "127.0.0.1"):
+    """Serve `app` on a real socket for the life of the block.
+
+    A thread rather than a subprocess, because the app object is already built
+    here — with the ephemeral database's URL and the KEK the broker secrets were
+    wrapped with — and rebuilding it from environment variables in a child
+    process would be a second configuration path to get wrong.
+    """
+    port = free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, name=f"sim-api-{port}", daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 120
+    while not server.started:
+        assert thread.is_alive(), "the API server thread died before it started serving"
+        assert time.monotonic() < deadline, f"the API never started serving on {host}:{port}"
+        time.sleep(0.05)
+    try:
+        yield f"http://{host}:{port}"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=120)
+        assert not thread.is_alive(), "the API server thread would not shut down"
+
+
+@pytest.fixture(scope="module")
+def live_stack(tmp_path_factory):
+    """The whole platform in ONE process — API, publisher, worker and consumer —
+    with no HTTP server started yet (SIM.4).
+
+    Two things the in-process `platform` fixture cannot offer, and SIM.4 needs
+    both. `provision.py` is a REST client built on `urllib`, so it needs a socket
+    rather than an ASGI transport: provisioning "as an operator would" means
+    little if the operator is a test client. And `fleet.py`'s acceptance is that
+    ONE command converges a fleet, which means the publisher and the
+    reconciliation consumer must be running without a test holding them open —
+    `worker_in_api=True` is how the platform itself ships that (E3.7's
+    single-container deployment), so it is what the acceptance runs against.
+
+    The SERVER is deliberately left to the caller, because a fleet's provisioning
+    sequence needs two of them: broker accounts are minted from inventory, so
+    inventory is created over REST first, and re-running the generator rotates
+    every password — including the platform's own — which drops the API's live
+    broker sessions. `MqttClientManager.start()` reads its coordinates once
+    (E3.2, deliberately), so the API has to come back up before it can publish
+    again. That is the operator's real sequence too, and `test_fleet.py` performs
+    it rather than working around it.
+
+    The sweep intervals are pushed past the life of the module for `worker_for`'s
+    reason — a pending revision timing out mid-test would be a failure about
+    patience rather than about the fleet — and the consumer, being
+    subscription-driven rather than swept, is unaffected.
+    """
+    out = tmp_path_factory.mktemp("sim-live-certs")
+    with platform_stack(
+        out,
+        free_port(),
+        worker_in_api=True,
+        timeout_sweep_seconds=3600,
+        drift_sweep_seconds=3600,
+    ) as running:
+        yield running
 
 
 # --- talking to the platform as an operator ---------------------------------

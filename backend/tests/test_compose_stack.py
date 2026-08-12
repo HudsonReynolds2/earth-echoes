@@ -13,7 +13,20 @@ import urllib.request
 
 import pytest
 from conftest import REPO_ROOT, bootstrap_broker_material
-from test_repo_layout import COMPOSE_SERVICES, compose_env, docker_cli, docker_env
+from test_repo_layout import (
+    COMPOSE_SERVICES,
+    PROFILED_SERVICES,
+    compose_env,
+    docker_cli,
+    docker_env,
+)
+
+#: What a plain `docker compose up` starts: every service that is not behind an
+#: optional profile. SIM.4's `sim` service is the first one that is, and the
+#: assertion below is the other half of `test_the_optional_services_stay_behind
+#: _their_profiles` — that one proves the profile is declared, this one proves
+#: the default stack does not run it.
+DEFAULT_SERVICES = COMPOSE_SERVICES - set(PROFILED_SERVICES)
 
 DEPLOY = REPO_ROOT / "deploy"
 PROJECT = "eoe-gate-test"
@@ -54,7 +67,7 @@ def test_stack_lifecycle_up_probe_teardown():
         assert ps.returncode == 0, ps.stderr
         services = [json.loads(line) for line in ps.stdout.splitlines() if line.strip()]
         states = {item["Service"]: item["State"] for item in services}
-        assert states == dict.fromkeys(COMPOSE_SERVICES, "running"), (
+        assert states == dict.fromkeys(DEFAULT_SERVICES, "running"), (
             f"unexpected service states: {states}"
         )
 

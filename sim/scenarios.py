@@ -48,7 +48,7 @@ import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
@@ -112,6 +112,15 @@ class Behaviour(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    #: Whether SIM.4's fleet runner may point this behaviour at a device it
+    #: provisioned. False for the two identity misbehaviours: both need a device
+    #: the ordinary fleet cannot produce — one whose `aggregator_uuid` is in no
+    #: inventory row, one claiming a MAC filed under another parent — and the
+    #: fleet provisions every device it runs. A runner that offered them anyway
+    #: would bring 20 Aggregators up and prove nothing, so `fleet.py` refuses
+    #: them at STARTUP with the reason (D113).
+    fleet_safe: ClassVar[bool] = True
 
     async def run(self, context: ScenarioContext) -> None:  # pragma: no cover - abstract
         raise NotImplementedError
@@ -267,7 +276,13 @@ class DuplicateMac(Behaviour):
     The MAC is required and typed as the contract's `MacAddress`, so a
     scenario file carrying a malformed one fails at load rather than at the
     first publish.
+
+    Not `fleet_safe`: every MAC a provisioned fleet holds was imported under
+    the Aggregator that reports it, so there is no other parent to steal one
+    from. The conflict has to be staged, which is `tests/test_scenario_outcomes`.
     """
+
+    fleet_safe: ClassVar[bool] = False
 
     mac: MacAddress
 
@@ -288,7 +303,15 @@ class UnprovisionedAggregator(Behaviour):
     `aggregator_uuid` matches no inventory row; the platform answers with the
     spec 4.3 item 3 membership check and opens a `provisioning_required` alert
     on every channel it reaches.
+
+    Not `fleet_safe`: a fleet provisions every Aggregator it runs and mints
+    each one a credential from that inventory row, so no member of a fleet can
+    be a device the platform has never heard of. Producing one means deleting
+    an inventory row out from under a live credential, which is
+    `tests/test_scenario_outcomes`.
     """
+
+    fleet_safe: ClassVar[bool] = False
 
     event_code: EventCode | None = None
 
@@ -330,6 +353,21 @@ class Scenario:
     expects: str
     behaviours: tuple[Behaviour, ...]
     source: Path
+
+    @property
+    def fleet_safe(self) -> bool:
+        """Whether SIM.4's runner may point this scenario at a fleet member.
+
+        One unsafe behaviour makes the whole scenario unsafe: a file that ran
+        four honest behaviours and then quietly skipped the fifth would report
+        success for a scenario that did not happen.
+        """
+        return all(type(item).fleet_safe for item in self.behaviours)
+
+    def unsafe_behaviours(self) -> tuple[str, ...]:
+        """The behaviour class names that keep this scenario out of a fleet run,
+        so the refusal can name them instead of just refusing."""
+        return tuple(type(item).__name__ for item in self.behaviours if not type(item).fleet_safe)
 
     async def run(self, context: ScenarioContext) -> None:
         """Run the behaviours in file order, which is the order they are

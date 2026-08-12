@@ -1,5 +1,91 @@
 # Project Updates
 
+## 2026-08-12: SIM.4 and SIM.5 — a fleet on one command, and the harness joins the gate (Gate 58 GREEN)
+
+- **Tasks closed:** SIM.4 (fleet runner) and SIM.5 (CI integration). **Epic SIM is complete.**
+  DECISIONS D112-D115, project-changes #26, addendum PHASESIM-4-02 (the two share one gate,
+  superseding PHASESIM-4-01 — SIM.5 is what puts `/sim` into `gate.sh`, so the folded gate
+  strictly contains what a SIM.4-only gate could have asserted).
+- **Gate:** 58, GREEN. (Gate 57 was taken by the concurrent E5 batch on another branch;
+  R3 forbids moving a tagged gate commit, so this batch is 58.)
+- **Tests:** **767 backend / 114 vitest / 4 Playwright / 73 `/sim`**, 0 failed / 0 skipped /
+  0 xfailed / 0 deselected. Stage times: backend-tests 258.2s, **sim-protocol 191.8s**;
+  backend-quality, frontend-quality and sim-quality all clean.
+- **Command:** `make gate` — which now runs `sim-quality` and `sim-protocol` as registry stages.
+  No more running the harness suite by hand beside the gate.
+- **One red run in the middle, recorded rather than summarised away** (rule R0). The full gate was
+  run repeatedly on this batch as the records were finished: green (767 passed), then **RED — 760
+  passed, 7 errors**, then green again (767 passed) on the committed tree. All 7 errors were the
+  same `ephemeral_broker` fixture
+  in `test_mqtt_manager.py`, all with the identical Docker Desktop message
+  `ports are not available: exposing port TCP 127.0.0.1:54475 … /forwards/expose returned
+  unexpected status: 500` — the forwarder-under-load phenomenon D99 and D110 already name, after
+  this session had churned several hundred containers through a load run. No test code was
+  touched between the red run and the green one; clearing stopped containers was enough. Recorded
+  because a flake nobody wrote down is a flake somebody rediscovers as a mystery.
+- **Artifacts:** `sim/provision.py` (a `urllib` REST `Operator`, `FleetPlan` computing every
+  identity from the slug and two indices, `provision_hierarchy`, `apply_fleet_config`,
+  `mint_credentials` invoking `app.devbroker` as a subprocess) · `sim/fleet.py` (the CLI, `Fleet`,
+  `FleetCounters`, staggered start, polite shutdown, `--scenario`/`--scenario-devices`,
+  `--wake-grace`, `--stay`, `--list-scenarios`) · `sim/Dockerfile` and the `sim` compose service
+  behind an optional profile · `sim/tests/test_fleet.py` (19 tests) · `sim/tests/gate_runner.py` ·
+  `sim-quality`/`sim-protocol` in `gate.sh` and `gate.ps1`, a CI job each, both in `ci-green` ·
+  `guide/sim-verification.md` · the INTERFACES "Owned by SIM" section · `Broker.refresh()` and
+  `platform_stack`/`live_stack`/`uvicorn_server` in the shared fixtures ·
+  `COMPOSE_SERVICES` + a new `PROFILED_SERVICES` gate-locked set.
+- **The 20 × 30 load run, measured on one host** (clean stack, demo seeded, full dev compose):
+  **3.0s** to provision 20 pods, 20 Aggregators and 600 Listeners over the REST API; **2.1s** to
+  connect 20 TLS sessions on per-device credentials at a 0.05s stagger; **5.2s** for all 620
+  devices to converge on 620 published revisions; **8.0s** wall for the whole command at 8% CPU
+  and **45 MiB** peak RSS. Afterwards: **620 of 620 revisions `applied`**. Platform peaks —
+  worker 59.3% CPU / 68 MiB, Postgres 20.1% / 56 MiB, API 3.0% / 91 MiB, **Mosquitto 0.03% /
+  5.4 MiB**. The bottleneck is the reconciliation consumer, not the wire. Procedure and numbers
+  in `guide/sim-verification.md` section 6, which is what E8.6 inherits.
+- **The ~10s-per-publish platform cost the SIM.1 notes flagged does not exist** (D115). It was an
+  artefact of driving `POST /config/apply` through `fastapi.testclient` while the outbound manager
+  lived in another event loop. Over real HTTP the 2 × 3 acceptance converges 8 revisions in under
+  a second. Nothing needs raising with the platform owner; the ledger note is superseded.
+- **Two harness defects, both found by the load run rather than by a suite** (D114, D115). A stale
+  pre-E3.13 API image produced `KeyError: 'published'` from inside a provisioning helper; it now
+  says "this API predates E3.13 … rebuild the stack". And re-running the fleet with the same value
+  is a legitimate no-op — E2 cuts a revision only for a device whose effective config CHANGED — so
+  the runner waited 30 minutes for 620 devices nobody had told anything. `wait_for_applies` now
+  waits for exactly the devices a revision reached, and says so when that set is empty. The D108
+  pattern holds: the harness's failures are never in the protocol, they are in what it does when
+  the world is not fresh.
+- **A third defect the acceptance test caught before it shipped:** the runner returned as soon as
+  the Aggregators had converged, leaving Listener applies in flight and their revisions `pending`
+  until the reconciliation timeout. Found because the test asserts on the platform's ROWS rather
+  than on the runner's word.
+- **The SIM.3 open question is answered** (D113): `duplicate_mac` and `unprovisioned_aggregator`
+  stay suite-only. A fleet provisions every device it runs and mints each one a credential from
+  that inventory row, so no member can be unknown to the platform or claim another parent's MAC.
+  `Behaviour.fleet_safe` marks them, `--list-scenarios` prints `[suite only: …]`, and `--scenario`
+  refuses them before a socket opens.
+- **The boundary got stronger, not weaker** (D112). `provision.py` never imports `app.devbroker`:
+  it runs the generator as a subprocess, reads `accounts.json` as the documented file interface it
+  is, and matches a device account on its `aggregator_uuid` rather than re-deriving the
+  `dev-{uuid}` username recipe. And `sim/Dockerfile` copies only `backend/app/contracts` in, so
+  inside the container the boundary is a property of the filesystem rather than of a test.
+- **`listener.mac` is a GLOBAL primary key, so a fleet's MAC prefix is derived from its deployment
+  slug** (`02:` plus three bytes of its SHA-256). Two fleets of the same shape in two deployments
+  would otherwise collide on every address; E1.9's demo prefix `02:EE:0E` is reserved and refused.
+- **Manual verification**, outside the harness, against the real dev compose stack:
+  - The 20 × 30 load run above, end to end on a clean database: `provision.py` created the
+    hierarchy over REST, `app.devbroker` minted 26 device accounts, `docker compose restart
+    mosquitto api worker`, then `fleet.py` brought 20 Aggregators and 600 Listeners up and
+    converged all 620. Verified in the database afterwards: 620 of 620 revisions `applied`, none
+    `pending` or `draft`.
+  - Provisioning re-run at 20 × 30: created nothing, logged `all 600 Listeners already exist`.
+  - `docker build -f sim/Dockerfile .` succeeds, and **the boundary holds inside the container**:
+    `app.contracts.mqtt` imports and builds a topic, while `app.devbroker`, `app.models`, `app.db`
+    and `sqlalchemy` are all `ModuleNotFoundError` — the image simply does not contain them.
+    `docker run eoe-sim --list-scenarios` prints the catalogue from inside it.
+  - The two startup refusals, before any socket opens: `--scenario duplicate_mac` names the
+    behaviour and points at the suite; `--scenario drft` lists the scenarios that exist.
+  - The stale-image path, reproduced deliberately: a pre-E3.13 `api` image made the fleet exit
+    non-zero saying the API predates E3.13 and to rebuild, instead of raising a `KeyError`.
+
 ## 2026-08-11: Several gate runs can now share one machine (Gate 56 GREEN)
 
 - **Not a SIM task.** Taken on the owner's instruction after the gate-55 batch lost two runs to a

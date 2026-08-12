@@ -438,6 +438,12 @@ class MockAggregator:
         #: Commands actually run, in order. Redeliveries are not in here.
         self.commands_executed: list[CommandName] = []
         self.published_reports = 0
+        #: Every message this device put on the wire, of any kind — status,
+        #: reported state, Listener reports and events. Counted at the one
+        #: chokepoint every publish goes through (`_publish`), so a fleet's
+        #: publish total is the device's own arithmetic rather than a runner
+        #: adding up the categories it happens to know about (SIM.4).
+        self.published_messages = 0
         #: The Listeners this Aggregator holds config for and reports on
         #: (SIM.2), keyed by normalized MAC. Insertion-ordered, so "the first
         #: Listener" means the first one attached rather than an arbitrary one.
@@ -466,6 +472,17 @@ class MockAggregator:
         return f"aggregator {self.aggregator_uuid} ({self.deployment_slug})"
 
     # --- what the device knows about itself ---------------------------------
+
+    @property
+    def connected(self) -> bool:
+        """Whether this device is holding a session right now.
+
+        The client itself, not a flag set beside it: a `kill()` clears the
+        client in the same teardown that ends the session, so there is no
+        window where a fleet counter could report a device as up because
+        nobody remembered to unset something.
+        """
+        return self._client is not None
 
     @property
     def checksum(self) -> str:
@@ -791,6 +808,7 @@ class MockAggregator:
         if self._client is None:
             raise RuntimeError(f"{self} is not connected; nothing was published to {topic}")
         await self._client.publish(topic, payload, qos=QOS, retain=retain)
+        self.published_messages += 1
 
     # --- receiving ----------------------------------------------------------
 

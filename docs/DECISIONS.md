@@ -4,6 +4,82 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D115 (2026-08-12): A fleet-wide apply is 620 sequential retained publishes, and that — not
+the fleet — is what a full-scale run measures (finding, NOT fixed here)
+
+- **What was measured.** A 20 × 30 fleet against the complete dev stack. Provisioning 20 pods,
+  20 Aggregators and 600 Listeners over the REST API takes ~3s. Connecting 20 TLS sessions on
+  per-device credentials takes ~2s. Time-to-all-applied is dominated entirely by the platform's
+  publish path: `POST /config/apply` cuts one revision per affected device and
+  `_publish_applied` publishes them one at a time, awaiting each PUBACK, so an
+  Aggregator-level change over this fleet is **620 sequential retained publishes** — 20
+  Aggregators plus their 600 Listeners, because `listener.wake_grace_seconds` is inherited into
+  every Listener's effective config rather than filtered out of it.
+- **The ~10s-per-publish figure the SIM ledger recorded is NOT a platform cost.** It was an
+  artefact of driving the apply through `fastapi.testclient` while the outbound manager lived in
+  another event loop. Over real HTTP against a real uvicorn, the 2 × 3 acceptance converges 8
+  revisions in under a second. The ledger note is superseded by this entry.
+- **Not fixed here, and not a defect to fix in `/sim` in any case** (rule R2). The publish loop
+  belongs to E3.4/E3.13. If it is ever worth batching, that is a platform decision with a
+  platform test; a harness that worked around it would hide exactly the cost E8.6 needs to see.
+- **What the harness does about it:** `--apply-timeout` defaults to 1800s so a full-scale run is
+  not cut off by the runner's patience, and `Fleet.wait_for_applies` reports how many devices are
+  still waiting rather than a bare timeout. `guide/sim-verification.md` records the measurement
+  and says publishing dominates.
+
+## D114 (2026-08-12): The harness names the stale-image failure instead of raising a KeyError
+(found during the load run)
+
+- **What happened.** The 20 × 30 run failed with `KeyError: 'published'` inside
+  `apply_fleet_config`. The cause was a dev stack whose `api` image had been built before E3.13
+  added `published` and per-revision `state` to the apply response; `docker compose up -d` had
+  happily reused it.
+- **Fixed by saying so:** a missing `published` is now a `ProvisionError` reading "this API
+  predates E3.13 and will not publish anything a device could apply. Rebuild the stack:
+  `docker compose up -d --build`." The harness talks to a DEPLOYED platform, so "the platform is
+  older than the harness" is a permanent failure mode of this tool and not a one-off; a KeyError
+  from inside a provisioning helper is the worst possible way to learn it.
+- **Kept as a hard failure rather than a degrade.** A fleet whose revisions were never published
+  waits forever, and reporting that as success would make every later load run meaningless.
+
+## D113 (2026-08-12): `duplicate_mac` and `unprovisioned_aggregator` stay suite-only, refused by
+the fleet runner at startup (answers the SIM.3 hand-off question)
+
+- **The question the SIM.3 notes left open** was whether the fleet CLI exposes the two identity
+  scenarios at all. It does not, and it says why at startup rather than failing obscurely later.
+- **Because a provisioned fleet structurally cannot host them.** `unprovisioned_aggregator` needs
+  a device whose `aggregator_uuid` is in no inventory row — but a fleet provisions every device it
+  runs and each one's broker credential is minted FROM that row, so no fleet member can be unknown
+  to the platform. `duplicate_mac` needs an Aggregator claiming a MAC filed under a different
+  parent — but every MAC a fleet holds was imported under the Aggregator that reports it.
+  Offering either would bring twenty Aggregators up and prove nothing.
+- **Mechanism:** `Behaviour.fleet_safe`, a ClassVar defaulting True and False on those two;
+  `Scenario.fleet_safe` is the conjunction, so one unsafe behaviour makes a whole file unsafe
+  (a file that ran four behaviours and skipped the fifth would report success for a scenario that
+  did not happen). `fleet.py --list-scenarios` marks them `[suite only: …]` and `--scenario`
+  refuses them before a socket opens, naming `sim/tests/test_scenario_outcomes.py`, which stages
+  exactly those conditions and asserts the platform's reaction.
+
+## D112 (2026-08-12): SIM reads `accounts.json` as a file and matches accounts on
+`aggregator_uuid`, rather than importing `app.devbroker`
+
+- **The phase document's section 2 suggests `device_username(aggregator_uuid)` and
+  `load_manifest(out_dir)`** as how the harness learns credentials. Both are in `app.devbroker`,
+  and importing them would break the SIM.1 boundary rule that every module in `/sim` imports
+  `app.contracts.mqtt` and nothing else from the platform — a rule `test_harness_boundaries.py`
+  asserts over the whole tree.
+- **The rule wins, and it is worth the small cost.** A harness one import from a session factory
+  is a harness that will eventually reach into a database to make a scenario work, and the value
+  of every SIM finding rests on it not being able to.
+- **So:** `provision.py` runs `app.devbroker` as a SUBPROCESS (the command the README gives an
+  operator), reads `accounts.json` with `json.loads` — a documented file interface, INTERFACES.md
+  "The development broker" — and finds a device account by matching its `aggregator_uuid` field.
+  Matching on the identity rather than on the username means the `dev-{uuid}` recipe is never
+  reproduced here, so a rename of it is invisible to the harness instead of silently wrong.
+- **The CA path comes from the caller's certificate DIRECTORY, not the manifest's `ca_cert`**,
+  which is absolute on the machine that generated it — the sim container reads the same files from
+  a different mount point.
+
 ## D111 (2026-08-11): The shutdown assertion classifies the survivor instead of timing it out —
 and the underlying cause is NOT yet known (owner request)
 

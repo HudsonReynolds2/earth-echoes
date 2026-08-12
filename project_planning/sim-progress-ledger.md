@@ -17,8 +17,35 @@ only after the commit and tag exist.
 | SIM.2 Mock Listener behaviour | gate green | 55 | `gate-55` | D104, D105 | `MockListener` with no session of its own, the local link as an in-process call that refuses what a Listener cannot mean (D104), and the spec 6.5 sweep running in the device on its own configured grace (D105). All four acceptance claims asserted. |
 | SIM.3 Scenario scripting | gate green | 55 | `gate-55` | D106, D107, D108 | Typed behaviour registry + six TOML scenario files, each with a test asserting the PLATFORM's reaction (`failed`, `drifted`, LWT offline, Listener offline, `duplicate_identity` quarantine with inventory unchanged, `provisioning_required`). Load-time validation naming file and key (D107). Found and fixed D108 — an in-process kill took the event loop down. |
 | Concurrency-safe test infrastructure (not a SIM task) | gate green | 56 | `gate-56` | D110 | Cross-process lock, machine-wide port-claim registry, host-side forward probes. Taken on the owner's instruction after two gate-55 runs were lost to a concurrent suite in another worktree. Two full backend suites now run at once, 766 passed each. project-changes #25, addendum PHASE0-4-07. |
-| SIM.4 Fleet runner | not started | 57 | — | — | CLI, REST provisioning, `sim` compose profile, 20 × 30 default. |
-| SIM.5 CI integration | not started | 58 | — | — | `sim-quality` + `sim-protocol` stages, `guide/sim-verification.md`, INTERFACES section. |
+| SIM.4 Fleet runner | gate green | 58 | `gate-58` | D112, D113, D114, D115 | `sim/provision.py` (REST `Operator`, `FleetPlan`, `mint_credentials`), `sim/fleet.py` (CLI, `Fleet`, counters, staggered start, polite shutdown), `sim/Dockerfile` and the `sim` compose service behind its profile, `COMPOSE_SERVICES`/`PROFILED_SERVICES` extended. **Gated with SIM.5** (see the note below). The 20 × 30 load run is measured and recorded in `guide/sim-verification.md`. |
+| SIM.5 CI integration | gate green | 58 | `gate-58` | — | `sim-quality` + `sim-protocol` in `gate.sh` (and `gate.ps1`), a CI job each with both ids in `ci-green`, `sim/tests/gate_runner.py` reusing the backend's `GateGuard`/`enforce`, the EOE_GATE hook in sim's conftest, `guide/sim-verification.md`, the INTERFACES "Owned by SIM" section. |
+
+## Notes from SIM.4 and SIM.5 — the epic is complete
+
+- **SIM.4 and SIM.5 share gate 58** (project-changes #26, addendum PHASESIM-4-02), superseding
+  PHASESIM-4-01's "SIM.4 and SIM.5 gate individually". SIM.5 is what puts `/sim` into `gate.sh`,
+  so the folded gate strictly contains what a SIM.4-only gate could have asserted. Gate 57 went
+  to the concurrent E5 batch on another branch, so the numbers this ledger reserved shifted by
+  one — R3 forbids moving a tagged gate commit.
+- **`/sim` is in the gate now.** `sh gate.sh sim-quality` and `sh gate.sh sim-protocol`, both in
+  `LOCAL_STAGES`, both in `gate.ps1`, both with a CI job in the `ci-green` needs list. No more
+  running the harness suite by hand beside `make gate`.
+- **The 20 × 30 run is real and it is fast**: 3.0s to provision over REST, 2.1s to connect 20 TLS
+  sessions, 5.2s for 620 devices to converge, 45 MiB peak RSS. The load bottleneck is the WORKER
+  (~60% of one core), not the broker (5 MiB, 0.03%). Numbers and procedure in
+  `guide/sim-verification.md` section 6, which is what E8.6 inherits.
+- **The ~10s-per-publish cost the SIM.1 notes flagged does not exist.** It was a
+  `fastapi.testclient` artefact; over real HTTP the publish path is fast (D115). That note is
+  superseded — nothing needs raising with the platform owner.
+- **Two defects the load run found, both in the harness** (D114, D115): a `KeyError` where a
+  stale pre-E3.13 API image should have been named, and a runner that waited for 620 devices after
+  an apply that legitimately published nothing. Both fixed, both tested. The pattern from D108
+  holds: the harness's failures are not in the protocol, they are in what it does when the world
+  is not fresh.
+- **What E6 and E8 drive:** `fleet.py --scenario NAME --scenario-devices N --stay` for a fleet
+  where some devices are wrong and the rest are healthy; `docker compose --profile sim up sim` for
+  one against the dev stack. `duplicate_mac` and `unprovisioned_aggregator` stay suite-only and
+  are refused at startup with the reason (D113) — that answers the question SIM.3 left open.
 
 ## Notes for whoever picks this up next
 
