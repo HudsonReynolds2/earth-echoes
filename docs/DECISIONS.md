@@ -4,6 +4,31 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D130 (2026-08-12): `dynamic_security_config` takes a hashed password, because hashing at
+render time had already broken the byte-identical download
+
+- **What changed.** `app/brokerconfig.py::dynamic_security_config` accepted a plaintext admin
+  password and hashed it internally with a fresh `os.urandom` salt. It now takes an
+  already-hashed `admin_password_hash`, and a new `dynsec_password_hash` does the salting
+  once. E5.9 calls it, stores the result, and every render after that is a pure function of
+  stored state.
+- **Why it matters.** Phase-5 fixed choice 7 says the platform stores no bundle and re-renders
+  it on every download, and the property that makes that legitimate is that **two downloads
+  are byte-identical** — E5.10's stated acceptance. A per-call random salt made
+  `dynamic-security.json` different on every render, so that property was already false as
+  soon as E5.8a landed, two units before the test that would have caught it.
+- **How it was found, which is the part worth keeping.** Not by reasoning about the design. By
+  writing E5.8b's determinism test, hitting the JSON file, and beginning to write a comment
+  explaining why *that one file* was allowed to be an exception. The exception was the bug.
+  A carve-out being written into a test is a signal to re-read the requirement before writing
+  the carve-out.
+- **The shape this pushes onto E5.9.** Every credential that reaches a rendered config must be
+  hashed in the same transaction that generates and stores it, in the form its own service
+  demands — bcrypt for Prometheus's `web_config.yml`, PBKDF2-`$7$` for the broker's dynsec
+  JSON. `StackSecrets` therefore carries hashes rather than plaintexts, and says so.
+- **Reference:** phase-5-deployment-services.md section 2 fixed choice 7, tasks E5.8a/E5.9/
+  E5.10; `backend/tests/test_stack_generator.py::test_rendering_is_deterministic`.
+
 ## D129 (2026-08-12): The whole-container retry extends to brokers and rig services, and
 `docker_retry` is still not widened
 

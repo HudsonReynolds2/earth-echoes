@@ -246,13 +246,29 @@ def _acl(acltype: str, topic: str) -> dict[str, Any]:
     return {"acltype": acltype, "topic": topic, "allow": True}
 
 
+def dynsec_password_hash(password: str) -> str:
+    """Hash a password for `dynamic-security.json`, salting ONCE.
+
+    Separate from `dynamic_security_config` because the salt is random and the
+    rendered bundle must be byte-identical on every download (fixed choice 7):
+    a config function that hashed its own argument would produce a different
+    file each call, and the platform stores no blob to compare against. E5.9
+    calls this once, stores the result, and every later render is pure.
+    """
+    return password_hash(password, os.urandom(PW_SALT_BYTES), iterations=DYNSEC_PW_ITERATIONS)
+
+
 def dynamic_security_config(
     deployment_slug: str,
     admin_username: str,
-    admin_password: str,
+    admin_password_hash: str,
 ) -> dict[str, Any]:
     """The generated broker's `dynamic-security.json`, with the platform
     account pre-created and nothing else.
+
+    Takes an ALREADY-HASHED password (see `dynsec_password_hash`) so that
+    rendering is a pure function of stored state and two downloads of one
+    bundle are byte-identical.
 
     **Only the platform account exists at generation time**, holding two roles:
     the plugin's `admin` role, which is what lets E5.6 create per-device clients
@@ -272,9 +288,7 @@ def dynamic_security_config(
         "clients": [
             {
                 "username": admin_username,
-                "encoded_password": password_hash(
-                    admin_password, os.urandom(PW_SALT_BYTES), iterations=DYNSEC_PW_ITERATIONS
-                ),
+                "encoded_password": admin_password_hash,
                 "roles": [
                     {"rolename": DYNSEC_ADMIN_ROLE},
                     {"rolename": DYNSEC_DEPLOYMENT_ROLE},

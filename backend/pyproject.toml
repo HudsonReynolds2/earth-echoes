@@ -24,6 +24,13 @@ dependencies = [
     # synchronous, so every call goes through `asyncio.to_thread`, following
     # `controlplane/broker.py`'s precedent.
     "boto3>=1.35",
+    # E5.8b: the stack generator. Promoted out of the dev group because
+    # `app/services/stack.py` serialises the generated compose file and every
+    # service config with `yaml.safe_dump` in PRODUCTION code. Phase-5 E5.8b
+    # forbids string templating: a compose file built from a dict is valid by
+    # construction, and `string.Template`'s `${name}` collides with compose's
+    # own `${VAR}` interpolation.
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]
@@ -31,7 +38,11 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
     "mypy>=1.14",
-    "pyyaml>=6.0",
+    # PyYAML ships no py.typed marker, and `mypy --strict` will not accept an
+    # untyped `safe_dump` in app code. Unlike boto3 (see the override below)
+    # the stubs are small and first-party, so they are a dev dependency rather
+    # than a relaxed strictness rule.
+    "types-pyyaml>=6.0",
     "hypothesis>=6.100",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",

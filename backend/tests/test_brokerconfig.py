@@ -30,6 +30,7 @@ from app.brokerconfig import (
     AclGrant,
     aggregator_acl_grants,
     dynamic_security_config,
+    dynsec_password_hash,
     generate_tls_material,
     stack_mosquitto_conf,
 )
@@ -160,7 +161,7 @@ def test_generate_tls_material_refuses_a_certificate_with_no_hostname():
 def test_the_generated_dynsec_config_pre_creates_only_the_platform_account():
     """A bundle that shipped device credentials would ship credentials the
     platform cannot revoke. Devices are minted at provisioning time (E5.6)."""
-    config = dynamic_security_config(SLUG, ADMIN_USER, ADMIN_PW)
+    config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
     assert [client["username"] for client in config["clients"]] == [ADMIN_USER]
 
 
@@ -168,7 +169,7 @@ def test_the_platform_account_holds_both_the_admin_and_deployment_roles():
     """Admin is what lets E5.6 mint over `$CONTROL`; the deployment role is
     spec 7.1's broker-wide-inside-one-namespace cut. Missing either one is a
     platform that either cannot provision or cannot talk to its own devices."""
-    config = dynamic_security_config(SLUG, ADMIN_USER, ADMIN_PW)
+    config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
     roles = {role["rolename"] for role in config["clients"][0]["roles"]}
     assert roles == {DYNSEC_ADMIN_ROLE, DYNSEC_DEPLOYMENT_ROLE}
 
@@ -177,7 +178,7 @@ def test_the_generated_config_never_carries_a_plaintext_password():
     """The whole file is written into a downloadable bundle. `encoded_password`
     is a PBKDF2 hash at the plugin's own iteration count, and the plaintext
     reaches SecretStore and the operator, never this JSON."""
-    config = dynamic_security_config(SLUG, ADMIN_USER, ADMIN_PW)
+    config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
     blob = json.dumps(config)
     assert ADMIN_PW not in blob
     encoded = config["clients"][0]["encoded_password"]
@@ -189,7 +190,7 @@ def test_the_generated_config_never_carries_a_plaintext_password():
 def test_the_deployment_role_is_scoped_to_one_namespace():
     """The isolation guarantee of spec 7.1. A role granting `#` would give one
     deployment's platform account every other deployment's traffic."""
-    config = dynamic_security_config(SLUG, ADMIN_USER, ADMIN_PW)
+    config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
     role = next(r for r in config["roles"] if r["rolename"] == DYNSEC_DEPLOYMENT_ROLE)
     root = deployment_root(SLUG)
     topics = {acl["topic"] for acl in role["acls"] if acl["acltype"] != "unsubscribePattern"}
@@ -200,7 +201,7 @@ def test_default_acl_access_denies_publish_and_subscribe():
     """`mosquitto_ctrl dynsec init`'s own default, and the reason a minted
     device's reach is exactly its role: a client holding no matching grant can
     do nothing at all."""
-    config = dynamic_security_config(SLUG, ADMIN_USER, ADMIN_PW)
+    config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
     assert config["defaultACLAccess"]["publishClientSend"] is False
     assert config["defaultACLAccess"]["subscribe"] is False
 
@@ -308,7 +309,7 @@ async def test_the_generated_config_starts_a_broker_whose_dynsec_probe_is_availa
         path.write_bytes(blob)
         path.chmod(0o644)
 
-    config = dynamic_security_config(SLUG, ADMIN_USER, ADMIN_PW)
+    config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
     dynsec_path = dev_dir / "dynamic-security.json"
     dynsec_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
     # The plugin REWRITES this file as clients are created, so unlike the other
