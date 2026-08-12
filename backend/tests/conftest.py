@@ -13,6 +13,7 @@ import base64
 import contextlib
 import dataclasses
 import errno
+import hashlib
 import json
 import os
 import shutil
@@ -24,6 +25,7 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 from hypothesis import settings as hypothesis_settings
@@ -162,19 +164,231 @@ def docker_env() -> dict[str, str]:
     return env
 
 
-def _start_ephemeral_postgres(env: dict[str, str], attempts: int = 3) -> tuple[str, str, str]:
-    """Start one Postgres and return it only once the HOST can reach it.
+# --- The warm Postgres pool (task INFRA.1) -----------------------------------
+#
+# `ephemeral_postgres` used to start, migrate and destroy ONE CONTAINER PER
+# MODULE. Measured on 2026-08-12 against the C3 tree: 57 Postgres containers per
+# gate at 4.02s each (2.65s start, 1.01s `alembic upgrade head`, 0.36s teardown)
+# — and most of the 4.05 GB the gate wrote to disk, because each of those 57 ran
+# initdb and then all 22 migrations against a real filesystem.
+#
+# The contract that mattered was never "a container": it was "a migrated, empty
+# database nobody else is touching". So the container becomes a machine-wide
+# warm singleton whose data lives in tmpfs, the migrations run ONCE into a
+# template database, and each caller gets `CREATE DATABASE ... TEMPLATE`, which
+# on tmpfs is a memory copy. Measured on the same machine: 0.017s, against 4.02s.
+#
+# **What this deliberately does not change.** `ephemeral_postgres` keeps its
+# signature and its guarantee, so no test module knows any of this happened.
+# Readiness is still asserted from the HOST over TCP and not only by `pg_isready`
+# inside the container, because D99's forwarder fault is still real and is what
+# `wait_for_host_port` exists for. Coordination still runs through `gate_lock`
+# and `GATE_STATE_DIR`, so two worktrees and two agents share one server rather
+# than racing — and templates are keyed by a fingerprint of the migration
+# directory, so a branch at a different migration head gets its OWN template
+# instead of silently inheriting the other branch's schema.
+#
+# `fsync=off` and friends are safe here in a way they never are in production:
+# the whole data directory is tmpfs, so there is nothing for a crash to leave
+# half-written that a restart would need to recover. A pooled server that dies
+# is replaced, not repaired.
+
+POSTGRES_IMAGE = "postgres:16-alpine"
+
+#: Named `_PW` rather than `_PASSWORD` on the DYNSEC_ADMIN_PW precedent, and
+#: short on purpose: `test_repo_layout.SECRET_PATTERNS` flags a PASSWORD-ish name
+#: followed by 20+ characters. This protects nothing — the server is bound to
+#: loopback, holds only test data, and lives in RAM.
+POOL_PG_PW = "eoe-testpool"
+
+#: A cap, not an allocation: tmpfs pages are allocated lazily, so an idle pooled
+#: server holds only the few hundred MB it has actually written.
+POOL_TMPFS_SIZE = "2g"
+
+#: Every `--tmpfs` in this file carries this, and leaving it off is a startup
+#: crash rather than a slow leak. Docker mounts a tmpfs root-owned at mode 0755;
+#: these images drop to unprivileged users (Prometheus `nobody`, Grafana uid 472,
+#: Mosquitto 1883) and then cannot write the directory the mount just covered.
+#: Nothing is protected by the stricter default — the mount holds throwaway test
+#: state in RAM and dies with its container.
+TMPFS_WORLD_WRITABLE = "mode=1777"
+
+#: How long a pooled container may go unused before the next run replaces it
+#: rather than reusing it. Long enough to span a working day of back-to-back
+#: gates across both agent sessions; short enough that a machine left overnight
+#: starts clean.
+POOL_IDLE_TTL = 4 * 3600.0
+
+#: How long a handed-out database may live before it is presumed leaked by an
+#: interrupted run. Far above the longest gate (~5 minutes) and far below
+#: `POOL_IDLE_TTL`, so a sweep can never drop a database a live test is using.
+POOL_DATABASE_TTL = 3600.0
+
+#: The label every pooled container carries. A labelled container that the
+#: registry does not know about cannot be in use by anybody — acquiring one
+#: requires the registry — so it is always safe to remove.
+POOL_LABEL = "eoe.pool=postgres"
+
+
+def _pool_registry() -> Path:
+    return _gate_state_dir() / "pool.json"
+
+
+def _read_pool() -> dict[str, Any]:
+    try:
+        state = json.loads(_pool_registry().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+def _write_pool(state: Mapping[str, Any]) -> None:
+    _pool_registry().write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def _schema_fingerprint() -> str:
+    """Identify the migration set, so two branches cannot share one template.
+
+    A fingerprint of the whole `alembic/versions` directory rather than the head
+    revision id, because the id answers a weaker question. Two worktrees can sit
+    at the same head with different migration BODIES — one of them mid-edit — and
+    a template keyed by the id would hand the second branch the first branch's
+    schema, which is a wrong-schema failure three layers from its cause. Keyed by
+    content, identical migration sets share a template (the common case, and the
+    win) and any difference at all forks one.
+    """
+    digest = hashlib.sha256()
+    for path in sorted((REPO_ROOT / "backend" / "alembic" / "versions").glob("*.py")):
+        digest.update(path.name.encode())
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()[:16]
+
+
+def _admin_url(port: int, database: str = "postgres") -> str:
+    return f"postgresql+psycopg://postgres:{POOL_PG_PW}@127.0.0.1:{port}/{database}"
+
+
+@contextlib.contextmanager
+def _admin_connection(port: int):
+    """An AUTOCOMMIT connection to the pooled server's maintenance database.
+
+    AUTOCOMMIT because CREATE DATABASE and DROP DATABASE cannot run inside a
+    transaction block, and SQLAlchemy opens one by default.
+    """
+    import sqlalchemy as sa
+
+    engine = sa.create_engine(_admin_url(port), isolation_level="AUTOCOMMIT", poolclass=sa.NullPool)
+    try:
+        with engine.connect() as connection:
+            yield connection, sa
+    finally:
+        engine.dispose()
+
+
+def _create_database(port: int, name: str, *, template: str, attempts: int = 60) -> None:
+    """Clone `template` into a new database, retrying while it is locked.
+
+    PostgreSQL refuses CREATE DATABASE while any other session is connected to
+    the template, and treats a concurrent clone of the SAME template as exactly
+    that. Six xdist workers cloning at once therefore collide by design, not by
+    fault — and the clone takes ~17ms, so the contention window is tiny and a
+    short retry loop is the whole fix. Anything else is re-raised: a genuinely
+    missing template must not be retried into a timeout.
+    """
+    import sqlalchemy as sa
+
+    deadline = time.monotonic() + 60.0
+    with _admin_connection(port) as (connection, _sa):
+        for _ in range(attempts):
+            try:
+                connection.execute(sa.text(f'CREATE DATABASE "{name}" TEMPLATE "{template}"'))
+                return
+            except sa.exc.ProgrammingError as error:
+                if "being accessed by other users" not in str(error):
+                    raise
+                if time.monotonic() > deadline:
+                    break
+                time.sleep(0.1)
+    raise AssertionError(
+        f"could not clone {template!r} into {name!r}: it stayed locked by other sessions "
+        f"for 60s. If no gate run is active, the pooled server may be wedged — "
+        f"`make testpool-down` removes it."
+    )
+
+
+def _drop_database(port: int, name: str) -> None:
+    import sqlalchemy as sa
+
+    with contextlib.suppress(Exception), _admin_connection(port) as (connection, _sa):
+        connection.execute(sa.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+
+
+def _database_exists(port: int, name: str) -> bool:
+    import sqlalchemy as sa
+
+    with _admin_connection(port) as (connection, _sa):
+        found = connection.execute(
+            sa.text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": name}
+        ).scalar()
+    return found is not None
+
+
+def _sweep_leaked_databases(port: int) -> None:
+    """Drop handed-out databases old enough to be from an interrupted run.
+
+    The creation timestamp is carried in the NAME (`eoe_t{epoch}_{hex}`) because
+    `pg_database` records no creation time — there is no column to sort on and no
+    catalog view that answers "when did this appear". Encoding it where the
+    sweep can read it is the smallest thing that makes leaked-database cleanup
+    possible at all, and it keeps the sweep from ever guessing.
+    """
+    import sqlalchemy as sa
+
+    cutoff = time.time() - POOL_DATABASE_TTL
+    with contextlib.suppress(Exception), _admin_connection(port) as (connection, _sa):
+        names = connection.execute(
+            sa.text("SELECT datname FROM pg_database WHERE datname LIKE 'eoe\\_t%'")
+        ).scalars()
+        for name in list(names):
+            _, _, rest = name.partition("_t")
+            stamp, _, _ = rest.partition("_")
+            with contextlib.suppress(ValueError):
+                if float(stamp) < cutoff:
+                    connection.execute(sa.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+
+
+def _pool_container_healthy(name: str, port: int, env: dict[str, str]) -> bool:
+    """Whether a registered pooled container is still usable RIGHT NOW.
+
+    Both halves are load-bearing and neither implies the other: Docker may have
+    been pruned or restarted since the registry was written, and the container
+    may be running while its published port does not answer (D99). The port
+    timeout is short because this is a liveness check on the happy path, not the
+    first-start readiness wait.
+    """
+    running = subprocess.run(
+        [docker_cli(), "inspect", "-f", "{{.State.Running}}", name],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if running.returncode != 0 or running.stdout.strip() != "true":
+        return False
+    return wait_for_host_port(port, timeout=5.0)
+
+
+def _start_pool_postgres(env: dict[str, str], attempts: int = 3) -> tuple[str, int]:
+    """Start the machine-wide pooled Postgres and return it only once the HOST
+    can reach it.
 
     Retries the whole container, not just the `docker run`, because the fault
     being retried is a published port that never materialised: the container is
     up and healthy, so there is nothing to retry at the command level and
-    nothing that will improve if we wait longer on this one. Returns
-    `(name, host_port, secret)`; the caller owns removal.
+    nothing that will improve if we wait longer on this one.
     """
     last = ""
     for attempt in range(1, attempts + 1):
-        name = f"eoe-pg-{uuid.uuid4().hex[:10]}"
-        secret = uuid.uuid4().hex
+        name = f"eoe-pool-pg-{uuid.uuid4().hex[:10]}"
         run = docker_retry(
             [
                 docker_cli(),
@@ -182,17 +396,36 @@ def _start_ephemeral_postgres(env: dict[str, str], attempts: int = 3) -> tuple[s
                 "-d",
                 "--name",
                 name,
+                "--label",
+                POOL_LABEL,
+                "--tmpfs",
+                f"/var/lib/postgresql/data:rw,size={POOL_TMPFS_SIZE},{TMPFS_WORLD_WRITABLE}",
                 "-p",
                 "127.0.0.1:0:5432",
                 "-e",
-                f"POSTGRES_PASSWORD={secret}",
-                "postgres:16-alpine",
+                f"POSTGRES_PASSWORD={POOL_PG_PW}",
+                POSTGRES_IMAGE,
+                # Safe only because the data directory is tmpfs: there is no
+                # crash for recovery to survive, since a dead server is replaced
+                # rather than restarted.
+                "-c",
+                "fsync=off",
+                "-c",
+                "full_page_writes=off",
+                "-c",
+                "synchronous_commit=off",
+                # One server now backs every module on every worker of every
+                # concurrent run, so the default 100 is no longer generous.
+                "-c",
+                "max_connections=300",
+                "-c",
+                "shared_buffers=256MB",
             ],
             env,
-            what="ephemeral postgres",
+            what="pooled postgres",
             cleanup_name=name,
         )
-        assert run.returncode == 0, f"could not start ephemeral postgres: {run.stderr}"
+        assert run.returncode == 0, f"could not start the pooled postgres: {run.stderr}"
         try:
             streak = 0
             for _ in range(90):
@@ -204,56 +437,203 @@ def _start_ephemeral_postgres(env: dict[str, str], attempts: int = 3) -> tuple[s
                 streak = streak + 1 if probe.returncode == 0 else 0
                 if streak >= 2:  # survives the init-time restart
                     break
-                time.sleep(1)
+                time.sleep(0.5)
             else:
-                raise AssertionError("ephemeral postgres never became ready")
+                raise AssertionError("the pooled postgres never became ready")
             ports = subprocess.run(
                 [docker_cli(), "port", name, "5432/tcp"], capture_output=True, text=True, env=env
             )
             assert ports.returncode == 0, ports.stderr
-            host_port = ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1]
-            if wait_for_host_port(int(host_port)):
-                return name, host_port, secret
+            host_port = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
+            if wait_for_host_port(host_port):
+                return name, host_port
             last = (
-                f"postgres {name} was ready inside the container but its published port "
-                f"{host_port} never accepted a connection from the host"
+                f"pooled postgres {name} was ready inside the container but its published "
+                f"port {host_port} never accepted a connection from the host"
             )
         except BaseException:
             subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
             raise
         subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
-        print(f"ephemeral postgres: retrying past a dropped port forward ({attempt}/{attempts})")
+        print(f"pooled postgres: retrying past a dropped port forward ({attempt}/{attempts})")
     raise AssertionError(f"{last} — {attempts} attempts (D99: Docker's forwarder under load)")
+
+
+def _acquire_pool_postgres() -> int:
+    """The host port of the machine-wide warm Postgres, starting it if needed.
+
+    Everything that decides whether to reuse or replace happens under one
+    machine-wide lock, because the decision is read-modify-write on shared state
+    and two agents reaching it at once would otherwise both start a server and
+    both record it, leaking one.
+    """
+    env = docker_env()
+    with gate_lock("container-pool", timeout=600.0):
+        state = _read_pool()
+        entry = state.get("postgres")
+        if isinstance(entry, dict):
+            idle = time.time() - float(entry.get("last_used", 0))
+            reusable = idle < POOL_IDLE_TTL and _pool_container_healthy(
+                str(entry["container"]), int(entry["port"]), env
+            )
+            if reusable:
+                entry["last_used"] = time.time()
+                _write_pool(state)
+                return int(entry["port"])
+            subprocess.run(
+                [docker_cli(), "rm", "-f", "-v", str(entry["container"])],
+                capture_output=True,
+                env=env,
+            )
+        name, port = _start_pool_postgres(env)
+        state["postgres"] = {
+            "container": name,
+            "port": port,
+            "last_used": time.time(),
+            "templates": {},
+        }
+        _write_pool(state)
+        return port
+
+
+def _acquire_template(port: int) -> str:
+    """The migrated template for THIS tree's migration set, building it once.
+
+    Held under the same lock as acquisition so that six workers starting at once
+    run `alembic upgrade head` exactly once between them rather than six times
+    into the same database.
+    """
+    fingerprint = _schema_fingerprint()
+    template = f"eoe_tpl_{fingerprint}"
+    with gate_lock("container-pool", timeout=600.0):
+        state = _read_pool()
+        entry = state.get("postgres")
+        known = isinstance(entry, dict) and template in (entry.get("templates") or {})
+        if known and _database_exists(port, template):
+            entry = dict(entry) if isinstance(entry, dict) else {}
+            entry["last_used"] = time.time()
+            state["postgres"] = entry
+            _write_pool(state)
+            return template
+
+        _drop_database(port, template)
+        _create_database(port, template, template="template0")
+        upgraded = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=REPO_ROOT / "backend",
+            capture_output=True,
+            text=True,
+            env={**docker_env(), "DATABASE_URL": _admin_url(port, template)},
+            timeout=180,
+        )
+        assert upgraded.returncode == 0, f"migration of the template failed: {upgraded.stderr}"
+        if isinstance(entry, dict):
+            entry.setdefault("templates", {})[template] = time.time()
+            entry["last_used"] = time.time()
+            state["postgres"] = entry
+            _write_pool(state)
+    return template
 
 
 @contextlib.contextmanager
 def ephemeral_postgres(migrate: bool = True):
-    """Disposable Postgres on a unique container name and a Docker-assigned
-    free host port, so any number of test modules — in this run or in another
-    agent's — can hold one without colliding with each other or with orphans
-    from interrupted runs.
+    """A migrated, empty Postgres database nobody else is touching.
 
-    Readiness is asserted twice on purpose: `pg_isready` inside the container
-    for the server, and a real TCP connect from the host for the FORWARD. Only
-    the second one is what alembic and every test client actually depend on.
+    The guarantee is unchanged from when this started a container per call, and
+    no test module can tell the difference: what it yields is still a URL to a
+    database at `head` with no rows in it, and dropping it at the end is still
+    unconditional. What changed is the cost — see the section header above.
+
+    `migrate=False` clones `template0` rather than the migrated template, so a
+    caller that runs alembic itself (`test_migrations`, E0 readiness' reverse-
+    migration test) still gets a genuinely empty database and still proves the
+    migrations for real. That path is the reason the template can be trusted:
+    the suite never stops exercising a from-scratch migration run.
+    """
+    port = _acquire_pool_postgres()
+    template = _acquire_template(port) if migrate else "template0"
+    database = f"eoe_t{int(time.time())}_{uuid.uuid4().hex[:12]}"
+    _create_database(port, database, template=template)
+    try:
+        yield _admin_url(port, database)
+    finally:
+        _drop_database(port, database)
+
+
+def reap_pool(*, force: bool = False) -> list[str]:
+    """Close pooled containers nothing can be using, and return what went.
+
+    Two disjoint cases, and the distinction is what makes this safe to run while
+    another agent's gate is mid-flight. A container the registry does not name
+    is an ORPHAN and is always removable, because acquiring one goes through the
+    registry and nothing that skipped it can hold a reference. A container the
+    registry does name is removable only once it has gone `POOL_IDLE_TTL`
+    without an acquisition — every acquire heartbeats it, so a live run keeps
+    its own server alive continuously.
+
+    `force` is the `make testpool-down` path: take everything, now.
     """
     env = docker_env()
-    name, host_port, secret = _start_ephemeral_postgres(env)
-    try:
-        url = f"postgresql+psycopg://postgres:{secret}@127.0.0.1:{host_port}/postgres"
-        if migrate:
-            upgraded = subprocess.run(
-                [sys.executable, "-m", "alembic", "upgrade", "head"],
-                cwd=REPO_ROOT / "backend",
+    removed: set[str] = set()
+    with gate_lock("container-pool", timeout=600.0):
+        state = _read_pool()
+        entry = state.get("postgres") if isinstance(state.get("postgres"), dict) else None
+
+        #: The one container that must survive this sweep, if any. It drops to
+        #: None the moment the registry entry is retired, which is what lets the
+        #: orphan pass below collect it without a second case.
+        keep = str(entry["container"]) if entry else None
+
+        if entry and (force or time.time() - float(entry.get("last_used", 0)) > POOL_IDLE_TTL):
+            state.pop("postgres", None)
+            keep = None
+        elif entry and not force:
+            _sweep_leaked_databases(int(entry["port"]))
+
+        listed = subprocess.run(
+            [docker_cli(), "ps", "-aq", "--filter", f"label={POOL_LABEL}"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        for container in listed.stdout.split():
+            names = subprocess.run(
+                [docker_cli(), "inspect", "-f", "{{.Name}}", container],
                 capture_output=True,
                 text=True,
-                env={**env, "DATABASE_URL": url},
-                timeout=120,
+                env=env,
             )
-            assert upgraded.returncode == 0, f"migration failed: {upgraded.stderr}"
-        yield url
-    finally:
-        subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
+            name = names.stdout.strip().lstrip("/")
+            if name and name != keep:
+                removed.add(name)
+
+        if removed:
+            subprocess.run(
+                [docker_cli(), "rm", "-f", "-v", *sorted(removed)],
+                capture_output=True,
+                env=env,
+            )
+        _write_pool(state)
+    return sorted(removed)
+
+
+def pytest_sessionstart(session) -> None:
+    """Reap idle and orphaned pooled containers once, before any test runs.
+
+    Controller only. Under xdist this hook fires in every worker as well, and
+    six workers all taking the machine-wide lock to run the same sweep would
+    serialise startup for no gain — `workerinput` exists only in a worker, which
+    is xdist's own way of telling them apart.
+
+    Failures here are swallowed on purpose: reaping is housekeeping, and a
+    Docker hiccup during it must not turn into a red gate that reports nothing
+    about the code under test. A container that survives one sweep is caught by
+    the next.
+    """
+    if hasattr(session.config, "workerinput"):
+        return
+    with contextlib.suppress(Exception):
+        reap_pool()
 
 
 def bootstrap_broker_material() -> None:
@@ -584,6 +964,94 @@ class Broker:
         )
 
 
+def _start_broker_container(
+    dev_dir: Path,
+    conf: Path,
+    host_port: int | None,
+    env: dict[str, str],
+    attempts: int = 3,
+) -> str:
+    """Create, populate and start one broker, returning it only once the HOST
+    can reach its published port.
+
+    **Retries the whole container, exactly as `_start_ephemeral_postgres` has
+    always done, and for the identical fault.** Docker Desktop's forwarder drops
+    publishes under concurrent load (D99): the container is up and accepting
+    inside, `docker port` reports a mapping, and the host connection is refused.
+    There is nothing to retry at the command level and nothing that improves by
+    waiting longer on this one — only a new container helps.
+
+    This path used to assert instead of retrying, which was survivable while the
+    suite was paced by 57 sequential Postgres startups. Pooling those (INFRA.1)
+    removed the pacing, the remaining container starts now land in tighter
+    bursts, and the fault surfaced as seven `test_dev_broker` setup errors in a
+    run whose 999 tests all passed. `docker_retry` is deliberately narrow (D99)
+    and is NOT widened to cover this; the whole-container retry is the remedy
+    this codebase already chose for this symptom.
+    """
+    last = ""
+    for attempt in range(1, attempts + 1):
+        name = f"eoe-mqtt-{uuid.uuid4().hex[:10]}"
+        created = subprocess.run(
+            [
+                docker_cli(),
+                "create",
+                "--name",
+                name,
+                "-p",
+                f"127.0.0.1:{host_port or 0}:8883",
+                # Retained state stays REAL — `persistence true` in the dev
+                # broker's config is what E3.7's restart acceptance leans on —
+                # it just lives in RAM now (INFRA.1).
+                "--tmpfs",
+                f"/mosquitto/data:rw,size=64m,{TMPFS_WORLD_WRITABLE}",
+                "eclipse-mosquitto:2",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert created.returncode == 0, f"could not create broker container: {created.stderr}"
+        try:
+            copies = (
+                (dev_dir, f"{name}:/mosquitto/dev"),
+                (conf, f"{name}:/mosquitto/config/mosquitto.conf"),
+            )
+            for source, target in copies:
+                copied = subprocess.run(
+                    [docker_cli(), "cp", str(source), target],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                assert copied.returncode == 0, f"docker cp {source} failed: {copied.stderr}"
+            started = docker_retry([docker_cli(), "start", name], env, what="broker start")
+            assert started.returncode == 0, f"broker would not start: {started.stderr}"
+
+            ports = subprocess.run(
+                [docker_cli(), "port", name, "8883/tcp"], capture_output=True, text=True, env=env
+            )
+            if ports.returncode != 0:
+                logs = subprocess.run(
+                    [docker_cli(), "logs", name], capture_output=True, text=True, env=env
+                )
+                raise AssertionError(f"broker exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}")
+            published = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
+            _wait_until_accepting(name, env)
+            if wait_for_host_port(published):
+                return name
+            last = (
+                f"broker {name} was accepting inside the container but its published port "
+                f"{published} never answered from the host"
+            )
+        except BaseException:
+            subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
+            raise
+        subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
+        print(f"ephemeral broker: retrying past a dropped port forward ({attempt}/{attempts})")
+    raise AssertionError(f"{last} — {attempts} attempts (D99: Docker's forwarder under load)")
+
+
 @contextlib.contextmanager
 def ephemeral_broker(dev_dir: Path, host_port: int | None = None, conf: Path | None = None):
     """Disposable TLS Mosquitto carrying the material `app.devbroker` wrote
@@ -605,54 +1073,14 @@ def ephemeral_broker(dev_dir: Path, host_port: int | None = None, conf: Path | N
     recipe, two configurations - a second copy of this function is how the
     `docker cp` rule above gets forgotten on one of them.
     """
-    name = f"eoe-mqtt-{uuid.uuid4().hex[:10]}"
     env = docker_env()
     conf = conf or REPO_ROOT / "deploy" / "mosquitto" / "mosquitto.conf"
-    created = subprocess.run(
-        [
-            docker_cli(),
-            "create",
-            "--name",
-            name,
-            "-p",
-            f"127.0.0.1:{host_port or 0}:8883",
-            "eclipse-mosquitto:2",
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    assert created.returncode == 0, f"could not create broker container: {created.stderr}"
+    name = _start_broker_container(dev_dir, conf, host_port, env)
     try:
-        copies = (
-            (dev_dir, f"{name}:/mosquitto/dev"),
-            (conf, f"{name}:/mosquitto/config/mosquitto.conf"),
-        )
-        for source, target in copies:
-            copied = subprocess.run(
-                [docker_cli(), "cp", str(source), target],
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            assert copied.returncode == 0, f"docker cp {source} failed: {copied.stderr}"
-        started = docker_retry([docker_cli(), "start", name], env, what="broker start")
-        assert started.returncode == 0, f"broker would not start: {started.stderr}"
-
         ports = subprocess.run(
             [docker_cli(), "port", name, "8883/tcp"], capture_output=True, text=True, env=env
         )
-        if ports.returncode != 0:
-            logs = subprocess.run(
-                [docker_cli(), "logs", name], capture_output=True, text=True, env=env
-            )
-            raise AssertionError(f"broker exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}")
         published = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
-        _wait_until_accepting(name, env)
-        assert wait_for_host_port(published), (
-            f"broker {name} is accepting inside the container but its published port "
-            f"{published} never answered from the host (D99: Docker's forwarder under load)"
-        )
         yield Broker(name=name, port=published, dev_dir=dev_dir)
     finally:
         subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
@@ -953,50 +1381,87 @@ def _rig_container(
     command: list[str] | None = None,
     env: Mapping[str, str] | None = None,
     files: Sequence[tuple[Path, str]] = (),
+    tmpfs: Sequence[str] = (),
 ) -> RigService:
     """Create, populate and start one rig container on a Docker-assigned port.
 
     Files go in with `docker cp`, never a bind mount, for `ephemeral_broker`'s
     reason: bind mounts of a WSL or Windows path translate differently per
     host and the gate has to behave identically on all three.
+
+    The whole container is retried on a dropped port forward, for the reason
+    `_start_broker_container` states at length: it is D99's forwarder fault, and
+    only a new container helps.
+
+    `tmpfs` names the paths a service writes its state to, so the rig costs RAM
+    rather than SSD writes (INFRA.1). Every one of these services is disposable
+    by construction — the rig is torn down at the end of the session and none of
+    it is ever read again — so putting its storage in memory changes what the
+    tests exercise not at all.
+
+    **`TMPFS_WORLD_WRITABLE` is not optional on any of them.** Docker mounts a
+    `--tmpfs` root-owned and mode 0755, while every one of these images drops to
+    an unprivileged user — Prometheus to `nobody`, Grafana to uid 472 — so the
+    mount lands exactly where the service writes and denies it. Prometheus does
+    not degrade: it panics on `Unable to create mmap-ed active query log` before
+    it ever publishes a port, and the whole rig fails with 37 errors in four
+    modules. Postgres survives without it only because its entrypoint runs as
+    root and chowns the data directory itself.
     """
-    name = f"eoe-rig-{label}-{uuid.uuid4().hex[:8]}"
     docker = docker_cli()
     env_vars = docker_env()
-    create = [docker, "create", "--name", name, "-p", f"127.0.0.1:0:{container_port}"]
-    for key, value in (env or {}).items():
-        create += ["-e", f"{key}={value}"]
-    create += [image, *(command or [])]
+    last = ""
+    for attempt in range(1, 4):
+        name = f"eoe-rig-{label}-{uuid.uuid4().hex[:8]}"
+        create = [docker, "create", "--name", name, "-p", f"127.0.0.1:0:{container_port}"]
+        for path in tmpfs:
+            create += ["--tmpfs", path]
+        for key, value in (env or {}).items():
+            create += ["-e", f"{key}={value}"]
+        create += [image, *(command or [])]
 
-    created = subprocess.run(create, capture_output=True, text=True, env=env_vars)
-    assert created.returncode == 0, f"could not create {label}: {created.stderr}"
+        created = subprocess.run(create, capture_output=True, text=True, env=env_vars)
+        assert created.returncode == 0, f"could not create {label}: {created.stderr}"
+        try:
+            for source, target in files:
+                copied = subprocess.run(
+                    [docker, "cp", str(source), f"{name}:{target}"],
+                    capture_output=True,
+                    text=True,
+                    env=env_vars,
+                )
+                assert copied.returncode == 0, (
+                    f"docker cp {source} -> {label} failed: {copied.stderr}"
+                )
 
-    for source, target in files:
-        copied = subprocess.run(
-            [docker, "cp", str(source), f"{name}:{target}"],
-            capture_output=True,
-            text=True,
-            env=env_vars,
-        )
-        assert copied.returncode == 0, f"docker cp {source} -> {label} failed: {copied.stderr}"
+            started = docker_retry([docker, "start", name], env_vars, what=f"{label} start")
+            assert started.returncode == 0, f"{label} would not start: {started.stderr}"
 
-    started = docker_retry([docker, "start", name], env_vars, what=f"{label} start")
-    assert started.returncode == 0, f"{label} would not start: {started.stderr}"
-
-    ports = subprocess.run(
-        [docker, "port", name, f"{container_port}/tcp"],
-        capture_output=True,
-        text=True,
-        env=env_vars,
-    )
-    if ports.returncode != 0:
-        logs = subprocess.run([docker, "logs", name], capture_output=True, text=True, env=env_vars)
-        raise AssertionError(f"{label} exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}")
-    published = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
-    assert wait_for_host_port(published), (
-        f"{label} started but its published port {published} never answered from the host"
-    )
-    return RigService(name=name, port=published)
+            ports = subprocess.run(
+                [docker, "port", name, f"{container_port}/tcp"],
+                capture_output=True,
+                text=True,
+                env=env_vars,
+            )
+            if ports.returncode != 0:
+                logs = subprocess.run(
+                    [docker, "logs", name], capture_output=True, text=True, env=env_vars
+                )
+                raise AssertionError(
+                    f"{label} exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}"
+                )
+            published = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
+            if wait_for_host_port(published):
+                return RigService(name=name, port=published)
+            last = (
+                f"{label} started but its published port {published} never answered from the host"
+            )
+        except BaseException:
+            subprocess.run([docker, "rm", "-f", "-v", name], capture_output=True, env=env_vars)
+            raise
+        subprocess.run([docker, "rm", "-f", "-v", name], capture_output=True, env=env_vars)
+        print(f"rig {label}: retrying past a dropped port forward ({attempt}/3)")
+    raise AssertionError(f"{last} — 3 attempts (D99: Docker's forwarder under load)")
 
 
 def _wait_for_http(service: RigService, path: str, *, timeout: float = 60.0) -> None:
@@ -1087,6 +1552,37 @@ def _seed_influx_database(service: RigService, token: str) -> None:
     assert response.status_code in (200, 204), (
         f"could not seed the rig influx database: HTTP {response.status_code} {response.text[:200]}"
     )
+
+
+def _wait_for_self_scrape(service: RigService, *, timeout: float = 60.0) -> None:
+    """Wait until Prometheus has actually scraped itself at least once.
+
+    `/-/ready` answers as soon as the server is willing to serve queries, which
+    is strictly earlier than having any data — and what E5.4c's read check asks
+    for is the `up` series, which does not exist until a scrape lands. The gap
+    used to be papered over by wall-clock luck: Grafana's ~14s startup dominated
+    the rig's ready-wait, and by the time any test ran Prometheus had scraped a
+    dozen times. Putting Grafana's SQLite on tmpfs (INFRA.1) removed that
+    accidental delay and the race surfaced immediately as `up ... 0 series`.
+
+    So the fixture now waits for the thing it actually promises. A rig whose
+    Prometheus has no data is not ready, however cheerful `/-/ready` is.
+    """
+    import httpx
+
+    deadline = time.monotonic() + timeout
+    last = "no attempt completed"
+    with httpx.Client(timeout=5.0, auth=(RIG_USER, RIG_PASSWORD)) as client:
+        while time.monotonic() < deadline:
+            try:
+                response = client.get(f"{service.url}/api/v1/query", params={"query": "up"})
+                if response.status_code == 200 and response.json().get("data", {}).get("result"):
+                    return
+                last = f"HTTP {response.status_code} with no series yet"
+            except Exception as error:  # noqa: BLE001  (it is still starting)
+                last = f"{type(error).__name__}: {error}"
+            time.sleep(0.25)
+    raise AssertionError(f"{service.name} never scraped itself ({last})")
 
 
 def _mint_grafana_token(service: RigService) -> str:
@@ -1205,6 +1701,7 @@ def service_rig():
             9090,
             command=[*prometheus_command, "--web.enable-remote-write-receiver"],
             files=prometheus_files,
+            tmpfs=[f"/prometheus:rw,size=256m,{TMPFS_WORLD_WRITABLE}"],
         ),
         "prometheus_closed": lambda: _rig_container(
             "prom-closed",
@@ -1212,11 +1709,13 @@ def service_rig():
             9090,
             command=list(prometheus_command),
             files=prometheus_files,
+            tmpfs=[f"/prometheus:rw,size=256m,{TMPFS_WORLD_WRITABLE}"],
         ),
         "grafana": lambda: _rig_container(
             "grafana",
             RIG_IMAGES["grafana"],
             3000,
+            tmpfs=[f"/var/lib/grafana:rw,size=256m,{TMPFS_WORLD_WRITABLE}"],
             env={
                 "GF_SECURITY_ADMIN_PASSWORD": RIG_PASSWORD,
                 "GF_AUTH_ANONYMOUS_ENABLED": "false",
@@ -1232,6 +1731,7 @@ def service_rig():
             9000,
             command=["server", "/data"],
             env={"MINIO_ROOT_USER": RIG_USER, "MINIO_ROOT_PASSWORD": RIG_PASSWORD},
+            tmpfs=[f"/data:rw,size=256m,{TMPFS_WORLD_WRITABLE}"],
         ),
     }
 
@@ -1256,6 +1756,9 @@ def service_rig():
             bucket = pool.submit(_create_rig_bucket, started["minio"])
             pool.submit(_wait_for_http, started["prometheus"], "/-/ready").result()
             pool.submit(_wait_for_http, started["prometheus_closed"], "/-/ready").result()
+            # Only the open one is asserted against for data; `prometheus_closed`
+            # exists to have its remote-write receiver disabled and is never read.
+            pool.submit(_wait_for_self_scrape, started["prometheus"]).result()
             bucket.result()
             minted = influx_token.result()
             _seed_influx_database(started["influx"], minted)

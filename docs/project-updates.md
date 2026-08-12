@@ -1,5 +1,55 @@
 # Project Updates
 
+## 2026-08-12: INFRA.1 — the test suite stops starting a container per module (Gate 60 GREEN)
+
+- **Task closed:** INFRA.1, an unnumbered E0-owned infrastructure batch landed at the head of
+  `e5-batch-1` before checkpoint C4 on the owner's decision. DECISIONS **D128** and **D129**,
+  project-changes **#29**, addendum **PHASE5-2-03**. No E5 unit changed.
+- **Gate:** 60, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1006 backend / 115 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. The seven added are `test_container_pool.py`, the pool's own contract suite.
+  ruff, `ruff format` and the frontend typecheck all clean.
+- **What it does:** `ephemeral_postgres` keeps its signature and its guarantee — a migrated,
+  empty, private database — and stops being a container. One machine-wide warm Postgres runs
+  with its data directory on tmpfs, `alembic upgrade head` runs ONCE into a template database
+  keyed by a fingerprint of the migration directory, and each caller gets
+  `CREATE DATABASE ... TEMPLATE`. Mosquitto persistence, Prometheus's TSDB, Grafana's SQLite
+  and MinIO's data directory moved to tmpfs too. `make testpool-down` closes the pool by hand;
+  otherwise it closes itself once four hours pass without an acquisition.
+- **Measured, before and after, on the same machine:**
+
+  | | Before (C3 tree) | After | |
+  |---|---|---|---|
+  | Backend stage | 290.21s | **224.15s** | -66s, on 7 more tests |
+  | Containers created per gate | 193 | **65** | -66% |
+  | Disk written per gate | 4.05 GB | **0.69 GB** | -83% |
+  | One `ephemeral_postgres` | 4.02s | **0.017s** | 236x |
+
+  The pre-change baseline was itself a green instrumented gate run rather than the ledger's
+  recorded C3 figure, so the two numbers are comparable.
+- **What it cost, and none of it was predicted:** three defects, all found by running the gate
+  rather than by reasoning about it. Docker mounts a `--tmpfs` root-owned at mode 0755 while
+  these images drop to unprivileged users, which panicked Prometheus and took the whole rig
+  down with 37 errors in four modules. Grafana's startup on tmpfs then got fast enough to
+  expose a latent race the rig had always had — nothing waited for Prometheus to scrape itself,
+  and `/-/ready` answers strictly earlier than having data. And removing 55 Postgres startups
+  removed the pacing that had kept D99's forwarder fault rare, which surfaced as seven
+  `test_dev_broker` setup errors in a run whose 999 tests all passed (D129).
+- **What it did not fix, measured so the next attempt aims correctly:** the remaining writes are
+  not container churn. `docker build` accounts for ~638 MB of them (400 MB in
+  `test_e0_readiness`, 238 MB in the `containers-build` stage) and the shipped compose stack's
+  named volumes for 184 MB. The whole service rig now writes 30 MB, and 186 seconds of
+  broker-heavy tests write 19 MB.
+- **Consequence for phase 5:** section 5's ~300s ceiling is superseded and **224.15s is the new
+  baseline C4 measures against**. C3 had reached 299.16s against a ~300s cap, which left E5.8b's
+  compose-config tests and E5.10's keystone bring-up no margin at all.
+- **Manual verification:** `make testpool-down` run by hand against a live pool — it removed
+  the container, named it, and cleared the registry — and the next suite run started a fresh
+  one and passed, which is the reap-and-recreate path end to end. The isolation and
+  schema-equivalence properties are asserted by `test_container_pool.py` and were not checked
+  by hand; they are automated precisely because they are the ones a person cannot eyeball.
+- **Command:** `make gate`.
+
 ## 2026-08-12: E5.6, E5.7a and E5.7b — credentials a device can use, and settings that reach it (Gate 59 GREEN)
 
 - **Tasks closed:** E5.6 (per-device broker credential minting), E5.7a (the service-settings

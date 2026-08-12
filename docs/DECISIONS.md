@@ -4,6 +4,83 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D129 (2026-08-12): The whole-container retry extends to brokers and rig services, and
+`docker_retry` is still not widened
+
+- **What changed.** `ephemeral_broker` and `_rig_container` now retry the WHOLE container, up
+  to three times, when its published port never answers from the host —
+  `_start_ephemeral_postgres` has always done this and they never did.
+- **Why it surfaced now.** D128 removed 55 Postgres container startups from the gate, and those
+  startups were accidentally PACING the suite. Without them the remaining container starts land
+  in much tighter bursts, and D99's forwarder fault — the container is up and accepting inside,
+  `docker port` reports a mapping, the host connection is refused — went from rare to seven
+  `test_dev_broker` setup errors in a single run whose 999 tests all passed. Making the suite
+  faster made this more likely, which is a real cost of D128 and is recorded as one.
+- **Why not widen `docker_retry`.** D99 made it narrow on purpose: it matches three specific
+  stderr signatures on a command that FAILED. This fault is different in kind — the command
+  succeeds, and the failure is only observable later, from the host, over TCP. There is nothing
+  to retry at the command level and nothing that improves by waiting longer on the same
+  container; only a new container helps. The two mechanisms answer different questions and
+  collapsing them would make `docker_retry` a general-purpose "try again", which is exactly what
+  D99 refused.
+- **What this does not do.** It does not mask a test failure. Every retry is on container
+  STARTUP, before any assertion runs, and each one prints a line naming the attempt. A genuine
+  broker misconfiguration still fails on the first attempt with the broker's own logs attached,
+  because that path raises rather than retrying.
+
+## D128 (2026-08-12): The test suite stops starting a Postgres container per module, and every
+container's writable state moves to RAM
+
+- **What was measured, first.** A full green gate on the C3 tree, instrumented: **290.21s
+  backend stage, 193 containers created, and 4.05 GB written to disk.** 57 of those containers
+  were Postgres, at 4.02s each — 2.65s to start, 1.01s for `alembic upgrade head`, 0.36s to
+  tear down — so the suite ran initdb 57 times and all 22 migrations 57 times, against a real
+  filesystem, every gate.
+- **What changed.** `ephemeral_postgres` keeps its signature and its guarantee — a migrated,
+  empty, private database — but is no longer a container. One machine-wide Postgres runs with
+  its data directory on tmpfs, the migrations run ONCE into a template database, and each
+  caller gets `CREATE DATABASE ... TEMPLATE`. Measured on the same machine: **0.017s against
+  4.02s.** Mosquitto's persistence, Prometheus's TSDB, Grafana's SQLite and MinIO's data
+  directory moved to tmpfs as well.
+- **Why the contract could survive this.** What every caller needed was never "a container";
+  it was an isolated database at head. A clone from a template satisfies that exactly, and
+  `test_container_pool.py` asserts it rather than assuming it: a pooled database is compared
+  table-for-table AND row-count-for-row-count against one produced by a real `alembic upgrade
+  head` in the same test, two live databases are proven not to see each other's DDL, and the
+  clone is proven gone once its context manager exits.
+- **Why the template is keyed by a fingerprint of the migration DIRECTORY and not by the head
+  revision id.** Two worktrees can sit at the same head with different migration bodies — one
+  of them mid-edit — and an id-keyed template would hand the second branch the first branch's
+  schema. That failure would surface as wrong-column errors in unrelated suites, three layers
+  from its cause. Keyed by content, identical migration sets share a template (the common case,
+  and the win) and any difference at all forks one. Asserted by editing a migration byte and
+  putting it back.
+- **Why `fsync=off` is safe here and nowhere else.** The whole data directory is tmpfs, so
+  there is nothing for a crash to leave half-written that a restart would need to recover. A
+  pooled server that dies is REPLACED, not repaired — `_pool_container_healthy` checks both that
+  the container runs and that its port answers, and starts a new one otherwise.
+- **Concurrency, which was a requirement and not an afterthought.** Coordination reuses D113's
+  existing primitives rather than inventing any: `GATE_STATE_DIR` for machine-wide state,
+  `gate_lock` around every read-modify-write of the registry, `wait_for_host_port` for host-side
+  readiness. Two agents in two worktrees share ONE server and are isolated by having different
+  templates and uuid-named databases. A labelled container the registry does not name is an
+  orphan and is always safe to remove, because acquiring one goes through the registry.
+- **What it cost, stated rather than hidden.** Two real defects, both found by running the gate
+  rather than by reasoning about it. Docker mounts a `--tmpfs` root-owned at mode 0755 while
+  these images drop to unprivileged users, so the first run panicked Prometheus on `Unable to
+  create mmap-ed active query log` and took the whole rig down — 37 errors in four modules,
+  fixed by `mode=1777`. And Grafana's startup on tmpfs got fast enough to expose a latent race
+  the rig had always had: nothing waited for Prometheus to SCRAPE ITSELF, and `/-/ready` answers
+  strictly earlier than having data, so E5.4c's read check saw `up ... 0 series`. The fixture now
+  waits for the thing it promises. See also D129 for the third.
+- **What it did not fix, measured so the next attempt aims correctly.** The remaining writes are
+  not container churn: `docker build` accounts for ~638 MB of them (400 MB in
+  `test_e0_readiness`, which builds and runs the prod frontend image, and 238 MB in the
+  `containers-build` stage), and the real production compose stack's named volumes for another
+  184 MB in `test_compose_stack` and `test_verify_tool`. The whole service rig now writes 30 MB
+  and 186 seconds of broker-heavy tests write 19 MB. Cutting further means either not proving
+  the images build or not bringing the shipped compose file up, and neither is worth it.
+
 ## D127 (2026-08-12): Every `app.*` INFO log is invisible in the API process, and `runner.py`'s
 docstring says the opposite (found by C3's manual verification; NOT fixed here)
 

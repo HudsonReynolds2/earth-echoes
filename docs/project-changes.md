@@ -5,6 +5,33 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #29 (2026-08-12): An unnumbered infrastructure batch lands before C4, and phase 5's
+"additive-only in `conftest.py`" rule is broken deliberately
+
+- **What changed:** a batch with no task number — **INFRA.1** — lands at the head of
+  `e5-batch-1` before C4 begins. It replaces the per-module Postgres container with a
+  machine-wide warm server handing out template clones, and moves every test container's
+  writable state to tmpfs. DECISIONS D128 and D129 carry the design and its costs.
+- **Why it is not part of C4:** it is E0-owned test infrastructure, not E5 scope, and folding it
+  into a numbered E5 unit would make that unit's diff unreviewable and its gate measurement
+  meaningless.
+- **Why it is not additive:** phase-5 section 2's process choices bind this epic to being
+  "additive-only in `conftest.py`" so the parallel SIM epic can merge cleanly. INFRA.1 REWRITES
+  `ephemeral_postgres` and cannot honour that. The owner accepted the merge cost knowingly; the
+  precedent runs the other way too, since commit `167aa6e` imported SIM's concurrency fix into
+  this worktree verbatim, and SIM adopts this one the same way.
+- **Why it happened now rather than after C4:** phase-5 section 5 caps the warm gate at ~300s
+  and the C3 checkpoint measured 299.16s, so E5.8b's compose-config tests and E5.10's keystone
+  bring-up had no margin at all. Section 5 pre-authorises cutting container-test scope to hold
+  the number — but E5.10's keystone IS its acceptance, and cutting it would gut the unit. The
+  owner chose to remove the cost instead of the tests, and additionally directed that the suite
+  stop wearing the machine's SSD, which the baseline measurement put at 4.05 GB per gate run.
+- **Who approved:** the owner, on 2026-08-12, choosing the infrastructure batch before C4 over
+  both "cut scope to hold 300s" and "measure C4 first, then raise the ceiling".
+- **Affects:** project_planning/phase-5-deployment-services.md section 2 (process choices) and
+  section 5 (the gate-time ceiling), project_planning/e5-progress-ledger.md
+- **Addendum:** PHASE5-2-03
+
 ## #28 (2026-08-12): `allow_write_restricted` is four signatures, and the object-storage
 question is closed without a catalog toggle
 

@@ -266,6 +266,20 @@ stop-and-ask.
   `sim-progress-ledger.md`**. Gate tags take `max(existing gate-* tags) + 1` at tag time
   rather than a pre-assigned integer, because SIM's numbering moves.
 
+  > **Addendum PHASE5-2-03 (2026-08-12, ref project-changes #29):** the "additive-only in
+  > `conftest.py`" half of this choice is **deliberately broken once**, by an unnumbered
+  > infrastructure batch (**INFRA.1**) landing at the head of this branch before checkpoint C4.
+  > It rewrites `ephemeral_postgres` — one machine-wide warm Postgres handing out template
+  > clones instead of a container per module — and moves every test container's writable state
+  > to tmpfs. The reason is section 5's ceiling: C3 measured 299.16s against ~300s, leaving
+  > E5.8b and E5.10 no margin, and section 5's pre-authorised trade (cut container-test scope)
+  > would have cut E5.10's keystone, which is that unit's entire acceptance. Measured effect
+  > and the two defects it cost are in DECISIONS **D128** and **D129**. **Section 5's ~300s
+  > ceiling is superseded** — the number it was protecting against no longer describes the
+  > suite, and the ledger records the new measured baseline that replaces it. SIM adopts this
+  > change the way this worktree adopted SIM's concurrency fix at `167aa6e`: verbatim, later,
+  > as an import rather than a re-authoring.
+
 ### The E3-owned edits this phase is authorized to make
 
 Two are **discretionary** and both land in **E5.7b**, so the whole chosen cross-epic surface is
