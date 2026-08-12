@@ -4,6 +4,38 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D131 (2026-08-12): A failed stack generation restores prior secrets rather than deleting
+them, and there is no `deployment_stack` table
+
+- **Two decisions from E5.9, both about where state lives.**
+- **No new table.** Fixed choice 7 says a download "re-renders deterministically from those
+  rows", so E5.9 persists nothing besides the five `deployment_service` rows and a set of
+  deterministically-named secrets (`deployment:{id}:stack:*`). Whether object storage was
+  included is *whether an `s3` row exists*; the broker hostname is the `mqtt` row's `host`.
+  A `deployment_stack` table holding generation parameters would be a second store to keep in
+  step with the rows, and the first divergence would render a bundle that does not match the
+  credentials the platform holds. The stack-owned names are deliberately in their own
+  `:stack:` namespace so an operator saving service settings by hand (E5.2's wholesale PUT)
+  cannot overwrite the material the bundle is rendered from.
+- **Compensation restores, it does not just delete.** `SecretStore.put` opens its own session
+  and commits (E0.11), so secrets do not roll back with the row transaction; E5.9's acceptance
+  ("a fault before commit leaves zero rows and zero secrets") is met by deleting what the call
+  wrote. The first implementation deleted *everything* it wrote — which is correct for a first
+  generation and **destructive for a regeneration**, because rotation overwrites the same
+  deterministic names. A failed rotation therefore destroyed the working credentials of the
+  stack it was replacing, leaving a deployment whose devices hold credentials nothing accepts.
+  It now snapshots any pre-existing value before overwriting, restores those on failure, and
+  deletes only names that did not exist before the call.
+- **Found by the test, not by design.** The regeneration case was written as "compensation must
+  not be destructive" on the assumption it would pass. It did not. The generalisation worth
+  keeping: a compensating action written against the create path has to be re-read against the
+  update path, because the two differ exactly in whether the thing being undone already existed.
+- **The limit, stated rather than hidden.** A process killed between the puts and the rollback
+  leaves unreferenced ciphertext and no rows. That is harmless — nothing points at it — and is
+  named in `stackgen.py`'s docstring so the next reader does not take it for an oversight.
+- **Reference:** phase-5-deployment-services.md section 2 fixed choice 7, task E5.9;
+  `backend/tests/test_stack_generation.py::test_a_failed_regeneration_leaves_the_previous_stack_intact`.
+
 ## D130 (2026-08-12): `dynamic_security_config` takes a hashed password, because hashing at
 render time had already broken the byte-identical download
 
