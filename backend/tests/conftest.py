@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 import uuid
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,25 @@ FIXED_PORT_MODULES = frozenset({"test_compose_stack", "test_verify_tool"})
 #: The group those modules share. Any name will do; it only has to collide.
 FIXED_PORT_GROUP = "deploy-stack-fixed-ports"
 
+#: The E5.4b-e tester modules, which share ONE set of service containers.
+#: They are grouped for the opposite reason to `FIXED_PORT_MODULES`: not
+#: because they would collide, but because `--dist loadgroup` sends a group to
+#: one worker, and a session-scoped fixture on one worker starts once. Spread
+#: across four workers, the rig would be built four times and the phase-5
+#: section 5 gate-time design would be gone (five containers, ~15s of
+#: ready-wait, paid once per gate).
+RIG_MODULES = frozenset(
+    {
+        "test_tester_influx",
+        "test_tester_prometheus",
+        "test_tester_grafana",
+        "test_tester_s3",
+    }
+)
+
+#: The group those modules share.
+RIG_GROUP = "deployment-service-rig"
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items) -> None:
@@ -68,10 +88,18 @@ def pytest_collection_modifyitems(config, items) -> None:
     Grouping by module name gets the first. Overriding that name for the
     fixed-port modules gets the second, because a shared group is exactly
     xdist's promise of "same worker, therefore never concurrent".
+
+    `RIG_MODULES` shares a group for a third reason (E5.4b): not to keep its
+    modules apart but to keep them TOGETHER, so the one session-scoped service
+    rig they all use is built on one worker and therefore built once.
     """
     for item in items:
         module = item.module.__name__.rsplit(".", 1)[-1] if item.module else "orphan"
-        group = FIXED_PORT_GROUP if module in FIXED_PORT_MODULES else module
+        group = module
+        if module in FIXED_PORT_MODULES:
+            group = FIXED_PORT_GROUP
+        elif module in RIG_MODULES:
+            group = RIG_GROUP
         item.add_marker(pytest.mark.xdist_group(group))
 
 
@@ -808,6 +836,451 @@ def dynsec_broker(tmp_path: Path, deployment_slug: str, host_port: int | None = 
 
     with ephemeral_broker(dev_dir, host_port=host_port, conf=conf) as broker:
         yield broker
+
+
+# --- The deployment-service container rig (E5.4b-e; phase-5 fixed choice 5) --
+#
+# Real containers on the happy path are non-negotiable for these five testers,
+# because they exist to detect precisely what a fake cannot have: Prometheus's
+# remote-write receiver being off by DEFAULT, Influx 3's actual auth semantics,
+# Grafana's datasource provisioning shapes, MinIO's SigV4. A tester validated
+# only against a fake is a tester validated against its author's beliefs.
+#
+# The gate-time design is part of the choice, and all of it lives here: ONE
+# session-scoped rig, on ONE xdist group (`RIG_MODULES`), so it is built once
+# per gate rather than once per module per worker; containers started in
+# PARALLEL so the ready-wait is the slowest (Grafana) and not the sum; and no
+# published fixed ports, so two concurrent gate runs cannot collide.
+#
+# From E5.10 the rig BECOMES the generated stack and this hand-written
+# assembly goes away — which is why nothing here is imported by application
+# code and every value is a constant a bundle will later supply.
+
+#: One password for every rig service. A test fixture's credentials are not
+#: secrets; keeping them identical makes "did the tester send the credential
+#: it was given" the only thing a failure can mean.
+RIG_USER = "eoe"
+RIG_PASSWORD = "rigpassword"
+
+#: The same password, bcrypt'd, because Prometheus's `web_config.yml` accepts
+#: nothing else. Precomputed with `htpasswd -nbB` rather than hashed at test
+#: time SO THAT `bcrypt` DOES NOT BECOME A DEPENDENCY of this repository for
+#: the sake of one fixture. Regenerate with:
+#:     docker run --rm httpd:2-alpine htpasswd -nbB eoe rigpassword
+RIG_PASSWORD_BCRYPT = "$2y$05$W9GSYhvTglLiRib4ikQOz.uNA3r.dUSSBfjPA9R4/LpvCFODudjsq"
+
+RIG_INFLUX_DATABASE = "eoe_rig"
+RIG_S3_BUCKET = "eoe-rig-bucket"
+
+RIG_IMAGES = {
+    "influx": "influxdb:3-core",
+    "prometheus": "prom/prometheus:v3.5.0",
+    "grafana": "grafana/grafana:11.6.0",
+    "minio": "minio/minio:latest",
+}
+
+#: Minimal scrape config. Prometheus needs a config file to start at all, and
+#: scraping itself gives the `up` metric E5.4c's read query asks for.
+RIG_PROMETHEUS_YML = """
+global:
+  scrape_interval: 1s
+  evaluation_interval: 1s
+scrape_configs:
+  - job_name: prometheus
+    basic_auth:
+      username: eoe
+      password: rigpassword
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+"""
+
+RIG_PROMETHEUS_WEB_YML = f"""
+basic_auth_users:
+  {RIG_USER}: "{RIG_PASSWORD_BCRYPT}"
+"""
+
+
+@dataclasses.dataclass(frozen=True)
+class RigService:
+    """One running container in the rig, addressed from the host."""
+
+    name: str
+    port: int
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+
+@dataclasses.dataclass(frozen=True)
+class ServiceRig:
+    """Every service the E5.4b-e testers dial, already up and credentialed.
+
+    `prometheus` has `--web.enable-remote-write-receiver`; `prometheus_closed`
+    is the same image and config WITHOUT it. Two containers rather than one
+    restarted, because E5.4c's whole acceptance is telling those two states
+    apart, and a fixture that reconfigures in place cannot be asserted against
+    both within one test.
+    """
+
+    influx: RigService
+    influx_token: str
+    prometheus: RigService
+    prometheus_closed: RigService
+    grafana: RigService
+    grafana_token: str
+    minio: RigService
+
+    influx_database: str = RIG_INFLUX_DATABASE
+    bucket: str = RIG_S3_BUCKET
+    username: str = RIG_USER
+    password: str = RIG_PASSWORD
+
+
+def _rig_container(
+    label: str,
+    image: str,
+    container_port: int,
+    *,
+    command: list[str] | None = None,
+    env: Mapping[str, str] | None = None,
+    files: Sequence[tuple[Path, str]] = (),
+) -> RigService:
+    """Create, populate and start one rig container on a Docker-assigned port.
+
+    Files go in with `docker cp`, never a bind mount, for `ephemeral_broker`'s
+    reason: bind mounts of a WSL or Windows path translate differently per
+    host and the gate has to behave identically on all three.
+    """
+    name = f"eoe-rig-{label}-{uuid.uuid4().hex[:8]}"
+    docker = docker_cli()
+    env_vars = docker_env()
+    create = [docker, "create", "--name", name, "-p", f"127.0.0.1:0:{container_port}"]
+    for key, value in (env or {}).items():
+        create += ["-e", f"{key}={value}"]
+    create += [image, *(command or [])]
+
+    created = subprocess.run(create, capture_output=True, text=True, env=env_vars)
+    assert created.returncode == 0, f"could not create {label}: {created.stderr}"
+
+    for source, target in files:
+        copied = subprocess.run(
+            [docker, "cp", str(source), f"{name}:{target}"],
+            capture_output=True,
+            text=True,
+            env=env_vars,
+        )
+        assert copied.returncode == 0, f"docker cp {source} -> {label} failed: {copied.stderr}"
+
+    started = docker_retry([docker, "start", name], env_vars, what=f"{label} start")
+    assert started.returncode == 0, f"{label} would not start: {started.stderr}"
+
+    ports = subprocess.run(
+        [docker, "port", name, f"{container_port}/tcp"],
+        capture_output=True,
+        text=True,
+        env=env_vars,
+    )
+    if ports.returncode != 0:
+        logs = subprocess.run([docker, "logs", name], capture_output=True, text=True, env=env_vars)
+        raise AssertionError(f"{label} exited: {ports.stderr}\n{logs.stdout}\n{logs.stderr}")
+    published = int(ports.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
+    assert wait_for_host_port(published), (
+        f"{label} started but its published port {published} never answered from the host"
+    )
+    return RigService(name=name, port=published)
+
+
+def _wait_for_http(service: RigService, path: str, *, timeout: float = 60.0) -> None:
+    """Wait until the service answers HTTP at all — any status.
+
+    Deliberately not "answers 200": Influx 3 answers **401** on `/health`
+    without a token, which is a fully-started server refusing an
+    unauthenticated read. Waiting for 200 there would wait forever, and
+    waiting for the TCP port alone returns before the HTTP stack is up.
+    """
+    import httpx
+
+    deadline = time.monotonic() + timeout
+    last = "no attempt completed"
+    while time.monotonic() < deadline:
+        try:
+            with httpx.Client(timeout=2.0) as client:
+                client.get(f"{service.url}{path}")
+            return
+        except Exception as error:  # noqa: BLE001  (any answer at all ends the wait)
+            last = f"{type(error).__name__}: {error}"
+        time.sleep(0.25)
+    logs = subprocess.run(
+        [docker_cli(), "logs", "--tail", "40", service.name],
+        capture_output=True,
+        text=True,
+        env=docker_env(),
+    )
+    raise AssertionError(
+        f"{service.name} never answered HTTP at {path} ({last})\n{logs.stdout}\n{logs.stderr}"
+    )
+
+
+def _mint_influx_token(service: RigService) -> str:
+    """Influx 3 Core has no way to preseed a token, so it is minted in-container.
+
+    `influxdb3 create token --admin` is the documented route and it prints the
+    token once, wrapped in ANSI styling — hence the prefix scan rather than a
+    line index, which would break the first time the banner changes.
+    """
+    _wait_for_http(service, "/health")
+    result = subprocess.run(
+        [
+            docker_cli(),
+            "exec",
+            service.name,
+            "influxdb3",
+            "create",
+            "token",
+            "--admin",
+            "--host",
+            "http://localhost:8181",
+        ],
+        capture_output=True,
+        text=True,
+        env=docker_env(),
+        timeout=60,
+    )
+    assert result.returncode == 0, f"could not mint an influx token: {result.stderr}"
+    for word in result.stdout.replace("\x1b", " ").split():
+        cleaned = word.strip("\x1b[0m").strip()
+        if cleaned.startswith("apiv3_"):
+            return cleaned
+    raise AssertionError(f"no apiv3_ token in influxdb3 output:\n{result.stdout}\n{result.stderr}")
+
+
+def _seed_influx_database(service: RigService, token: str) -> None:
+    """Bring `RIG_INFLUX_DATABASE` into existence, because Influx 3 creates a
+    database on FIRST WRITE and a fresh server has none.
+
+    Without this the rig models a state no configured deployment is ever in,
+    and the happy-path test would read `not_found` — which is the tester
+    behaving correctly against a server that genuinely lacks the database. The
+    seed is written to its own measurement and left there, so it also proves
+    the reserved `_eoe_selftest` measurement the tester drops is not the only
+    thing in the database (a drop that took the database with it would then
+    show up as a failure here rather than passing quietly).
+    """
+    import httpx
+
+    with httpx.Client(timeout=15.0, headers={"Authorization": f"Bearer {token}"}) as client:
+        response = client.post(
+            f"{service.url}/api/v3/write_lp",
+            params={"db": RIG_INFLUX_DATABASE, "precision": "nanosecond"},
+            content=b"_eoe_rig_seed,source=conftest value=1i",
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+        )
+    assert response.status_code in (200, 204), (
+        f"could not seed the rig influx database: HTTP {response.status_code} {response.text[:200]}"
+    )
+
+
+def _mint_grafana_token(service: RigService) -> str:
+    """A Grafana service account token, which is what `GrafanaSettings` holds.
+
+    Created over the admin basic-auth login because that is the only bootstrap
+    Grafana offers; everything the tester itself does afterwards uses this
+    token, exactly as the platform will.
+    """
+    import httpx
+
+    _wait_for_http(service, "/api/health")
+    auth = ("admin", RIG_PASSWORD)
+    deadline = time.monotonic() + 60.0
+    last = ""
+    with httpx.Client(timeout=10.0, auth=auth) as client:
+        while time.monotonic() < deadline:
+            try:
+                account = client.post(
+                    f"{service.url}/api/serviceaccounts",
+                    json={"name": f"eoe-rig-{uuid.uuid4().hex[:6]}", "role": "Admin"},
+                )
+                if account.status_code in (200, 201):
+                    token = client.post(
+                        f"{service.url}/api/serviceaccounts/{account.json()['id']}/tokens",
+                        json={"name": f"eoe-rig-token-{uuid.uuid4().hex[:6]}"},
+                    )
+                    if token.status_code in (200, 201):
+                        return str(token.json()["key"])
+                    last = f"token: HTTP {token.status_code} {token.text[:200]}"
+                else:
+                    last = f"account: HTTP {account.status_code} {account.text[:200]}"
+            except Exception as error:  # noqa: BLE001  (grafana refuses until migrated)
+                last = f"{type(error).__name__}: {error}"
+            time.sleep(0.5)
+    raise AssertionError(f"could not mint a grafana service account token ({last})")
+
+
+def _create_rig_bucket(service: RigService) -> None:
+    """The bucket E5.4e's tester heads. Created with boto3, so the fixture
+    proves the same SigV4 path the tester will use actually works here."""
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import ClientError
+
+    deadline = time.monotonic() + 60.0
+    last = ""
+    while time.monotonic() < deadline:
+        try:
+            s3 = boto3.client(
+                "s3",
+                endpoint_url=service.url,
+                aws_access_key_id=RIG_USER,
+                aws_secret_access_key=RIG_PASSWORD,
+                region_name="us-east-1",
+                config=Config(signature_version="s3v4", retries={"max_attempts": 1}),
+            )
+            s3.create_bucket(Bucket=RIG_S3_BUCKET)
+            return
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code", "")
+            if code in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                return
+            last = f"ClientError {code}"
+        except Exception as error:  # noqa: BLE001  (minio refuses until it is listening)
+            last = f"{type(error).__name__}: {error}"
+        time.sleep(0.5)
+    raise AssertionError(f"could not create the rig bucket ({last})")
+
+
+@contextlib.contextmanager
+def service_rig():
+    """Every E5.4b-e service, started in parallel and torn down together.
+
+    Parallel because the ready-waits are what cost: started in sequence this
+    is the SUM of five startups (Grafana alone is ~10-15s), and started
+    together it is the slowest one. That difference is the whole reason
+    phase-5 section 5 can promise the rig adds little to the gate.
+    """
+    import concurrent.futures
+
+    work = Path(tempfile.mkdtemp(prefix="eoe-rig-"))
+    prom_yml = work / "prometheus.yml"
+    prom_yml.write_text(RIG_PROMETHEUS_YML, encoding="utf-8")
+    web_yml = work / "web_config.yml"
+    web_yml.write_text(RIG_PROMETHEUS_WEB_YML, encoding="utf-8")
+    for path in (prom_yml, web_yml):
+        path.chmod(0o644)
+
+    prometheus_command = [
+        "--config.file=/etc/prometheus/prometheus.yml",
+        "--web.config.file=/etc/prometheus/web_config.yml",
+        "--storage.tsdb.retention.time=1h",
+    ]
+    prometheus_files = [
+        (prom_yml, "/etc/prometheus/prometheus.yml"),
+        (web_yml, "/etc/prometheus/web_config.yml"),
+    ]
+
+    builders = {
+        "influx": lambda: _rig_container(
+            "influx",
+            RIG_IMAGES["influx"],
+            8181,
+            command=[
+                "influxdb3",
+                "serve",
+                "--node-id=node0",
+                "--object-store=memory",
+                "--http-bind=0.0.0.0:8181",
+            ],
+        ),
+        "prometheus": lambda: _rig_container(
+            "prom-open",
+            RIG_IMAGES["prometheus"],
+            9090,
+            command=[*prometheus_command, "--web.enable-remote-write-receiver"],
+            files=prometheus_files,
+        ),
+        "prometheus_closed": lambda: _rig_container(
+            "prom-closed",
+            RIG_IMAGES["prometheus"],
+            9090,
+            command=list(prometheus_command),
+            files=prometheus_files,
+        ),
+        "grafana": lambda: _rig_container(
+            "grafana",
+            RIG_IMAGES["grafana"],
+            3000,
+            env={
+                "GF_SECURITY_ADMIN_PASSWORD": RIG_PASSWORD,
+                "GF_AUTH_ANONYMOUS_ENABLED": "false",
+                # Off: the rig has no internet and every startup second counts.
+                "GF_ANALYTICS_REPORTING_ENABLED": "false",
+                "GF_ANALYTICS_CHECK_FOR_UPDATES": "false",
+                "GF_INSTALL_PLUGINS": "",
+            },
+        ),
+        "minio": lambda: _rig_container(
+            "minio",
+            RIG_IMAGES["minio"],
+            9000,
+            command=["server", "/data"],
+            env={"MINIO_ROOT_USER": RIG_USER, "MINIO_ROOT_PASSWORD": RIG_PASSWORD},
+        ),
+    }
+
+    started: dict[str, RigService] = {}
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(builders)) as pool:
+            futures = {key: pool.submit(builder) for key, builder in builders.items()}
+            errors = []
+            for key, future in futures.items():
+                try:
+                    started[key] = future.result()
+                except Exception as error:  # noqa: BLE001  (report ALL of them, not the first)
+                    errors.append(f"{key}: {type(error).__name__}: {error}")
+            if errors:
+                raise AssertionError("the service rig would not start:\n" + "\n".join(errors))
+
+        # Credentialing also runs in parallel: Grafana's migration and Influx's
+        # token mint are both multi-second waits with nothing in common.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            influx_token = pool.submit(_mint_influx_token, started["influx"])
+            grafana_token = pool.submit(_mint_grafana_token, started["grafana"])
+            bucket = pool.submit(_create_rig_bucket, started["minio"])
+            pool.submit(_wait_for_http, started["prometheus"], "/-/ready").result()
+            pool.submit(_wait_for_http, started["prometheus_closed"], "/-/ready").result()
+            bucket.result()
+            minted = influx_token.result()
+            _seed_influx_database(started["influx"], minted)
+            rig = ServiceRig(
+                influx=started["influx"],
+                influx_token=minted,
+                prometheus=started["prometheus"],
+                prometheus_closed=started["prometheus_closed"],
+                grafana=started["grafana"],
+                grafana_token=grafana_token.result(),
+                minio=started["minio"],
+            )
+        yield rig
+    finally:
+        if started:
+            subprocess.run(
+                [docker_cli(), "rm", "-f", "-v", *(one.name for one in started.values())],
+                capture_output=True,
+                env=docker_env(),
+            )
+        shutil.rmtree(work, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def rig():
+    """The one rig, for every `RIG_MODULES` test.
+
+    Session-scoped AND group-pinned: either alone is not enough. Session scope
+    without the shared xdist group builds it once per worker; the group
+    without session scope builds it once per module.
+    """
+    with service_rig() as running:
+        yield running
 
 
 def run_git(*args: str) -> str:

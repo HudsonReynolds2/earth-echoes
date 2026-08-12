@@ -659,3 +659,26 @@ def test_the_test_audit_row_names_outcomes_and_never_a_credential(app, registry)
     for leak in (LEAKY_CANARY, STORED_CANARY, CANDIDATE_CANARY):
         assert leak not in detail
     assert rows[-1].scope == dep_id
+
+
+def test_every_spec_service_has_a_tester_and_no_others_are_registered():
+    """The `REGISTRY` is complete as of E5.4e, and pinned against the vocabulary.
+
+    Added by E5.4e, and it is the assertion `testers/__init__.py`'s docstring
+    claims exists. Two directions, both of which have bitten this epic before
+    in other forms: a sixth `service_key` reaching `models.SERVICE_KEYS`
+    without a tester would silently report nothing for it (D118's shape), and
+    a tester registered under a key the database does not accept would never
+    run at all.
+    """
+    from app.models import SERVICE_KEYS
+    from app.services import testers as testers_module
+
+    assert tuple(testers_module.REGISTRY) == SERVICE_KEYS
+
+    for key, tester in testers_module.REGISTRY.items():
+        assert tester.service_key == key, (
+            f"{type(tester).__name__} is registered under {key!r} but reports "
+            f"{tester.service_key!r}; the runner keys results by the tester's own value"
+        )
+        assert tester.budget_seconds > 0

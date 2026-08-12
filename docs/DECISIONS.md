@@ -4,6 +4,36 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D119 (2026-08-12): Importing a conftest FIXTURE into a test module silently defeats session
+scope, and it cost the rig its whole gate-time design (E5.4b)
+
+- **The defect.** All four E5.4b-e modules opened with `from conftest import rig`. A fixture
+  defined in `conftest.py` is discovered automatically; importing it binds a **separate fixture
+  object** into the importing module, and `scope="session"` then applies **per copy**. The
+  five-container rig was therefore built once per module.
+- **Measured, not reasoned about.** Sampling `docker ps` during a run of the four suites:
+  5 containers, then 10, then 15. After deleting the imports: a flat 5 for the whole run, and
+  the four suites went from **49.3s to 22.1s**. Same 43 tests, same assertions, all passing
+  before and after — which is exactly what makes this worth an entry.
+- **Why it is dangerous rather than merely wasteful.** It is invisible. Nothing fails, no
+  warning is emitted, and the only symptom is a slower gate — the phase-5 section 5 budget
+  ("one session-scoped rig on one shared xdist group so it starts once per gate") would have
+  been quietly untrue while the document still claimed it, and the pre-authorized response to
+  a slow gate is to *cut container-test scope*. The cure for a self-inflicted 3x would have
+  been deleting tests.
+- **What the grouping does and does not buy.** `RIG_MODULES` sharing one `xdist_group` is still
+  necessary — `--dist loadgroup` puts the group on one worker, and a session fixture is
+  per-worker. But it is not sufficient, and this is the trap: with the imports in place the
+  group was working perfectly and the rig was still built three times. Both properties are
+  needed and neither implies the other.
+- **The guard.** A comment at the import block in each of the four modules says why `rig` is
+  absent from it. There is no automated check; the honest position is that the next fixture
+  someone imports will do this again, and the measurement (`docker ps` during a run) is the way
+  to catch it.
+- **Reference:** `backend/tests/conftest.py` (`service_rig`, `rig`, `RIG_MODULES`,
+  `RIG_GROUP`), `backend/tests/test_tester_{influx,prometheus,grafana,s3}.py`, phase-5 section
+  5, D99 (the module-grouping hook this builds on).
+
 ## D118 (2026-08-12): An E5.3 test pinned "no tester exists yet" rather than a behaviour, and
 E5.4a invalidated it (rule R0)
 

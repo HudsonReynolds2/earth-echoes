@@ -26,10 +26,15 @@ from app.services.testers.base import (
     resolve_credentials,
     run_testers,
 )
+from app.services.testers.grafana import GrafanaTester
+from app.services.testers.influx import InfluxTester
 from app.services.testers.mqtt import MqttTester
+from app.services.testers.prometheus import PrometheusTester
+from app.services.testers.s3 import S3Tester
 
-#: `service_key` -> the tester for it. E5.4a-e register here; until then a
-#: service simply has no tester and the runner says so.
+#: `service_key` -> the tester for it. **Complete as of E5.4e**: all five
+#: spec 16.2 services have one, and `test_service_testers.py` pins the keys
+#: against `models.SERVICE_KEYS` so a sixth service cannot arrive without one.
 #:
 #: Populated at import time rather than by a decorator on each class: the
 #: endpoint reads this dict through the MODULE, so what is in it has to be a
@@ -38,6 +43,10 @@ from app.services.testers.mqtt import MqttTester
 #: across five files.
 REGISTRY: dict[str, ServiceTester] = {
     "mqtt": MqttTester(),
+    "influx": InfluxTester(),
+    "prometheus": PrometheusTester(),
+    "grafana": GrafanaTester(),
+    "s3": S3Tester(),
 }
 
 __all__ = [
@@ -45,7 +54,11 @@ __all__ = [
     "REGISTRY",
     "WHOLE_CALL_BUDGET_SECONDS",
     "CheckResult",
+    "GrafanaTester",
+    "InfluxTester",
     "MqttTester",
+    "PrometheusTester",
+    "S3Tester",
     "ServiceCredentials",
     "ServiceTester",
     "TestResult",

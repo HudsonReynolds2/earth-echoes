@@ -1519,3 +1519,79 @@ reimplement their logic.** Signatures, verbatim:
   broker's own record. **E5.8a replaces the hand-written `dynamic-security.json` with a
   generated one.**
 - **Suite:** `backend/tests/test_tester_mqtt.py`.
+
+### The other four testers, and the container rig (E5.4b-e; spec 16.2 rows 2-5; D119)
+
+- **`app/services/clients/` is the only place a deployment service is dialled from** (phase-5
+  fixed choice 8). `httpbase.py` holds what the three HTTP clients share — `ServiceFailure`
+  (`kind`/`detail`/`remedy`), the transport-error taxonomy, `safe_endpoint`, `redact`,
+  `snippet`, and `open_client` with `follow_redirects=False` so an authenticated request can
+  never replay its Authorization header to a `Location`. `influx.py`, `prometheus.py`,
+  `grafana.py` and `s3.py` add only what is theirs. **E7 extends these modules and does not
+  create parallel ones**: `InfluxClient` gains query methods, `PrometheusClient` gains PromQL.
+- **No client imports `app/services/testers/`** and the constraint is enforced by a would-be
+  import cycle rather than by discipline (D116). Turning a `ServiceCredentials` into a client is
+  each tester's `client_for`.
+- **Influx (E5.4b)** uses the **HTTP query API, never FlightSQL**, so `pyarrow` stays out of the
+  image. Influx 3 Core has no row-level delete: the reserved measurement `_eoe_selftest` is
+  dropped whole, and a query for a dropped table answers "not found" rather than "zero rows",
+  which `count_rows` reads as zero. `auth` and `not_found` are distinguishable kinds.
+- **Prometheus (E5.4c)** probes the remote-write receiver with a **well-formed empty body**, so
+  the connection test leaves no series in an operator's monitoring data. Three verdicts:
+  `accepted` (204), `unauthorized` (401), `receiver_disabled` (404 — the receiver is **off by
+  default**). **401 is read before 404** because Prometheus checks basic auth before it routes,
+  so a wrong password answers 401 on a correctly configured server too.
+- **Grafana (E5.4d)** is the only client that WRITES. Provisioning is never a side effect of a
+  test: `datasources()` reports what is missing and `provision_datasource` /
+  `ensure_contact_point` are separate deliberate calls, each idempotent by lookup-then-decide.
+  The contact point `eoe-platform-alerts` targets **`POST /webhooks/grafana-alerts`, which E7.6
+  implements and E5 does not** — inert until an alert fires, and spec 11.1 gives v1 no alert
+  rules. Missing datasources do **not** fail the tester; an offer is not a verdict.
+- **Object storage (E5.4e)** goes through `boto3` in `asyncio.to_thread`. `forbidden` and
+  `not_found` are separate kinds, and where S3 genuinely cannot tell them apart (it answers 404
+  for a bucket the caller may not know about) the remedy names both. It answers **`not_required`
+  when neither credential is set** — see the open question in `e5-progress-ledger.md`: the
+  catalog has no raw-audio toggle, so this is a reading of spec 16.2's conditional requirement
+  rather than a quotation of it.
+- **The rig (`conftest.service_rig`, `rig`)** is five containers — Influx, two Prometheus (one
+  with `--web.enable-remote-write-receiver`, one without), Grafana, MinIO — started in parallel
+  on Docker-assigned ports, **8.3s to ready**. It is a **session fixture pinned to one xdist
+  group** (`RIG_MODULES` / `RIG_GROUP`) so it is built once per gate. **Both halves are
+  required**: D119 records that importing the `rig` fixture into a test module defeats session
+  scope and built it three times while the grouping worked perfectly. **From E5.10 the rig
+  becomes the generated stack** and this hand-written assembly goes away.
+- **`REGISTRY` is complete**: all five spec 16.2 services have a tester, pinned equal to
+  `models.SERVICE_KEYS` so a sixth service cannot arrive without one.
+- **Suites:** `backend/tests/test_tester_{influx,prometheus,grafana,s3}.py`.
+
+### `GET /deployments/{id}/services/status` and the rollup lifecycle (E5.5; spec 16.5; D117)
+
+- **Two vocabularies, deliberately.** Per-service `untested` / `verified` / `failed` on
+  `deployment_service`; rolled-up `unconfigured` / `pending_verification` / `verified` /
+  `degraded` on `deployment.services_status`. Neither is derivable from the other one row at a
+  time, and a UI rendering one as the other would report a whole deployment broken because one
+  optional service is. E5.3's `TesterOutcome` is a **third** vocabulary (D111).
+- **`app/services/status.py::roll_up` is the ONLY writer** of `deployment.services_status`
+  (fixed choice 2), through `recompute`, which every mutation path calls.
+  `test_services_status.py` walks **every** deployment after every mutation and asserts the
+  stored value equals `roll_up` over its own rows.
+- **`deployment_service.required` is a stored column** (migration `b7d41f0c2e93`), not an
+  argument — D117. The save path and the invariant sweep recompute with no test results in
+  hand, so a required-set only a live test could reconstruct would make the denormalized column
+  irreproducible from its rows.
+- **`DEGRADE_AFTER_FAILURES = 2`, and the threshold guards a demotion, not a first verdict.** An
+  operator getting a credential wrong in the wizard sees `failed` immediately; a service that
+  had reached `verified` survives one transient re-check.
+- **A test of CANDIDATE credentials writes no status.** Spec 16.2's "validates each entry before
+  accepting it" is precisely a test that has not been accepted, so a wizard rehearsing an
+  unsaved form cannot leave a deployment recorded as `verified` against a credential the
+  platform is not holding. `POST .../services/test` returns `services_status` so the wizard
+  needs no second request.
+- **Saving a service unverifies it**: new credentials mean the old verdict was about something
+  else, and the failure counter resets with it.
+- **The re-check sweep ships as a callable and is NOT registered on the worker.**
+  `runner.py` is E3-owned and this phase authorizes exactly two discretionary edits there, both
+  E5.7b's; **E5.7b registers `services_recheck_sweep` in the same edit** that adds
+  `service_config_sweep`.
+- **Permissions:** `VIEW_SERVICES` (all four roles) — status renders everywhere and carries no
+  credential. **Suite:** `backend/tests/test_services_status.py`.

@@ -41,6 +41,16 @@ dev = [
 python_version = "3.12"
 strict = true
 
+# boto3 and botocore ship no type information and no py.typed marker (E5.4e).
+# The alternative is `boto3-stubs`, which is generated, very large, and would
+# have to stay version-pinned against boto3 forever; the code that touches it
+# is one small module (app/services/clients/s3.py) whose own signatures are
+# fully typed, so the untyped surface stops at its boundary instead of
+# spreading. `strict = true` is NOT relaxed anywhere else.
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
 [tool.uv]
 package = false
 
