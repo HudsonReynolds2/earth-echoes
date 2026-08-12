@@ -1,5 +1,57 @@
 # Project Updates
 
+## 2026-08-12: E5.4a-e and E5.5 — five testers, one container rig, and a rollup that reproduces itself (Gate 57 GREEN)
+
+- **Tasks closed:** E5.4a (verified, not authored, this session), E5.4b, E5.4c, E5.4d, E5.4e,
+  E5.5. Checkpoint C2.
+- **Gate:** 57, GREEN
+- **Tests:** 942 backend / 115 vitest / 4 Playwright — 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage 279.06s against C1's 262.7s, so the whole five-container rig
+  costs **+16.4s** and the phase-5 §5 ~300s ceiling holds with ~21s to spare.
+- **Command:** `make gate`
+- **The first C2 run was RED, and it is recorded here because it found three real defects**
+  that no per-unit run could have. `test_no_committed_secret_patterns` tripped on three
+  `*_PASSWORD = "..."` constants (the scanner matches 20+ characters after the keyword);
+  `E0_ROUTES` had never been extended for E5.5's `GET .../services/status`; and E5.4a's
+  registry test still asserted `set(REGISTRY) == {"mqtt"}`. **None was contention** — every
+  one reproduced on a targeted re-run. Two were latent in commit `09b5271`, which had been
+  committed after running only its own test file. Fixed, then the gate was re-run in full.
+- **Artifacts:** `app/services/clients/{httpbase,influx,prometheus,grafana,s3}.py` — the only
+  place a deployment service is dialled from (fixed choice 8), with one shared failure
+  taxonomy so five services speak one operator-facing vocabulary;
+  `app/services/testers/{influx,prometheus,grafana,s3}.py` completing `REGISTRY`;
+  `app/services/status.py` (`roll_up` as the sole writer of `deployment.services_status`,
+  `DEGRADE_AFTER_FAILURES = 2`, `apply_test_results`, the re-check sweep as a callable E5.7b
+  will register); `GET /deployments/{id}/services/status`; migration `b7d41f0c2e93` adding
+  `deployment_service.required`; and `conftest.service_rig` — five containers in parallel,
+  8.3s to ready, one session fixture on one xdist group.
+- **Decisions:** D117 (the required flag is a stored column, not an argument to `roll_up` —
+  the save path and the invariant sweep recompute with no test results in hand, so a parameter
+  would make the denormalized column irreproducible from its own rows), D118 (a test that pins
+  "nothing else has been built yet" is not a test of a behaviour; three instances found),
+  D119 (importing a conftest FIXTURE defeats session scope and built the rig three times —
+  measured at 5/10/15 containers, and worth 27s on four suites alone).
+- **Manual verification:** the whole loop driven over HTTP against a real uvicorn, a real
+  Postgres, and real Influx / Prometheus / Grafana / MinIO / Mosquitto containers. Logged in,
+  saved all five services, and: the GET echoed **no** submitted secret and rendered every set
+  one as `{"$secret_set": true}`; `POST .../services/test` returned `pass` for all five with
+  every check green (mqtt connect/round_trip/dynsec, influx query/write/cleanup, prometheus
+  read_query/remote_write, grafana health/datasources/contact_point, s3
+  head_bucket/write/cleanup) and the rollup reached `verified`; **no credential appeared
+  anywhere in the test response**; replacing the Influx token with a wrong one moved the row
+  to `untested` on save (a save unverifies) and then to `failed` with the rollup at
+  `degraded`; removing the S3 credentials produced `not_required` and `required=False` rather
+  than a failure; and a POST without the CSRF header was refused with 403. **One thing the
+  walkthrough did NOT demonstrate:** the `DEGRADE_AFTER_FAILURES` tolerance path
+  (verified → one failure → still verified), because the preceding save had reset the row to
+  `untested` — which is the correct onboarding behaviour, and the tolerance path is covered by
+  `test_services_status.py` rather than by hand.
+- **Open question for the owner, recorded in the ledger:** E5.4e must answer `not_required`
+  "for a deployment with raw-audio upload disabled" and **the settings catalog has no such
+  toggle**. The tester keys on both S3 credentials being absent; a half-entered form is tested
+  for real and fails. An explicit `upload.raw_audio_enabled` key would be an E2-owned catalog
+  change and a stop-and-ask.
+
 ## 2026-08-11: E5.1-E5.3 — services onboarding gets a data model, a write-only API, and a test framework (Gate 54 GREEN)
 
 - **Tasks closed:** E5.0, E5.1, E5.2, E5.3 on branch `e5-batch-1`, worked in a separate git

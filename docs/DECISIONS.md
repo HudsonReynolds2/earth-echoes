@@ -57,7 +57,17 @@ E5.4a invalidated it (rule R0)
   discipline that makes that safe is running the *affected* suites per unit, not only the new
   ones. **A unit that registers into a shared structure has to re-run every suite that reads
   it.**
-- **Reference:** `backend/tests/test_service_testers.py`, `app/services/testers/__init__.py`,
+- **It happened twice more, and the C2 gate is what caught both.** E5.4a's own
+  `test_the_registry_carries_the_mqtt_tester_and_nothing_it_has_not_built` asserted
+  `set(REGISTRY) == {"mqtt"}` — the same "nothing else exists yet" shape — and E5.4b-e expired
+  it. And `test_e0_readiness.E0_ROUTES` had not been extended for E5.5's status endpoint, which
+  is the same class of omission in the other direction: a deliberate addition that a
+  completeness assertion has to be told about. Both were invisible to per-unit runs and both
+  turned the full gate red. **Registry completeness now lives in exactly one place**
+  (`test_service_testers.py`, pinned against `models.SERVICE_KEYS`) instead of being re-asserted
+  by whichever module happened to be last.
+- **Reference:** `backend/tests/test_service_testers.py`, `backend/tests/test_tester_mqtt.py`,
+  `backend/tests/test_e0_readiness.py`, `app/services/testers/__init__.py`,
   D107 (the checkpoint cadence), D111 (the four tester outcomes).
 
 ## D117 (2026-08-12): "Is this service required" is a stored column, not an argument to

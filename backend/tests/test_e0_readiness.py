@@ -155,6 +155,13 @@ E0_ROUTES = {
     # validates an entry "before accepting it", so the unsaved form is exactly
     # what this tests. It writes no status: that is E5.5's.
     ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/test"),
+    # E5.5, spec 16.5: the rolled-up `services_status` and its per-service
+    # evidence. `VIEW_SERVICES` rather than `MANAGE_SERVICES` - status renders
+    # for all four roles and carries no credential. It READS and never
+    # recomputes: `roll_up` runs on the mutation paths, and a GET that wrote
+    # would put a second writer on a column whose whole design is that it has
+    # exactly one (phase-5 fixed choice 2).
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/status"),
 }
 
 E0_TABLES = {

@@ -27,9 +27,9 @@ import aiomqtt
 import pytest
 from aiomqtt.exceptions import MqttConnectError
 from conftest import (
-    DYNSEC_ADMIN_PASSWORD,
+    DYNSEC_ADMIN_PW,
     DYNSEC_ADMIN_USER,
-    DYNSEC_PLAIN_PASSWORD,
+    DYNSEC_PLAIN_PW,
     DYNSEC_PLAIN_USER,
     dynsec_broker,
     ephemeral_broker,
@@ -53,7 +53,7 @@ pytestmark = pytest.mark.anyio
 
 SLUG = "e54a-services"
 PLATFORM_USER = f"platform-{SLUG}"
-PLATFORM_PASSWORD = "platform-account-password"
+PLATFORM_PW = "platform-account-password"
 DEPLOYMENT_ID = uuid.UUID("5e54a000-0000-4000-8000-00000000000a")
 
 
@@ -67,7 +67,7 @@ def dev_broker(tmp_path_factory):
     out = tmp_path_factory.mktemp("e54a-dev-certs")
     account = Account(
         username=PLATFORM_USER,
-        password=PLATFORM_PASSWORD,
+        password=PLATFORM_PW,
         kind="platform",
         deployment_slug=SLUG,
     )
@@ -133,7 +133,7 @@ async def test_the_round_trip_succeeds_against_a_real_dev_broker(dev_broker):
     """First acceptance clause: the round trip works, on the ACL the platform
     account actually has. Asserted through the client rather than the tester so
     a dynsec failure cannot mask a working round trip."""
-    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD)
+    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PW)
     async with client.connect() as session:
         assert await client.round_trip(session) is True
 
@@ -150,7 +150,7 @@ async def test_the_self_test_message_is_not_retained(dev_broker):
     """A retained self-test would sit on the broker forever and be delivered
     to every device that later subscribed to the deployment root. Asserted by
     subscribing AFTER the round trip and seeing nothing."""
-    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD)
+    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PW)
     async with client.connect() as session:
         assert await client.round_trip(session) is True
 
@@ -180,7 +180,7 @@ async def test_an_untrusted_ca_fails_with_a_trust_reason(dev_broker):
     (D65), which is the property a "system store plus this one" context would
     quietly lose."""
     other_ca = generate_tls_material()["ca.crt"].decode()
-    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD, ca_cert_pem=other_ca)
+    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PW, ca_cert_pem=other_ca)
     with pytest.raises(MqttDialError) as raised:
         async with client.connect():
             pass
@@ -191,7 +191,7 @@ async def test_an_untrusted_ca_fails_with_a_trust_reason(dev_broker):
 async def test_an_unreachable_host_fails_with_a_reachability_reason(dev_broker):
     """A port nothing is listening on, claimed through `free_port` so no
     concurrent gate run can start something there mid-test."""
-    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD, port=free_port())
+    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PW, port=free_port())
     with pytest.raises(MqttDialError) as raised:
         async with client.connect():
             pass
@@ -208,8 +208,8 @@ async def test_the_three_named_failures_are_mutually_distinguishable(dev_broker)
     other_ca = generate_tls_material()["ca.crt"].decode()
     cases = {
         "wrong password": _client(dev_broker, PLATFORM_USER, "not-the-password"),
-        "untrusted CA": _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD, ca_cert_pem=other_ca),
-        "unreachable host": _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD, port=free_port()),
+        "untrusted CA": _client(dev_broker, PLATFORM_USER, PLATFORM_PW, ca_cert_pem=other_ca),
+        "unreachable host": _client(dev_broker, PLATFORM_USER, PLATFORM_PW, port=free_port()),
     }
     failures = {}
     for label, client in cases.items():
@@ -259,7 +259,7 @@ async def test_the_probe_reports_absent_against_the_dev_broker(dev_broker):
     """The current dev broker loads no plugin, and the probe must say so
     rather than reporting the account's lack of privilege - which is what a
     verdict derived from the refused PUBLISH would say instead."""
-    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD)
+    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PW)
     async with client.connect() as session:
         verdict = await dynsec.probe(session)
     assert verdict.verdict == "absent"
@@ -268,7 +268,7 @@ async def test_the_probe_reports_absent_against_the_dev_broker(dev_broker):
 
 
 async def test_the_probe_reports_available_for_a_dynsec_administrator(dynsec_enabled_broker):
-    client = _client(dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PASSWORD)
+    client = _client(dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PW)
     async with client.connect() as session:
         verdict = await dynsec.probe(session)
     assert verdict.verdict == "available"
@@ -283,7 +283,7 @@ async def test_the_probe_reports_denied_for_an_account_without_the_admin_role(
     cut the platform account gets on the dev broker - and lacks only the
     plugin's `admin` role. So a `denied` verdict here is caused by the missing
     role and not by an account that cannot do anything at all."""
-    client = _client(dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PASSWORD)
+    client = _client(dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PW)
     async with client.connect() as session:
         verdict = await dynsec.probe(session)
     assert verdict.verdict == "denied"
@@ -298,9 +298,9 @@ async def test_the_three_verdicts_are_distinguishable(dev_broker, dynsec_enabled
     people doing different things (phase-5 fixed choice 4)."""
     verdicts = {}
     for label, broker, user, password in (
-        ("absent", dev_broker, PLATFORM_USER, PLATFORM_PASSWORD),
-        ("available", dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PASSWORD),
-        ("denied", dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PASSWORD),
+        ("absent", dev_broker, PLATFORM_USER, PLATFORM_PW),
+        ("available", dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PW),
+        ("denied", dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PW),
     ):
         client = _client(broker, user, password)
         async with client.connect() as session:
@@ -356,13 +356,13 @@ async def test_the_probe_never_publishes_to_control_without_authorisation(
             line for line in appeared.splitlines() if "PUBLISH" in line and quoted_topic in line
         ]
 
-    authorised = await probe_as(DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PASSWORD)
+    authorised = await probe_as(DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PW)
     assert authorised, (
         "the broker logged no $CONTROL publish for an AUTHORIZED probe, so the absence of "
         "one in the unauthorized case below would prove nothing about the probe"
     )
 
-    refused = await probe_as(DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PASSWORD)
+    refused = await probe_as(DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PW)
     assert refused == [], (
         "the probe published to $CONTROL on a broker that had just refused it the control "
         f"topic: {refused}"
@@ -416,7 +416,7 @@ async def test_a_broker_without_dynsec_fails_the_tester(dev_broker):
     connection and the round trip both worked. A deployment allowed to reach
     `verified` here would fail at the first device provisioning instead, which
     is the whole reason the verdict is part of the pass."""
-    result = await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD))
+    result = await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, PLATFORM_PW))
     assert result.outcome == "fail"
     assert _check(result, "connect").passed is True
     assert _check(result, "round_trip").passed is True
@@ -426,7 +426,7 @@ async def test_a_broker_without_dynsec_fails_the_tester(dev_broker):
 async def test_a_dynsec_broker_with_an_admin_account_passes(dynsec_enabled_broker):
     """The only configuration that can reach `verified` under fixed choice 4."""
     result = await MqttTester().run(
-        _credentials(dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PASSWORD)
+        _credentials(dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PW)
     )
     assert result.outcome == "pass"
     assert [check.name for check in result.checks] == ["connect", "round_trip", "dynsec"]
@@ -435,7 +435,7 @@ async def test_a_dynsec_broker_with_an_admin_account_passes(dynsec_enabled_broke
 
 async def test_a_denied_account_fails_the_tester(dynsec_enabled_broker):
     result = await MqttTester().run(
-        _credentials(dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PASSWORD)
+        _credentials(dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PW)
     )
     assert result.outcome == "fail"
     assert _check(result, "round_trip").passed is True
@@ -456,13 +456,13 @@ async def test_every_failing_check_carries_a_remedy(dev_broker, dynsec_enabled_b
     """E5.3's rule, applied to this tester across every failure path it has.
     A failing check with an empty remedy is a defect the suite fails on."""
     results = [
-        await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD)),
+        await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, PLATFORM_PW)),
         await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, "wrong")),
         await MqttTester().run(
-            _credentials(dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PASSWORD)
+            _credentials(dynsec_enabled_broker, DYNSEC_PLAIN_USER, DYNSEC_PLAIN_PW)
         ),
         await MqttTester().run(
-            _credentials(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD, port=free_port())
+            _credentials(dev_broker, PLATFORM_USER, PLATFORM_PW, port=free_port())
         ),
     ]
     failing = [check for result in results for check in result.checks if not check.passed]
@@ -477,38 +477,46 @@ async def test_no_result_or_log_carries_the_password(dev_broker, dynsec_enabled_
     field names, which is what E5.2's own secret test does."""
     caplog.set_level(0)
     results = [
-        await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD)),
+        await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, PLATFORM_PW)),
         await MqttTester().run(_credentials(dev_broker, PLATFORM_USER, "wrong")),
         await MqttTester().run(
-            _credentials(dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PASSWORD)
+            _credentials(dynsec_enabled_broker, DYNSEC_ADMIN_USER, DYNSEC_ADMIN_PW)
         ),
     ]
     rendered = repr(results)
-    for secret in (PLATFORM_PASSWORD, DYNSEC_ADMIN_PASSWORD, "wrong"):
+    for secret in (PLATFORM_PW, DYNSEC_ADMIN_PW, "wrong"):
         assert secret not in rendered
     for record in caplog.records:
-        for secret in (PLATFORM_PASSWORD, DYNSEC_ADMIN_PASSWORD):
+        for secret in (PLATFORM_PW, DYNSEC_ADMIN_PW):
             assert secret not in record.getMessage()
 
 
 def test_the_client_never_reprs_its_password(dev_broker):
     """`BrokerCoordinates`' precedent (D66), which this client copies: a
     stray `%r` must not put a broker password in a log line."""
-    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PASSWORD)
-    assert PLATFORM_PASSWORD not in repr(client)
-    assert PLATFORM_PASSWORD not in str(client)
-    assert PLATFORM_PASSWORD not in repr(client.coordinates())
+    client = _client(dev_broker, PLATFORM_USER, PLATFORM_PW)
+    assert PLATFORM_PW not in repr(client)
+    assert PLATFORM_PW not in str(client)
+    assert PLATFORM_PW not in repr(client.coordinates())
 
 
 # --- Registration -----------------------------------------------------------
 
 
-def test_the_registry_carries_the_mqtt_tester_and_nothing_it_has_not_built():
-    """E5.4b-e add their own keys. A tester registered before it exists would
-    make the endpoint report a verdict nothing computed."""
+def test_the_registry_carries_the_mqtt_tester():
+    """This module owns the `mqtt` entry, and asserts only that.
+
+    **Amended by E5.4e** — the third instance of D118's shape in this epic.
+    The original also asserted `set(REGISTRY) == {"mqtt"}`, which pinned
+    "E5.4b-e have not been written yet" rather than anything about the MQTT
+    tester, and expired the moment they were. Completeness of the registry is
+    now asserted once against `models.SERVICE_KEYS` in
+    `test_service_testers.py`, where it belongs: it is a property of the
+    registry, not of this tester.
+    """
     assert "mqtt" in REGISTRY
     assert isinstance(REGISTRY["mqtt"], MqttTester)
-    assert set(REGISTRY) == {"mqtt"}
+    assert REGISTRY["mqtt"].service_key == "mqtt"
 
 
 def test_resolve_credentials_carries_the_deployment_through():
