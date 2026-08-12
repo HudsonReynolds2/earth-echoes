@@ -56,6 +56,13 @@ from app.services.schemas import (
     plan_write,
     redacted_settings,
 )
+from app.services.status import (
+    DEGRADE_AFTER_FAILURES,
+    apply_test_results,
+    audited_outcomes,
+    recompute,
+    required_keys,
+)
 from app.services.store import load_service, load_services, upsert_service
 from app.services.testers import resolve_credentials, run_testers
 
@@ -162,6 +169,90 @@ def _services_out(db: DbDep, deployment_id: uuid.UUID) -> ServicesOut:
     return ServicesOut(deployment_id=str(deployment_id), services=services)
 
 
+class ServiceStatusOut(BaseModel):
+    service_key: str
+    configured: bool
+    #: Whether this service has to reach `verified` for the deployment to.
+    #: Object storage is conditionally required (spec 16.2), so this is not a
+    #: constant the frontend can hardcode.
+    required: bool
+    status: str
+    status_reason: str | None
+    last_tested_at: datetime | None
+    consecutive_failures: int
+
+
+class ServicesStatusOut(BaseModel):
+    """The spec 16.5 status endpoint (E5.5).
+
+    Two vocabularies in one body, deliberately: `services_status` is the
+    deployment's rollup and `services[key].status` is each connection's own
+    verdict. They are not aliases, and a UI that rendered one as the other
+    would tell an operator their whole deployment is broken because one
+    optional service is.
+    """
+
+    deployment_id: str
+    services_status: str
+    #: How many consecutive failures demote a verified service, so the wizard
+    #: can say "1 of 2 failed checks" rather than hardcoding the platform's
+    #: threshold.
+    degrade_after_failures: int
+    services: dict[str, ServiceStatusOut]
+
+
+def _deployment_status(db: DbDep, deployment_id: uuid.UUID) -> str:
+    """The stored rollup, read back after a write in the same transaction."""
+    deployment = db.get(Deployment, deployment_id)
+    return deployment.services_status if deployment is not None else "unconfigured"
+
+
+def _status_out(db: DbDep, deployment_id: uuid.UUID) -> ServicesStatusOut:
+    rows = {row.service_key: row for row in load_services(db, deployment_id)}
+    required = required_keys(list(rows.values()))
+    return ServicesStatusOut(
+        deployment_id=str(deployment_id),
+        services_status=_deployment_status(db, deployment_id),
+        degrade_after_failures=DEGRADE_AFTER_FAILURES,
+        services={
+            key: ServiceStatusOut(
+                service_key=key,
+                configured=key in rows,
+                required=key in required,
+                status=rows[key].status if key in rows else "untested",
+                status_reason=rows[key].status_reason if key in rows else None,
+                last_tested_at=rows[key].last_tested_at if key in rows else None,
+                consecutive_failures=rows[key].consecutive_failures if key in rows else 0,
+            )
+            for key in SERVICE_KEYS
+        },
+    )
+
+
+@router.get("/status", response_model=ServicesStatusOut)
+def get_services_status(
+    deployment_id: uuid.UUID,
+    db: DbDep,
+    _: Annotated[
+        UserSession, Depends(require_permission(Permission.VIEW_SERVICES, "deployment_id"))
+    ],
+) -> ServicesStatusOut:
+    """The spec 16.5 rollup and its per-service evidence.
+
+    **`VIEW_SERVICES`, not `MANAGE_SERVICES`** - status has to render for all
+    four roles (fixed choice 9), and nothing here is a credential. The
+    `status_reason` is a tester's operator-facing sentence, which E5.3 already
+    forbids from naming one.
+
+    Reads; it does not recompute. `roll_up` runs on the mutation paths that can
+    change the answer, and a GET that wrote would make a read a write and put
+    two writers on a column whose whole design (fixed choice 2) is that it has
+    exactly one.
+    """
+    _get_deployment(db, deployment_id)
+    return _status_out(db, deployment_id)
+
+
 @router.get("", response_model=ServicesOut)
 def get_services(
     deployment_id: uuid.UUID,
@@ -214,7 +305,7 @@ def put_services(
     for plan in plans.values():
         for name, plaintext in plan.secrets_to_put.items():
             store.put(name, plaintext)
-        upsert_service(
+        row = upsert_service(
             db,
             deployment_id,
             plan.service_key,
@@ -223,8 +314,22 @@ def put_services(
             password_secret_name=plan.password_secret_name,
             **plan.columns,
         )
+        # E5.5: saving a service's settings UNVERIFIES it. A verdict is about
+        # the credentials that produced it, and the operator has just replaced
+        # them - spec 16.2 verifies each entry with a live test, so carrying an
+        # old `verified` across a new endpoint would let a deployment stay
+        # green against a service it can no longer reach. The counter goes with
+        # it: the next failure is this credential's first, not the last one's
+        # third.
+        row.status = "untested"
+        row.status_reason = None
+        row.consecutive_failures = 0
+        row.last_test_detail = None
+        row.last_tested_at = None
 
     if plans:
+        db.flush()
+        recompute(db, deployment_id)
         record_audit(
             db,
             action="services.update",
@@ -266,6 +371,10 @@ class TestResultOut(BaseModel):
 
 class ServicesTestOut(BaseModel):
     deployment_id: str
+    #: The spec 16.5 rollup AFTER this run's verdicts of record were written
+    #: (E5.5), so the wizard's Verify step does not need a second request to
+    #: learn whether it may now generate a bundle.
+    services_status: str
     results: list[TestResultOut]
 
 
@@ -332,6 +441,15 @@ async def test_services(
     }
     results = await run_testers(testers, credentials)
 
+    # E5.5: a verdict about STORED credentials becomes the row's status; a
+    # verdict about candidate credentials does not. The difference matters and
+    # is not fussiness - a wizard testing what the operator has typed but not
+    # yet saved must not leave the deployment recorded as `verified` against a
+    # credential the platform is not holding. Spec 16.2's "validates each entry
+    # before accepting it" is precisely a test that has not been accepted yet.
+    of_record = [result for result in results if result.service_key not in submitted]
+    applied = apply_test_results(db, deployment_id, of_record)
+
     record_audit(
         db,
         action="services.test",
@@ -341,13 +459,19 @@ async def test_services(
         scope=deployment_id,
         # Outcomes by service key. No check detail and no candidate value: a
         # remedy string is operator-facing text, and the audit log is not
-        # where it earns its keep.
-        detail={"outcomes": {result.service_key: result.outcome for result in results}},
+        # where it earns its keep. `recorded` names only the services whose
+        # verdict was written, so the log distinguishes a rehearsal from a
+        # test of record.
+        detail={
+            "outcomes": {result.service_key: result.outcome for result in results},
+            "recorded": audited_outcomes(applied),
+        },
     )
     db.commit()
 
     return ServicesTestOut(
         deployment_id=str(deployment_id),
+        services_status=_deployment_status(db, deployment_id),
         results=[
             TestResultOut(
                 service_key=result.service_key,

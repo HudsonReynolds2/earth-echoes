@@ -4,6 +4,71 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D118 (2026-08-12): An E5.3 test pinned "no tester exists yet" rather than a behaviour, and
+E5.4a invalidated it (rule R0)
+
+- **What changed.** `test_service_testers.py::test_the_endpoint_reports_nothing_while_no_tester_is_registered`
+  read the live `testers.REGISTRY`, asserted the endpoint returned `results == []`, and now
+  takes the module's empty-stub `registry` fixture instead. No assertion was removed or
+  loosened; the same equality is asserted against a registry the test controls.
+- **Why it broke.** E5.3 shipped `REGISTRY` deliberately empty and this test read it directly,
+  so it was really asserting *"nobody has written a tester yet"* — a fact with a scheduled
+  expiry date, which arrived the moment E5.4a registered `mqtt`. The endpoint's behaviour never
+  changed: it still invents no verdict for a service with no tester. What the test named and
+  what it checked had come apart.
+- **Why the fix is the stub and not deleting the test.** The property is real and is worth
+  keeping through E5.4b-e — a service with no tester must be absent from the results rather
+  than carrying an invented one. Pinning the stub registry tests exactly that, and cannot rot
+  again as the remaining four testers land.
+- **How it was found, which is the part worth keeping.** E5.4a ran only its own new
+  `test_tester_mqtt.py` (24 passed) and not the E5.3 suite it had just changed the inputs of,
+  so this failure was invisible at the time it was introduced. It surfaced on the next broader
+  run. The E5 epic gates at five checkpoints rather than per task (D107), and the compensating
+  discipline that makes that safe is running the *affected* suites per unit, not only the new
+  ones. **A unit that registers into a shared structure has to re-run every suite that reads
+  it.**
+- **Reference:** `backend/tests/test_service_testers.py`, `app/services/testers/__init__.py`,
+  D107 (the checkpoint cadence), D111 (the four tester outcomes).
+
+## D117 (2026-08-12): "Is this service required" is a stored column, not an argument to
+`roll_up` (E5.5)
+
+- **The decision.** `deployment_service.required` (boolean, `NOT NULL DEFAULT true`, migration
+  `b7d41f0c2e93`) carries whether a service has to reach `verified` for its deployment to.
+  `roll_up(rows)` and `recompute(db, deployment_id)` take no `not_required` argument;
+  `apply_test_results` writes the flag when a tester answers `not_required`, and sets it back
+  to true on any real verdict.
+- **Why not a parameter, which is what it was first.** Spec 16.2 makes object storage
+  *conditionally* required, and the thing that discovers the condition is E5.4e's tester, which
+  answers `not_required` when raw-audio upload is off. That answer exists only during a test
+  run. But the rollup is recomputed on two paths that hold no test results at all: `PUT
+  /deployments/{id}/services` recomputes after a save, and `test_services_status.py`'s invariant
+  helper walks **every** deployment and recomputes from its rows. With the flag as a parameter
+  both of those recompute a *different* answer than the test run stored — a deployment with
+  object storage switched off reaches `verified` during the test and silently falls back to
+  `pending_verification` on the next save.
+- **Why that specific failure matters more than it looks.** Phase-5 fixed choice 2 denormalizes
+  `services_status` onto `deployment` because E6.4's map and E7.4's Owner fan-out read it per
+  deployment. It states that the correctness risk this takes on is answered "by making
+  `roll_up` the only writer and asserting the invariant across the suite, not by arguing about
+  it". A rollup that cannot be recomputed from the rows alone defeats exactly that guarantee:
+  the invariant assertion becomes unsatisfiable, because the fact it would need is gone.
+- **The direction of the default is deliberate.** `true`: a service is required until something
+  says otherwise. A service wrongly required holds a deployment at `pending_verification` and
+  names itself in the status endpoint; a service wrongly not-required lets a deployment reach
+  `verified` while a store it depends on is unreachable, which by spec 16.5 also unblocks bundle
+  generation.
+- **The four in `ALWAYS_REQUIRED` are read from the constant and not from their rows**, so no
+  verdict and no stray write can excuse `mqtt`, `influx`, `prometheus` or `grafana`. Spec 16.2
+  makes only object storage conditional, and the column exists to express that one case.
+- **Provenance.** This entry is written by the session that finished E5.5; the column, the
+  model comment citing "D117" and the first draft of `status.py` were written by an earlier
+  agent session that terminated mid-refactor, leaving the column with no migration and
+  `status.py` still on the parameter form. See `project_planning/e5-progress-ledger.md`.
+- **Reference:** `app/services/status.py` (`required_keys`, `roll_up`, `apply_test_results`),
+  `alembic/versions/b7d41f0c2e93_service_required_flag.py`, `backend/tests/test_services_status.py`,
+  phase-5 fixed choice 2, spec 16.2 and 16.5.
+
 ## D116 (2026-08-11): `app/services/clients/` may not import `app/services/testers/`, and the
 credential set grew a deployment identity (E5.4a)
 

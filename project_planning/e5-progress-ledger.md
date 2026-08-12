@@ -28,12 +28,12 @@ SIM sessions keep the primary tree.
 | **C1 full gate** | **GREEN, gate-54** | — | — | 839 backend / 115 vitest / 4 Playwright, 0 failed / 0 skipped / 0 xfailed / 0 deselected. Backend stage 262.7s. Carried E5.3 as well. Manual verification ran against a real uvicorn (see project-updates). |
 | E5.3 Connection test framework | **done (gate-54)** | C2 | D111 | `app/services/testers/{__init__,base}.py`: `ServiceTester` protocol, `TestResult`/`CheckResult` with a required remedy, `ServiceCredentials` (secrets `repr=False`, the D66 precedent), the concurrent runner with per-tester **and** whole-call budgets, `resolve_credentials` (candidate beats stored, sentinel reaches back), and `POST .../services/test`. D111: four outcomes, two of which are not failures. `REGISTRY` ships EMPTY — E5.4a-e fill it. `E0_ROUTES` extended by the one route. Targeted: `test_service_testers.py` 25 passed; ruff, `mypy app` clean. |
 | Concurrency-safe harness adopted (not an E5 unit) | **done (local)** | C2 | D113 | `conftest.py` and `test_mqtt_manager.py` taken verbatim from the SIM branch's `959ff23`. This worktree was cut before that commit and was still running the pre-fix harness. Retires D112's interim rule. E0-owned infrastructure, imported not authored. Targeted: `test_dev_broker.py` + `test_mqtt_manager.py`, 40 passed. |
-| E5.4a MQTT tester + dynsec probe | **done (local)** | C2 | D114, D115, D116 | `app/services/dynsec.py` (created one unit early on the owner's decision, D115), `clients/mqtt.py`, `testers/mqtt.py`, `REGISTRY["mqtt"]`. Three checks on one connection: connect, round trip on `eoe/{slug}/_selftest`, dynsec. **The probe's discriminator is the SUBACK, not the publish (D114)** — an `acl_file` broker grants the subscribe and silently refuses the publish, so the intuitive test would report `denied` for the dev broker where the phase doc requires `absent`. `conftest.dynsec_broker` + `ephemeral_broker(conf=…)` + `Broker.logs()`. Targeted: `test_tester_mqtt.py` 24 passed; ruff, `mypy app` clean. |
-| E5.4b InfluxDB 3 tester | not started | C2 | — | HTTP query API, not FlightSQL — no `pyarrow`. First unit to need the container rig. |
+| E5.4a MQTT tester + dynsec probe | **done (local)** | C2 | D114, D115, D116 | `app/services/dynsec.py` (created one unit early on the owner's decision, D115), `clients/mqtt.py`, `testers/mqtt.py`, `REGISTRY["mqtt"]`. Three checks on one connection: connect, round trip on `eoe/{slug}/_selftest`, dynsec. **The probe's discriminator is the SUBACK, not the publish (D114)** — an `acl_file` broker grants the subscribe and silently refuses the publish, so the intuitive test would report `denied` for the dev broker where the phase doc requires `absent`. `conftest.dynsec_broker` + `ephemeral_broker(conf=…)` + `Broker.logs()`. Targeted: `test_tester_mqtt.py` 24 passed; ruff, `mypy app` clean. **Independently re-verified by a later session** (24/24 still green, changes to gated files confirmed additive) — that re-run is what found **D118**. |
+| E5.4b InfluxDB 3 tester | **part-built, not finished** | C2 | — | `clients/httpbase.py` and `clients/influx.py` exist and are typed and linted, but there is **no `testers/influx.py`, no container rig and no test file**, so nothing imports them yet. HTTP query API, not FlightSQL — no `pyarrow`. First unit to need the container rig. |
 | E5.4c Prometheus tester | not started | C2 | — | Must distinguish receiver-disabled from credentials-rejected from accepted. |
 | E5.4d Grafana tester | not started | C2 | — | The one mutating tester. Idempotence asserted against Grafana's own listing. |
 | E5.4e Object storage tester | not started | C2 | — | `not_required` when raw-audio upload is off, never `fail`. |
-| E5.5 Services status lifecycle | not started | C2 | — | `roll_up` is the only writer of `deployment.services_status`; `DEGRADE_AFTER_FAILURES = 2`. |
+| E5.5 Services status lifecycle | **done (local)** | C2 | D117, D118 | `app/services/status.py` (`roll_up`, `recompute` as its only writer, `DEGRADE_AFTER_FAILURES = 2`, `apply_test_results`, the re-check sweep as a **callable that E5.7b registers** so no third E3-owned edit is taken), `GET .../services/status`, and the save path unverifying a service whose credentials just changed. **D117: `deployment_service.required` is a stored column** (migration `b7d41f0c2e93`), not an argument to `roll_up` — the save path and the invariant sweep recompute with no test results in hand, so a parameter would make the denormalized column irreproducible from its own rows. A test of CANDIDATE credentials is not a verdict of record and writes no status. Targeted: 130 passed across `test_services_status`, `test_services_model`, `test_services_api`, `test_service_testers`, `test_tester_mqtt`, `test_migrations`; ruff, `ruff format`, `mypy app` clean. |
 | **C2 full gate** | — | — | — | The rig's measured cost against the ~300s ceiling recorded below. |
 | E5.6 Broker credential minting (dynsec) | not started | C3 | — | Dedicated short-lived `$CONTROL` client, never `MqttClientManager`. `broker_credential` table. One source for the ACL grants. |
 | E5.7a Projection and privileged write | not started | C3 | — | `allow_write_restricted` through three signatures. Includes the E2-owned `changed_keys` fix and the `publish_all` extraction. |
@@ -57,6 +57,20 @@ SIM sessions keep the primary tree.
 | **C1 (E5.0-E5.3)** | **262.7s backend stage** | gate-54. Essentially flat against the baseline: this batch added 73 backend tests and no container fixture. The rig arrives with E5.4b, and the ~300s ceiling in phase-5 §5 is measured from here. |
 
 ## Notes for whoever picks this up next
+
+- **On 2026-08-11/12 an agent session died mid-refactor in this worktree, and the recovery is
+  worth knowing about.** It had committed E5.4a (`09b5271`) and the harness adoption
+  (`167aa6e`), then began E5.4b and E5.5 together and terminated on an account spend limit.
+  It left the tree **not importing** — `models.py` used `sqlalchemy.true()` without importing
+  it — plus a new `deployment_service.required` column with **no migration**, `status.py` still
+  on the parameter form the column was meant to replace, and a model comment citing a "D117"
+  that had never been written. The next session finished it in place: the import, migration
+  `b7d41f0c2e93`, the column threaded through `roll_up` / `required_keys` /
+  `apply_test_results`, and D117 written to say why. **Two lessons, both cheap to act on.**
+  Run the affected suites, not only the new ones — E5.4a's own 24 tests passed while it had
+  silently invalidated an E5.3 test (D118). And a unit that adds a column is not partially done
+  without its migration: the failure surfaces as 38 unrelated-looking errors in four other
+  suites, all of them `column ... does not exist`.
 
 - **Concurrent runs are safe now, and were not when D112 was written.** The fix arrived from
   the SIM branch on 2026-08-11 (**D113**): `conftest.py` gained a machine-wide cross-process

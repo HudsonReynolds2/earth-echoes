@@ -541,9 +541,18 @@ def registry(monkeypatch):
 
 
 @pytest.mark.integration
-def test_the_endpoint_reports_nothing_while_no_tester_is_registered(app):
+def test_the_endpoint_reports_nothing_while_no_tester_is_registered(app, registry):
     """E5.3 ships the framework and E5.4a-e ship the testers. An empty result
-    list is the honest answer; inventing verdicts nothing computed is not."""
+    list is the honest answer; inventing verdicts nothing computed is not.
+
+    **Amended by E5.4a**, which registered the first real tester. This test read
+    the LIVE `REGISTRY` and asserted it was empty, so what it actually pinned
+    was "nobody has written a tester yet" - a fact with a scheduled expiry date
+    that says nothing about the endpoint. It now pins the empty stub registry,
+    which is what the name claims: given nothing registered, the endpoint
+    invents nothing. That property still has to hold after E5.4b-e, and now it
+    is the one being tested.
+    """
     client = _client(app, OWNER)
     response = client.post(
         _test_url(app), json={}, headers={"X-CSRF-Token": client.cookies["eoe_csrf"]}

@@ -17,6 +17,13 @@ dependencies = [
     "pyotp>=2.9",
     "httpx>=0.28",
     "aiomqtt>=2.3",
+    # E5.4e: the object-storage tester. boto3 rather than a hand-rolled SigV4
+    # signer because SigV4 against MinIO, Ceph and real S3 differs in exactly
+    # the details a hand-rolled signer gets wrong (path vs virtual-host
+    # addressing, region resolution, chunked payload signing). It is
+    # synchronous, so every call goes through `asyncio.to_thread`, following
+    # `controlplane/broker.py`'s precedent.
+    "boto3>=1.35",
 ]
 
 [dependency-groups]

@@ -18,6 +18,7 @@ from sqlalchemy import (
     false,
     func,
     text,
+    true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -635,6 +636,17 @@ class DeploymentService(Base):
     status: Mapped[str] = mapped_column(
         String(20), default="untested", server_default=text("'untested'")
     )
+    #: E5.5: whether this service has to reach `verified` for the DEPLOYMENT
+    #: to. True for everything by default; set False when a tester answers
+    #: `not_required` - spec 16.2 makes object storage conditionally required,
+    #: and a deployment with raw-audio upload off must still be able to verify.
+    #: **A stored column rather than a parameter to `roll_up`, because
+    #: `deployment.services_status` has to be reproducible from these rows
+    #: alone.** It was a parameter first, and the suite-wide invariant
+    #: assertion caught it on the first run: a rollup depending on a fact known
+    #: only during a test run cannot be recomputed afterwards, which is exactly
+    #: the divergence denormalizing the column risks (D117).
+    required: Mapped[bool] = mapped_column(default=True, server_default=true())
     status_reason: Mapped[str | None] = mapped_column(Text, default=None)
     last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     consecutive_failures: Mapped[int] = mapped_column(default=0, server_default=text("0"))
