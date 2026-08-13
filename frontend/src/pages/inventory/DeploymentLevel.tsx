@@ -129,6 +129,14 @@ export function DeploymentLevel() {
   return (
     <>
       <PageHeader eyebrow="Deployment level" title={row.name}>
+        {/* E5.12a. `view_services` reaches all four roles (phase-5 fixed
+            choice 9), so everyone can get to the page; what they can DO there
+            is gated inside it. */}
+        <Can permission="view_services" deploymentId={deploymentId}>
+          <Link className="btn-secondary" to={`/inventory/deployments/${deploymentId}/services`}>
+            Services
+          </Link>
+        </Can>
         <Can permission="manage_devices" deploymentId={deploymentId}>
           <button type="button" onClick={() => setShowCreate((value) => !value)}>
             New pod

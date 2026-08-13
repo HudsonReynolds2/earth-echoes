@@ -1492,3 +1492,186 @@ tr.row-noop td {
   text-align: left;
   padding: var(--eoe-space-1) var(--eoe-space-3) var(--eoe-space-1) 0;
 }
+
+/* --- Deployment services onboarding (E5.12; spec 16.2/16.3, screen S5) ---
+ * One card per service, each self-contained: its own verdict, its own
+ * last-tested time, its own remedy, its own retry. S5's premise is that one
+ * failing service never blocks reading or fixing the other four, and the
+ * layout is what makes that true. */
+
+.service-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-4);
+}
+
+.service-card-head h2 {
+  margin: 0;
+  font-size: var(--eoe-font-size-lg);
+}
+
+.service-card-head p {
+  margin: var(--eoe-space-1) 0 0;
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* The services status chip. Deliberately NOT .status-chip: a service
+ * connection's status is not a device's, and sharing the component would be
+ * the conflation D40 exists to stop. Color + glyph + word, the same three
+ * channels, in this vocabulary's own terms. */
+.service-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  height: var(--eoe-control-height-sm);
+  padding: 0 var(--eoe-space-3);
+  border-radius: var(--eoe-radius-pill);
+  background: var(--service-tint);
+  color: var(--service-color);
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-medium);
+  white-space: nowrap;
+}
+
+.service-chip[data-service-status="ok"] {
+  --service-color: var(--eoe-color-service-ok);
+  --service-tint: var(--eoe-color-service-ok-tint);
+}
+
+.service-chip[data-service-status="bad"] {
+  --service-color: var(--eoe-color-service-bad);
+  --service-tint: var(--eoe-color-service-bad-tint);
+}
+
+.service-chip[data-service-status="wait"] {
+  --service-color: var(--eoe-color-service-wait);
+  --service-tint: var(--eoe-color-service-wait-tint);
+}
+
+.service-chip[data-service-status="none"] {
+  --service-color: var(--eoe-color-service-none);
+  --service-tint: var(--eoe-color-service-none-tint);
+}
+
+.service-tag {
+  display: inline-flex;
+  align-items: center;
+  height: var(--eoe-control-height-sm);
+  padding: 0 var(--eoe-space-2);
+  border: var(--eoe-border-width-hairline) dashed var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-sm);
+  color: var(--eoe-color-text-subtle);
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-2xs);
+}
+
+.service-result {
+  margin-top: var(--eoe-space-3);
+  padding-top: var(--eoe-space-3);
+  border-top: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+}
+
+.service-result-head {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-3);
+  flex-wrap: wrap;
+}
+
+.service-result-time {
+  color: var(--eoe-color-text-subtle);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.service-result-retry {
+  margin-left: auto;
+}
+
+.service-result-reason {
+  margin: var(--eoe-space-2) 0 0;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.service-checks {
+  margin-top: var(--eoe-space-3);
+}
+
+.service-check {
+  display: flex;
+  align-items: baseline;
+  gap: var(--eoe-space-3);
+  padding: var(--eoe-space-1) 0;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.service-check[data-passed="no"] .service-check-name {
+  color: var(--eoe-color-service-bad);
+}
+
+.service-check[data-passed="yes"] .service-check-name {
+  color: var(--eoe-color-service-ok);
+}
+
+.service-check-name {
+  font-weight: var(--eoe-font-weight-medium);
+  white-space: nowrap;
+}
+
+.service-check-detail {
+  color: var(--eoe-color-text-muted);
+}
+
+.service-check-time {
+  margin-left: auto;
+  color: var(--eoe-color-text-subtle);
+}
+
+/* The remedy block. A failed check without its remedy is the thing E5.3's
+ * required `remedy` field exists to prevent, so it gets its own emphasis
+ * rather than being one more line of detail. */
+.service-remedies {
+  margin-top: var(--eoe-space-2);
+  padding: var(--eoe-space-3);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-service-bad-tint);
+}
+
+.service-remedy {
+  margin: var(--eoe-space-1) 0 0;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.service-remedy-name {
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-2xs);
+  margin-right: var(--eoe-space-1);
+}
+
+.service-form {
+  margin-top: var(--eoe-space-4);
+}
+
+/* Write-only secret entry, the ProvenanceTable pattern in a form field: the
+ * bullets and the word are the state, and the input is empty because there is
+ * no value to put in it. */
+.service-secret {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-2);
+}
+
+.service-secret-state {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+}
+
+.service-secret-word {
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.service-checkbox {
+  width: var(--eoe-space-4);
+  height: var(--eoe-space-4);
+}

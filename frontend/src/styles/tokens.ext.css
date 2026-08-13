@@ -149,4 +149,31 @@
    * width-configrail is the S3 side rail (inheritance chain + draft diff). */
   --eoe-color-warning-border: #e0cba0;
   --eoe-width-configrail: 290px;
+
+  /* ── E5.12 additions: deployment services onboarding (all additive) ────
+   * A service connection's status is its OWN vocabulary — untested /
+   * verified / failed, plus the four-value spec 16.5 rollup — and it never
+   * renders through StatusChip's six device states (D40, and the phase-5
+   * acceptance says so in as many words).
+   *
+   * The HUE vocabulary is shared on purpose, though: green has to mean good
+   * on every screen in the product. So these are ALIASES declared with var()
+   * rather than a second set of hex values. Same sheet, so the reference is
+   * legal and the two can never drift; and the night theme comes free,
+   * because tokens.ext.alt.css relights the keys these point AT. That is
+   * also why this block is deliberately absent from the night sheet —
+   * restating it there would be the drift this form avoids.
+   *
+   * `wait` is the amber of a thing not yet decided, `none` the grey of a
+   * thing that does not apply. Glyphs and words are supplied by the
+   * components (ServiceResultRow), not by tokens: the service glyphs are
+   * plain text characters and need no vendored face. */
+  --eoe-color-service-ok: var(--eoe-color-status-healthy);
+  --eoe-color-service-ok-tint: var(--eoe-color-status-healthy-tint);
+  --eoe-color-service-bad: var(--eoe-color-status-alerting);
+  --eoe-color-service-bad-tint: var(--eoe-color-status-alerting-tint);
+  --eoe-color-service-wait: var(--eoe-color-status-degraded);
+  --eoe-color-service-wait-tint: var(--eoe-color-status-degraded-tint);
+  --eoe-color-service-none: var(--eoe-color-status-offline);
+  --eoe-color-service-none-tint: var(--eoe-color-status-offline-tint);
 }

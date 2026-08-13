@@ -14,6 +14,7 @@ import {
   listeners,
   pods,
 } from "./inventory-fixture";
+import { fixtureServices, fixtureServicesStatus } from "./services-fixture";
 
 export const healthPayload = {
   status: "ok",
@@ -131,5 +132,16 @@ export const server = setupServer(
   ),
   http.get("http://api.test/api/v1/selections", () =>
     HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 }),
+  ),
+  // E5.12: the services wizard's two reads. Writes (PUT, test, stack) are
+  // per-test server.use overrides, the users-admin pattern. `/status` is
+  // registered FIRST because msw takes the first matching handler and
+  // `/services` would otherwise not be reached by it either way — but stating
+  // the order makes the intent unambiguous if a third route is added.
+  http.get("http://api.test/api/v1/deployments/:id/services/status", ({ params }) =>
+    HttpResponse.json(fixtureServicesStatus(String(params.id))),
+  ),
+  http.get("http://api.test/api/v1/deployments/:id/services", ({ params }) =>
+    HttpResponse.json(fixtureServices(String(params.id))),
   ),
 );

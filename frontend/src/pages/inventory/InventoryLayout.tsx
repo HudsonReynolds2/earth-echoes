@@ -33,9 +33,31 @@ export function InventoryLayout() {
   const tree = useHierarchyTree(INVENTORY_ROUTES);
 
   const importMatch = matchPath("/inventory/import", location.pathname);
+  // E5.12a: the services wizard hangs BELOW a deployment, so its crumb is the
+  // deployment's own crumbs plus a leaf. `crumbsFor` matches exact paths, so a
+  // child route needs to say so — the bulk-import special case above is the
+  // same shape.
+  const servicesMatch = matchPath(
+    "/inventory/deployments/:deploymentId/services",
+    location.pathname,
+  );
   const crumbs = importMatch
     ? [{ label: tree.org?.name ?? "Organization", to: "/inventory" }, { label: "Bulk import" }]
-    : tree.crumbsFor(location.pathname);
+    : servicesMatch
+      ? [
+          ...tree
+            .crumbsFor(`/inventory/deployments/${servicesMatch.params.deploymentId}`)
+            .map((crumb, index, all) =>
+              index === all.length - 1
+                ? {
+                    ...crumb,
+                    to: `/inventory/deployments/${servicesMatch.params.deploymentId}`,
+                  }
+                : crumb,
+            ),
+          { label: "Services" },
+        ]
+      : tree.crumbsFor(location.pathname);
 
   return (
     <>

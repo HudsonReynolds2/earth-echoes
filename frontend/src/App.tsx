@@ -10,6 +10,7 @@ import { InventoryLayout } from "./pages/inventory/InventoryLayout";
 import { ListenerDetail } from "./pages/inventory/ListenerDetail";
 import { OrganizationLevel } from "./pages/inventory/OrganizationLevel";
 import { PodLevel } from "./pages/inventory/PodLevel";
+import { ServicesPage } from "./pages/inventory/ServicesPage";
 import { Login } from "./pages/Login";
 import { Map } from "./pages/Map";
 import { NotFound } from "./pages/NotFound";
@@ -29,6 +30,7 @@ export function App({ queryClient }: { queryClient?: QueryClient }) {
           <Route path="inventory" element={<InventoryLayout />}>
             <Route index element={<OrganizationLevel />} />
             <Route path="deployments/:deploymentId" element={<DeploymentLevel />} />
+            <Route path="deployments/:deploymentId/services" element={<ServicesPage />} />
             <Route path="pods/:podId" element={<PodLevel />} />
             <Route path="listeners/:mac" element={<ListenerDetail />} />
             <Route path="import" element={<ImportPage />} />
