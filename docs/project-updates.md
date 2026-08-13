@@ -1,5 +1,92 @@
 # Project Updates
 
+## 2026-08-13: E5.12 closes the epic, and the walkthrough found a 500 the green gate could not (Gate 62 GREEN)
+
+- **Tasks closed:** **E5.12a** (services wizard, Path A) and **E5.12b** (Path B, the rolled-up
+  status, the spec 16.5 gate, and the verification walkthroughs). Checkpoint **C5** — the last
+  one. DECISIONS **D140-D146**, project-changes **#35**, addenda **PHASE5-4-07** and
+  **PHASE5-6-01**. **Epic E5 is complete.**
+- **Gate:** 62, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1141 backend / 163 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage **240.10s** against C4's 242.05s — flat, as a frontend batch
+  should be; the two new backend tests are D146's guards. 48 new vitest tests (115 → 163). ruff,
+  `ruff format`, `mypy app`, tsc, eslint and prettier all clean.
+- **Three gate runs, and the middle one was RED. Recorded rather than smoothed over:**
+  1. The **first** run was green on the code as committed for E5.12a/b — 1139 backend / 163
+     vitest — and it is what freed the manual verification that then found D146.
+  2. The **second**, after D146's fix, was **RED**: `test_governance` correctly refused
+     project-changes #35, which named its addenda in prose but carried no `- **Addendum:**`
+     field — the schema `_change_entries` requires. The record was incomplete and the test said
+     so; the entry was fixed, not the test. The same run also errored
+     `test_command_channel` with `/forwards/expose returned unexpected status: 500`, the D99/D112
+     container-startup fault — an **invalid measurement**, confirmed by the module passing 15/15
+     in isolation, never a red gate to record as a defect.
+  3. The **third** run is gate 62, green above.
+- **The five forms render from one schema, and a test keeps that honest.** There is no endpoint
+  serving the service field schema and adding one was declined (D140): E5.2's GET was
+  deliberately designed to need no discovery. Instead `SERVICE_SCHEMA` in
+  `frontend/src/lib/services.ts` mirrors the five Pydantic models, and
+  `tests/services-schema.test.ts` parses `app/services/schemas.py` and fails on any divergence —
+  field names, their order, which are secrets, which are required. The `lib/rbac.ts` precedent,
+  for the same reason: a mirror nobody checks is a mirror that drifts, silently in both
+  directions. **Proven falsifiable before it was trusted**, and it also asserts its own parse
+  found five models with fields in them, because a parser that matched nothing would make every
+  other assertion in the file vacuously true.
+- **Secrets are write-only in the UI, asserted rather than intended.** A stored credential
+  arrives as the D51 keep sentinel, so there is no value to populate an input with: the field
+  renders its set-ness and has **no input at all** until Replace, which reveals an empty one.
+  The test reads the input's `value` after a load and checks that typed plaintext is carried by
+  exactly one control on the card and never appears as rendered text. A future change that
+  populates a secret input from a response breaks these tests, which is the point.
+- **Three status vocabularies, three renderings, no sharing (D142).** A service connection's
+  status is not a device's and neither is the deployment rollup's; a test asserts no
+  `.status-chip` and none of the six spec 9.3 device words reach this page. The eight new tokens
+  are `var()` aliases of the status palette inside one sheet, so green means good everywhere and
+  the two can never drift — and the night theme is inherited rather than restated.
+- **Two sentences in the S5 mock are now false, and the page says something else (D143).**
+  "Re-checks run every 5 minutes" is a promise the platform does not keep — D133 closed periodic
+  re-checks as deliberately not built — so the panel names the observed events that actually
+  degrade a service, and a regression test forbids `/every \d+ minutes/` on it. The raw-audio
+  toggle does not exist either (D123); object storage is required exactly when it is configured,
+  and the `optional` tag comes from the API rather than from a rule the frontend invented.
+- **A green 1141-test gate still shipped a 500, and the walkthrough caught it on its first
+  hand-run (D146).** `GET .../services/stack/download` raised `FileNotFoundError` inside the API
+  container: the bundle README template lived at `deploy/stack-templates/`, which is where the
+  phase document said to put it — and the API image is built with `context: ../backend`, so
+  `deploy/` is **outside the build context entirely** and no `COPY` can reach it. **Every
+  assertion about that README was true of the developer's filesystem and false of the artifact
+  that ships.** This is D132's shape a second time in one epic, with the filesystem in place of
+  the image tag, and it is the second time running the thing beat inspecting it.
+  - The fix is structural: the template moved inside the package, where `COPY app ./app` ships
+    it **by construction** rather than by anyone remembering a second COPY. Keeping the location
+    and copying it in would have meant moving the build context to the repo root — E0-owned
+    infrastructure — for a file with no reason to live outside the module that reads it.
+  - `test_runtime_data_files_are_inside_the_image` and
+    `test_the_dockerfile_copies_everything_app_reads` are what fail now instead of an operator's
+    download. Both proven falsifiable; restoring the old path fails with *"resolves to
+    …/deploy/stack-templates, which is OUTSIDE the API image's build context"*.
+  - **Verified in the real container after the fix:** 200, two consecutive downloads
+    byte-identical (fixed choice 7's determinism, measured for the first time against the
+    shipped service rather than a harness), and the extracted `echoes-stack/README.md` carrying
+    the generated port table.
+- **Manual verification** ran against a real containerized stack: `app.verify` 31/31, then a
+  temporary-owner probe over real HTTP through the services API — redaction on every path (the
+  token appears in no response, no row, and no audit detail), the keep sentinel round-tripping
+  through PUT without disturbing the stored credential, a misspelled field answering 422, and
+  both status vocabularies coming back distinct. That run is what found D146.
+- **Boundaries recorded rather than blurred.** E5 **reports** spec 16.5's provisioning gate and
+  does not enforce it — the bundle generator is E4.3's and unbuilt, and rule R2 says a
+  cross-phase need gets a documented stub, not an implementation (D145). What E5 owes E4 —
+  `services_status`, the per-service rows, the `required` flag — all ships. And the UI cannot
+  know whether a stack was generated, because fixed choice 7 stores nothing that would say so:
+  Download and Rotate are always offered and a 404 renders as "generate one first", with the
+  declined alternative named rather than hidden (D144).
+- **`guide/e5-verification.md` ships**, ten sections covering both paths end to end, and the two
+  amendments E5 forces on `guide/e3-verification.md` landed **in the same batch** (rule R1): its
+  `deployment_service` query is no longer broker-only and now carries `where service_key =
+  'mqtt'`, and its "no credential material beyond the username" check extends to `config` and
+  `secret_names`.
+
 ## 2026-08-13: E5.10 keystone, E5.11 rotation, and three defects a green gate did not catch (Gate 61 GREEN)
 
 - **Tasks closed:** E5.10's keystone (red on arrival, and every failure real), E5.10b (the

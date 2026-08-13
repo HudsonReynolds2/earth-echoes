@@ -31,6 +31,7 @@ from app.services.stack import (
     PORT_PURPOSE,
     PORTS,
     S3_BUCKET,
+    TEMPLATE_DIR,
     StackSecrets,
     StackSpec,
     compose_file,
@@ -160,7 +161,10 @@ def test_the_port_table_is_generated_not_pasted(spec):
     """The template ships a marker, not a table. If someone pastes a literal
     table into the prose the marker goes away and this fails, rather than the
     two quietly diverging at the next port change."""
-    template = (REPO_ROOT / "deploy" / "stack-templates" / "README.md").read_text(encoding="utf-8")
+    # Read through TEMPLATE_DIR rather than rebuilding the path: D146 moved the
+    # prose inside the package so the API image actually ships it, and a test
+    # holding its own copy of the path is how the two drift again.
+    template = (TEMPLATE_DIR / "README.md").read_text(encoding="utf-8")
     assert "<!-- PORT TABLE -->" in template
     assert "| 8883 |" not in template, "the port table belongs in the generator, not the prose"
     assert "| 8883 |" in readme(spec)

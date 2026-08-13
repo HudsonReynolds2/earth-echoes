@@ -603,6 +603,17 @@ optional MinIO with a created bucket. `docker-compose.yml` and the YAML configs 
 Python dicts and serialized with `yaml.safe_dump`**, never string-templated — a compose file
 built from a dict is valid by construction, and `string.Template`'s `${name}` collides with
 compose's own `${VAR}` interpolation. Static prose lives in `deploy/stack-templates/`.
+
+> **Addendum PHASE5-4-07 (2026-08-13, ref project-changes #35):** the static prose lives in
+> **`backend/app/services/stack_templates/`**, not `deploy/stack-templates/`. The location this
+> document named is unshippable: the API image is built with `context: ../backend`, so `deploy/`
+> is outside the build context and no `COPY` can reach it — `readme()` raised `FileNotFoundError`
+> on `/srv/deploy/stack-templates/README.md` and the download endpoint 500'd in every
+> containerized deployment, while the whole suite stayed green because tests run from the repo
+> tree. Inside the package, `COPY app ./app` ships it by construction.
+> `test_repo_layout.py::test_runtime_data_files_are_inside_the_image` now fails instead of an
+> operator's download. Found by the first hand-run of `guide/e5-verification.md`, after the C5
+> gate was green (DECISIONS D146).
 *Acceptance:* `docker compose -f <generated> config` exits 0 for both the with-MinIO and
 without-MinIO shapes; every port the README lists is a port the compose file publishes **and
 vice versa**, asserted in both directions; no generated file contains a literal copied from
@@ -756,3 +767,9 @@ failure. Plus:
   `INTERFACES.md`'s **Owned by E0** section gaining `EOE_COORDINATES_REFRESH_SECONDS` and the
   services re-check interval — by name, never by value. That table is E0's and these are
   additive rows.
+
+> **Addendum PHASE5-6-01 (2026-08-13, ref project-changes #35):** the first artifact in the line
+> above ships as **`backend/app/services/stack_templates/`**. `deploy/` is outside the API
+> image's build context, so a template there is not in the image at all and the download endpoint
+> 500s in any containerized deployment — see addendum PHASE5-4-07 and DECISIONS D146. The rest of
+> the line is unchanged.

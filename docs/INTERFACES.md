@@ -1803,3 +1803,45 @@ reimplement their logic.** Signatures, verbatim:
   a slow teardown, because anything that reached `__aexit__` has already resolved
   `_disconnected`. `test_mqtt_manager.py::_tasks_outliving` encodes exactly that distinction
   and must not be given a grace period for the live-socket case.
+
+### The services onboarding UI (E5.12a, E5.12b; spec 16.2, 16.3, 16.5; screen S5; D140-D145)
+
+- **Route: `inventory/deployments/:deploymentId/services`**, nested in `InventoryLayout` with
+  a crumb special case, the `/inventory/import` precedent. It does **not** build S5's
+  standalone wizard frame (D141) — the app's top bar, context bar and hierarchy rail are the
+  chrome, and only the mock draws its own.
+- **`frontend/src/lib/services.ts` is the client and the FORM SCHEMA.** Shaped after
+  `lib/inventory.ts`: the typed `ApiError` from `lib/http.ts`, one exported function per call,
+  flat query keys (`["services", id]`, `["services-status", id]`). `SERVICE_SCHEMA` is a
+  mirror of the five Pydantic models in `app/services/schemas.py` — field names, their order,
+  which are secrets, which are required — and `tests/services-schema.test.ts` parses the
+  Python and fails on any divergence (D140). **Adding a field to a service model means adding
+  it here too**; the test is what makes that unmissable rather than a convention. There is
+  deliberately no schema endpoint.
+- **`downloadStack` goes through `fetch`, not an `<a href>`.** The API can be on another
+  origin, where the `download` attribute is ignored and an auth failure would navigate the
+  operator to a JSON error page instead of raising. The bytes go straight to an object URL
+  that is revoked in the same turn.
+- **Secrets are write-only in the UI, and this is asserted rather than intended.** A stored
+  credential arrives as the D51 keep sentinel, so there is no value to populate an input with:
+  the field renders its set-ness and Replace reveals an EMPTY input. The component test reads
+  the input's `value` after a load, and asserts that typed plaintext is carried by exactly one
+  control on the card and never appears as rendered text. **A future change that populates a
+  secret input from a response breaks these tests, and that is the point.**
+- **Three status vocabularies, three renderings, no sharing (D142).** `StatusChip` /
+  `.status-chip` stays the six spec 9.3 DEVICE states. `ServiceChip` / `.service-chip` is the
+  per-connection `untested` / `verified` / `failed`. The deployment rollup's four values render
+  in the summary panel with their own words. A test asserts no `.status-chip` and none of the
+  six device words reach this page. The eight `--eoe-color-service-*` tokens are `var()`
+  aliases of the `--eoe-color-status-*` keys — one sheet, so they cannot drift, and the night
+  theme is inherited rather than restated.
+- **`required` and `degrade_after_failures` come from the API, never from a frontend rule.**
+  Object storage is conditionally required (spec 16.2, D123) and the `optional` tag is driven
+  by the status response.
+- **The page REPORTS spec 16.5's provisioning gate and does not enforce it (D145).** E4.3's
+  bundle generator is what refuses; `deployment.services_status` and the per-service rows are
+  what E5 owes it, and both ship.
+- **Path B offers Download and Rotate unconditionally.** Fixed choice 7 stores no bundle and
+  no "a stack exists here" flag, so a missing stack is reported as a clear 404 message rather
+  than guessed at (D144). A later epic wanting a real signal should add a cheap existence
+  check, not call `load_generated_stack` on a read every role hits.

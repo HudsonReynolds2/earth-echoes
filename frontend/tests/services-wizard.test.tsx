@@ -65,7 +65,12 @@ describe("the five forms are rendered from the schema", () => {
     actAs("owner");
     renderAt();
     await card("mqtt");
-    const headings = screen.getAllByRole("heading", { level: 2 }).map((node) => node.textContent);
+    // Scoped to the service list: E5.12b's stack panel and verify heading are
+    // level-2 headings on this page too, and they are not services.
+    const list = screen.getByTestId("service-list");
+    const headings = within(list)
+      .getAllByRole("heading", { level: 2 })
+      .map((node) => node.textContent);
     expect(headings).toEqual([
       "Mosquitto",
       "InfluxDB 3",

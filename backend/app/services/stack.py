@@ -548,7 +548,17 @@ def published_ports(compose: Mapping[str, Any]) -> set[int]:
 
 #: Where the static prose lives. Phase-5 E5.8b: prose belongs in a file a
 #: person can edit and review, not in a Python string constant nobody reads.
-TEMPLATE_DIR = Path(__file__).resolve().parents[2].parent / "deploy" / "stack-templates"
+#:
+#: **It lives INSIDE the package, and that is not a style choice (D146).** It
+#: was `deploy/stack-templates/` — the location the phase document named — and
+#: the download endpoint 500'd in every containerized deployment, because the
+#: API image's build context is `backend/` and nothing outside it is in the
+#: image at all. `COPY app ./app` ships this by construction; a sibling
+#: directory can only be shipped by remembering to. The suite could not see it
+#: because tests run from the repo tree, where both paths exist.
+#: `test_repo_layout.py::test_runtime_data_files_are_inside_the_image` is what
+#: now fails instead of a real operator's download.
+TEMPLATE_DIR = Path(__file__).resolve().parent / "stack_templates"
 
 #: The line in the template the generated port table replaces. A marker rather
 #: than `str.format`, because the README is full of braces (`${VAR}`, shell
@@ -566,8 +576,8 @@ def port_table(spec: StackSpec) -> str:
 
 
 def readme(spec: StackSpec) -> str:
-    """The bundle README: static prose from `deploy/stack-templates/`, with the
-    port table generated so it cannot drift from the compose file.
+    """The bundle README: static prose from `app/services/stack_templates/`,
+    with the port table generated so it cannot drift from the compose file.
 
     E5.10 puts this in the archive; it is rendered here because E5.8b's
     acceptance is that the README's ports and the compose file's ports match in

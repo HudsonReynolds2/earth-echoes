@@ -4,6 +4,174 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D146 (2026-08-13): The bundle README template moves inside the package, because the API
+image does not contain anything outside `backend/`
+
+- **Decision:** `deploy/stack-templates/README.md` becomes
+  `backend/app/services/stack_templates/README.md`, and `stack.TEMPLATE_DIR` resolves relative
+  to its own module rather than up-and-across to a sibling of `backend/`. This **deviates from
+  phase-5 §4's "Static prose lives in `deploy/stack-templates/`"** and from the §6 handoff list;
+  addenda PHASE5-4-07 and PHASE5-6-01 record it, project-changes #35.
+- **The defect: `GET /deployments/{id}/services/stack/download` 500'd in every containerized
+  deployment.** `deploy/docker-compose.yml` builds the API with `context: ../backend`, so
+  `deploy/` is not merely uncopied — it is **outside the build context entirely** and no `COPY`
+  can reach it without moving the context to the repo root, which is E0-owned infrastructure and
+  a far larger blast radius. In the running container `TEMPLATE_DIR` resolved to
+  `/srv/deploy/stack-templates`, which does not exist; `readme()` raised `FileNotFoundError`,
+  the endpoint died inside a threadpool worker, and the client saw the server disconnect without
+  a response.
+- **Why 1139 green tests did not see it, and this is the general lesson.** The suite runs from
+  the repo working tree, where `deploy/stack-templates/README.md` is present and the path
+  resolves. **Every assertion about the README was true of the developer's filesystem and false
+  of the artifact that ships.** This is D132's shape again — a pinned artifact tested against a
+  floating tag proves nothing — with the filesystem in place of the image tag, and it is the
+  second time in this epic that running the thing beat inspecting it.
+- **Found by the E5 walkthrough on its first run**, against a real container, minutes after the
+  C5 gate went green. The gate was not wrong; it was measuring something else.
+- **The fix is structural, not a path edit.** Inside the package, `COPY app ./app` ships the
+  file **by construction**; a sibling directory can only ever be shipped by someone remembering
+  to add a second COPY, and nothing would fail if they forgot.
+  `test_repo_layout.py::test_runtime_data_files_are_inside_the_image` asserts every runtime data
+  directory resolves inside `backend/`, and
+  `test_the_dockerfile_copies_everything_app_reads` pins the `COPY app ./app` that makes the
+  first test sufficient. Both were proven falsifiable: restoring the old path fails with
+  *"resolves to …/deploy/stack-templates, which is OUTSIDE the API image's build context"*.
+- **Verified in the real container after the fix:** the endpoint returns 200, two consecutive
+  downloads are byte-identical (fixed choice 7's determinism, now measured against the shipped
+  service rather than a harness), and the extracted `echoes-stack/README.md` carries the
+  generated port table.
+- **A new runtime data file goes under `backend/app/`.** If a later epic genuinely needs one in
+  `deploy/`, it has to move the build context first, and the test above is what will say so.
+
+## D145 (2026-08-13): E5 REPORTS the spec 16.5 provisioning gate; E4 enforces it
+
+- **Decision:** the services page renders the state of spec 16.5's gate — blocked or unblocked,
+  and the "your other services are not verified" warning — and does not implement it. Nothing
+  in E5 refuses to generate a provisioning bundle, because nothing in E5 generates one.
+- **Why this is a boundary and not a gap.** Spec 16.5 puts the gate on *provisioning-bundle
+  generation*, which is E4.3's, and E4 is entirely unbuilt (phase-5 fixed choice 6 already
+  reversed one E4/E5 dependency for the same reason). Rule R2 says a cross-phase need gets a
+  documented stub, never an implementation: building a refusal here would put the rule in the
+  wrong epic and leave E4 with two places to keep it.
+- **What E5 owes E4, and it is all shipped:** `deployment.services_status` with `roll_up` as
+  its only writer, the per-service `status` rows underneath it, and the `required` flag that
+  says which services count. E4.3 reads `services_status` and refuses; the panel this epic
+  ships is the operator-facing half of the same fact.
+- **The warning is the spec's own, verbatim in substance:** a deployment whose broker is
+  verified can be provisioned even while Influx is failing, and the operator is told that
+  those devices will come online with nowhere to ship analysis, metrics or audio. That is a
+  warning, not a block, in the spec and here.
+
+## D144 (2026-08-13): The UI cannot know whether a stack was generated, and it asks rather
+than guesses
+
+- **Decision:** Download and Rotate are always offered on Path B, and a 404 from the download
+  is rendered as "this deployment has no generated stack — generate one first". No endpoint
+  is added to report whether one exists.
+- **Why there is nothing to read.** Fixed choice 7 is that the bundle is **never stored**:
+  no blob column, no temp directory, no row that says "a stack was generated here". The only
+  evidence is that the deterministic `deployment:{id}:stack:*` secret names resolve, which is
+  a SecretStore read and not a flag. `GET .../services` cannot tell a generated stack from a
+  hand-entered one either, and deliberately so — the five rows are the same rows.
+- **The alternative was declined at C5, and named rather than hidden.** Adding
+  `stack_generated: bool` to the status response is E5-owned surface and would be a better
+  UI. It was declined because it puts a per-request SecretStore lookup on a read that every
+  role hits, to save an operator one honest error message, in the last unit of the epic. A
+  later epic that wants it should add it with a cheap existence check rather than
+  `load_generated_stack`.
+- **What makes this acceptable rather than merely cheap:** the failure is a clear sentence
+  with the remedy in it, not a stack trace and not a silent no-op. The cost is one wasted
+  click on a deployment that has no stack.
+
+## D143 (2026-08-13): Two sentences in the S5 mock are now false, and the page says something
+else
+
+- **Decision:** the services page does **not** reproduce S5's "Re-checks run every 5 minutes"
+  or its "Required only when raw-audio upload is enabled for this deployment". Both were true
+  of the design and are not true of what shipped.
+- **Re-checks.** D133 closed spec 16.5's periodic re-checks as *deliberately not built*: timed
+  polling reports a fact that was true minutes ago. The panel says instead that nothing
+  re-checks on a timer and names the observed events that do degrade a service — a test the
+  operator runs, a rotation's re-verification, and for the broker the control plane's own
+  connection and last-will. A UI promising a five-minute re-check the platform never performs
+  would be worse than saying nothing.
+- **Object storage.** D123 settled that there is no `upload.raw_audio_enabled` catalog key and
+  that `not_required` keys on both S3 credentials being absent. The page says object storage
+  is required exactly when it is configured, and takes the `required` flag from the API rather
+  than restating the rule. A test asserts the `optional` tag comes from the response.
+- **A regression test guards the first one**: the summary must not match `/every \d+ minutes/`.
+  It exists because the mock is the natural thing to copy from, and copying it here would
+  quietly reintroduce a promise the platform does not keep.
+
+## D142 (2026-08-13): Service status gets its own chip, and its tokens are var() aliases of the
+device palette
+
+- **Decision:** `ServiceResultRow.ServiceChip` and `.service-chip` are a separate component and
+  a separate class from `StatusChip` / `.status-chip`, with their own words and glyphs. The
+  eight `--eoe-color-service-*` tokens are declared as `var()` references to the
+  `--eoe-color-status-*` keys rather than as a second set of hex values.
+- **Why a separate component (the phase-5 acceptance asks for it, and D40 is why).** Three
+  vocabularies exist here and must not be rendered through one another: a device's six spec 9.3
+  states, a service connection's `untested`/`verified`/`failed`, and the deployment rollup's
+  four values. A viewer who sees "degraded" on a service card and "degraded" on a device row
+  is entitled to think they mean the same thing, and they do not. A test asserts no
+  `.status-chip` and none of the six device words appear on this page.
+- **Why aliased tokens rather than new values.** Green has to mean good on every screen, so the
+  hue vocabulary is deliberately shared even though the status vocabulary is not. Both sets
+  live in `tokens.ext.css`, so a `var()` reference is legal and the two can never drift —
+  unlike the `--eoe-color-danger` / `--eoe-color-status-alerting` pair, which had to be
+  hex-duplicated across sheets and needed tests/tokens.test.ts checks 7 and 8 to hold them
+  together. The night theme also comes free: `tokens.ext.alt.css` relights the keys these
+  point at, so this block is deliberately absent from that sheet (check 9 keeps it a subset).
+
+## D141 (2026-08-13): The services wizard nests in the inventory frame instead of drawing S5's
+standalone chrome
+
+- **Decision:** the route `inventory/deployments/:deploymentId/services` renders inside
+  `InventoryLayout` — the existing top bar, context bar and hierarchy rail — with a crumb
+  special case, exactly as `/inventory/import` already does. S5's own top bar, four-step
+  progress strip and sticky footer bar are not built.
+- **Why.** The mock is a picture of the whole browser window, so it necessarily draws the app
+  chrome around the part being designed; that chrome is not a component the screen needs.
+  Reproducing it would mean a second top bar, a second role badge and a second breadcrumb
+  implementation, all of which would then have to be kept in sync with the real ones forever.
+  This is the same reading DES.7 already applied to the other full-page mocks.
+- **What IS taken from S5, because it is the design and not the frame:** the per-service card
+  with its own verdict, last-tested time, remedy block and retry; the rolled-up status panel
+  with its proportion ring; the generated-bundle panel with rotation; and the provisioning
+  gate card. The path chooser replaces the four-step strip — with two paths and one real
+  decision, a stepper would be chrome pretending to be progress.
+- **Recorded as a design deviation** in the same spirit as the ToggleSwitch's ink track: the
+  layout is S5's, the frame is the application's.
+
+## D140 (2026-08-13): The services form schema is a TypeScript mirror of the Pydantic models,
+held honest by a cross-language parity test
+
+- **Decision:** `frontend/src/lib/services.ts::SERVICE_SCHEMA` declares the five services'
+  fields — name, label, input type, required-ness — and one renderer builds every form from
+  it. `frontend/tests/services-schema.test.ts` parses `backend/app/services/schemas.py` and
+  fails if the field names, their order, the secret fields or the required fields diverge.
+- **Why not an endpoint.** Serving the schema from the API would make one source of truth,
+  and was declined: it adds a route, an `E0_ROUTES` entry, an RBAC decision and an audit
+  question to a surface E5.2 deliberately designed to need **no discovery** — its GET returns
+  all five services always, configured or not, precisely so the client renders a fixed set of
+  cards. The phase document asks for forms "rendered from the schema rather than hardcoded
+  field lists", and one table plus one renderer is that; the hardcoding it forbids is five
+  hand-written form components.
+- **The parity test is the whole justification and was proven falsifiable before it was
+  trusted.** Removing `influx.database` from the table fails with
+  `expected [ 'url', 'token' ] to deeply equal [ 'url', 'database', 'token' ]`. It also
+  asserts its own parse found five models with fields in them, because a parser that silently
+  matched nothing would make every other assertion in the file vacuously true.
+- **Required-ness is read in both of its Python forms**, which is the part a naive parse gets
+  wrong: `host: str = Field(min_length=1)` is required despite the `=`, while
+  `admin_username: str | None = Field(default=None)` is not. The rule is "no `default=` and no
+  plain assignment", and the test pins both forms by name.
+- **Precedent:** `lib/rbac.ts` is held to `app/auth/rbac.py` the same way, for the same reason.
+  A mirror nobody checks is a mirror that drifts, and here the drift is silent in both
+  directions — a model field missing from the table can never be entered, and a table field
+  missing from the model is a 422 on save.
+
 ## D139 (2026-08-13): The service-config sweep was resetting the rotation counter it exists to
 deliver, and the fix has to sit after the early return
 

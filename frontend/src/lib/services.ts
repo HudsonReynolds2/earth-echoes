@@ -19,7 +19,8 @@
  * value, so no input on this page is ever populated from a response; a form
  * the operator never held the secrets for round-trips through PUT unchanged.
  */
-import { request, writeHeaders } from "./http";
+import { apiBaseUrl } from "./api";
+import { ApiError, request, writeHeaders } from "./http";
 
 export { ApiError } from "./http";
 
@@ -289,6 +290,42 @@ export interface ServicesTest {
 export type ServiceSettingsIn = Record<string, unknown>;
 export type ServicesIn = Partial<Record<ServiceKey, ServiceSettingsIn>>;
 
+// --- Path B: the generated stack (E5.12b) -------------------------------------
+
+/** What the operator chooses about a generated stack. Everything else is
+ * derived from the deployment. */
+export interface StackGenerateIn {
+  /** The address Aggregators and the platform will dial this stack at. It
+   * reaches the broker certificate's SAN, so it has to be right at generation
+   * time — a certificate for the wrong name fails verification everywhere. */
+  hostname: string;
+  ip?: string | null;
+  include_object_storage: boolean;
+}
+
+export interface Stack {
+  deployment_id: string;
+  services_status: ServicesStatusValue;
+  services: string[];
+  /** A path, never a URL with a credential in it. The archive is fetched
+   * through the authenticated endpoint like anything else. */
+  download_path: string;
+}
+
+export interface StackRotate {
+  deployment_id: string;
+  services_status: ServicesStatusValue;
+  /** Aggregators told. Zero for Listeners is the acceptance, and it is a
+   * property of the projection rather than of the endpoint. */
+  revisions: number;
+  /** `false` with a 200 is a real and expected outcome: a rotation whose
+   * re-verification fails still publishes, because the devices need the new
+   * credentials precisely because the old ones stopped working. */
+  verified: boolean;
+  results: TestResult[];
+  download_path: string;
+}
+
 // --- calls -----------------------------------------------------------------------
 
 export function getServices(deploymentId: string) {
@@ -325,6 +362,71 @@ export function testServices(deploymentId: string, services: ServicesIn = {}) {
     headers: writeHeaders(),
     body: JSON.stringify({ services }),
   });
+}
+
+/**
+ * Generate the deployment's stack: every credential, the five rows, the
+ * broker's TLS material — committed before a byte of the bundle is rendered
+ * (fixed choice 7). Every service lands `untested`: a generated stack does
+ * not get to vouch for itself.
+ */
+export function generateStack(deploymentId: string, input: StackGenerateIn) {
+  return request<Stack>(`/deployments/${deploymentId}/services/stack`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Rotate every credential in the generated stack, then re-render, re-verify
+ * and republish. `verified: false` is not an error — see `StackRotate`.
+ */
+export function rotateStack(deploymentId: string, input: StackGenerateIn) {
+  return request<StackRotate>(`/deployments/${deploymentId}/services/stack/rotate`, {
+    method: "POST",
+    headers: writeHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Fetch the bundle as bytes.
+ *
+ * Not an `<a href>`: the API can be on another origin, where the `download`
+ * attribute is ignored and an auth failure would navigate the operator to a
+ * JSON error page instead of raising. Going through `fetch` keeps the typed
+ * `ApiError` and the session cookie, and the bytes never touch anything but
+ * the blob the browser saves.
+ *
+ * **The archive contains every credential this deployment has, in usable
+ * form.** The README inside it says so; so does the UI beside the button.
+ */
+export async function downloadStack(
+  deploymentId: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(
+    `${apiBaseUrl()}/api/v1/deployments/${deploymentId}/services/stack/download`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    let code = "internal_error";
+    let message = `download failed: ${response.status}`;
+    try {
+      const body = (await response.json()) as { error?: { code?: string; message?: string } };
+      code = body.error?.code ?? code;
+      message = body.error?.message ?? message;
+    } catch {
+      // keep the status-based message
+    }
+    throw new ApiError(code, message, response.status, null);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const named = /filename="([^"]+)"/.exec(disposition);
+  return {
+    blob: await response.blob(),
+    filename: named ? named[1] : `echoes-stack-${deploymentId}.tar.gz`,
+  };
 }
 
 /** Flat query keys, the inventory client's convention. */

@@ -24,16 +24,24 @@ import { EmptyState } from "../../components/EmptyState";
 import { PageHeader } from "../../components/PageHeader";
 import { ServiceForm } from "../../components/ServiceForm";
 import { ServiceResultRow } from "../../components/ServiceResultRow";
+import { ServicesSummary } from "../../components/ServicesSummary";
+import { StackPanel } from "../../components/StackPanel";
 import { useCan } from "../../components/Can";
 import { getDeployment } from "../../lib/inventory";
 import {
   SERVICE_SCHEMA,
   ServiceKey,
   ServiceSettingsIn,
+  Stack,
+  StackGenerateIn,
+  StackRotate,
   TestResult,
+  downloadStack,
+  generateStack,
   getServices,
   getServicesStatus,
   putServices,
+  rotateStack,
   servicesKey,
   servicesStatusKey,
   testServices,
@@ -49,6 +57,11 @@ export function ServicesPage() {
   const [results, setResults] = useState<Record<string, TestResult>>({});
   const [busy, setBusy] = useState<ServiceKey | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [chosenPath, setChosenPath] = useState<"A" | "B" | null>(null);
+  const [stack, setStack] = useState<Stack | null>(null);
+  const [rotation, setRotation] = useState<StackRotate | null>(null);
+  const [stackError, setStackError] = useState<string | null>(null);
+  const [stackNotice, setStackNotice] = useState<string | null>(null);
 
   const deployment = useQuery({
     queryKey: ["deployment", deploymentId],
@@ -104,6 +117,65 @@ export function ServicesPage() {
     onSettled: () => setBusy(null),
   });
 
+  const generate = useMutation({
+    mutationFn: (input: StackGenerateIn) => generateStack(deploymentId, input),
+    onMutate: () => {
+      setStackError(null);
+      setStackNotice(null);
+    },
+    onSuccess: (data) => {
+      setStack(data);
+      setRotation(null);
+      // A fresh stack puts every service back to `untested`, so this session's
+      // old check output describes credentials that no longer exist.
+      setResults({});
+      void refresh();
+    },
+    onError: (error: Error) => setStackError(error.message),
+  });
+
+  const download = useMutation({
+    mutationFn: () => downloadStack(deploymentId),
+    onMutate: () => {
+      setStackError(null);
+      setStackNotice(null);
+    },
+    onSuccess: ({ blob, filename }) => {
+      // Hand the bytes straight to the browser's save. Nothing is written
+      // server-side (fixed choice 7) and nothing is held here either — the
+      // object URL is revoked in the same turn.
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setStackNotice(`Downloaded ${filename}. Two downloads are byte-identical, by design.`);
+    },
+    onError: (error: Error) =>
+      setStackError(
+        (error as { status?: number }).status === 404
+          ? "This deployment has no generated stack. Generate one first — the platform keeps no copy of a bundle, so there is nothing to download until it does."
+          : error.message,
+      ),
+  });
+
+  const rotate = useMutation({
+    mutationFn: (input: StackGenerateIn) => rotateStack(deploymentId, input),
+    onMutate: () => {
+      setStackError(null);
+      setStackNotice(null);
+    },
+    onSuccess: (data) => {
+      setRotation(data);
+      setResults({});
+      void refresh();
+    },
+    onError: (error: Error) => setStackError(error.message),
+  });
+
   if (services.isLoading || deployment.isLoading) {
     return (
       <div data-testid="services-loading">
@@ -123,6 +195,12 @@ export function ServicesPage() {
   }
 
   const rows = services.data.services;
+  const anyConfigured = Object.values(rows).some((row) => row.configured);
+  // A deployment with nothing configured is offered the generated stack
+  // first, which is what S5 shows; one that already has services opens on the
+  // path it is evidently already taking. Either way the operator can switch.
+  const path = chosenPath ?? (anyConfigured ? "A" : "B");
+
   return (
     <>
       <PageHeader eyebrow="Services onboarding" title={deployment.data?.name ?? "Deployment"} />
@@ -132,7 +210,51 @@ export function ServicesPage() {
         in a log line.
       </p>
 
-      <div className="service-list">
+      <ServicesSummary status={status.data} />
+
+      {canManage && (
+        <div className="service-paths" role="group" aria-label="Onboarding path">
+          <button
+            type="button"
+            className={path === "A" ? "btn-secondary is-selected" : "btn-secondary"}
+            aria-pressed={path === "A"}
+            onClick={() => setChosenPath("A")}
+          >
+            Path A · I already have these services
+          </button>
+          <button
+            type="button"
+            className={path === "B" ? "btn-secondary is-selected" : "btn-secondary"}
+            aria-pressed={path === "B"}
+            onClick={() => setChosenPath("B")}
+          >
+            Path B · generate a stack for me
+          </button>
+        </div>
+      )}
+
+      {canManage && path === "B" && (
+        <StackPanel
+          generating={generate.isPending}
+          downloading={download.isPending}
+          rotating={rotate.isPending}
+          stack={stack}
+          rotation={rotation}
+          error={stackError}
+          notice={stackNotice}
+          onGenerate={(input) => generate.mutate(input)}
+          onDownload={() => download.mutate()}
+          onRotate={(input) => rotate.mutate(input)}
+        />
+      )}
+
+      <h2 className="services-verify-heading">Verify the deployment services</h2>
+      <p className="scope-caption">
+        The platform tests each service from its own host. Each row below carries its own verdict
+        and its own retry — one failure never blocks the other four.
+      </p>
+
+      <div className="service-list" data-testid="service-list">
         {SERVICE_SCHEMA.map((descriptor) => (
           <section className="card" key={descriptor.key} data-testid={`service-${descriptor.key}`}>
             <header className="service-card-head">

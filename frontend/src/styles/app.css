@@ -1675,3 +1675,132 @@ tr.row-noop td {
   width: var(--eoe-space-4);
   height: var(--eoe-space-4);
 }
+
+/* --- E5.12b: path selection, the rollup and the spec 16.5 gate ----------- */
+
+.service-paths {
+  display: flex;
+  gap: var(--eoe-space-3);
+  margin-bottom: var(--eoe-space-4);
+  flex-wrap: wrap;
+}
+
+.service-paths .is-selected {
+  border-color: var(--eoe-color-action);
+  background: var(--eoe-color-accent-tint);
+}
+
+.services-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--eoe-width-configrail), 1fr));
+  gap: var(--eoe-space-4);
+  margin-bottom: var(--eoe-space-4);
+}
+
+.services-rollup {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-3);
+  margin-top: var(--eoe-space-2);
+}
+
+/* The count is a proportion, not a status word: "3/4 required verified" is
+ * the fact, and the ring's color is the rollup it belongs to. */
+.services-rollup-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--eoe-control-height-lg);
+  height: var(--eoe-control-height-lg);
+  border: var(--eoe-border-width-emphasis) solid var(--rollup-color);
+  border-radius: var(--eoe-radius-round);
+  background: var(--rollup-tint);
+  color: var(--rollup-color);
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-sm);
+  flex: none;
+}
+
+.services-rollup-count[data-service-status="ok"] {
+  --rollup-color: var(--eoe-color-service-ok);
+  --rollup-tint: var(--eoe-color-service-ok-tint);
+}
+
+.services-rollup-count[data-service-status="bad"] {
+  --rollup-color: var(--eoe-color-service-bad);
+  --rollup-tint: var(--eoe-color-service-bad-tint);
+}
+
+.services-rollup-count[data-service-status="wait"] {
+  --rollup-color: var(--eoe-color-service-wait);
+  --rollup-tint: var(--eoe-color-service-wait-tint);
+}
+
+.services-rollup-count[data-service-status="none"] {
+  --rollup-color: var(--eoe-color-service-none);
+  --rollup-tint: var(--eoe-color-service-none-tint);
+}
+
+.services-rollup-value {
+  margin: 0;
+  font-family: var(--eoe-font-family-mono);
+  font-weight: var(--eoe-font-weight-medium);
+}
+
+.services-rollup-note,
+.services-summary-note {
+  margin: var(--eoe-space-2) 0 0;
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.services-gate-state {
+  margin: var(--eoe-space-2) 0;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.services-gate-state[data-gate="open"] {
+  color: var(--eoe-color-service-ok);
+}
+
+.services-gate-state[data-gate="closed"] {
+  color: var(--eoe-color-service-bad);
+}
+
+.services-gate-warning {
+  margin: var(--eoe-space-2) 0;
+  padding: var(--eoe-space-3);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-warning-border);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-service-wait-tint);
+  color: var(--eoe-color-service-wait);
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* The bundle legitimately contains a private key and five passwords, which is
+ * why the warning is a block on the page and not a line of help text. */
+.services-warning {
+  margin: var(--eoe-space-3) 0 0;
+  padding: var(--eoe-space-3);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-danger-border);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-service-bad-tint);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.stack-rotate {
+  margin-top: var(--eoe-space-4);
+  padding-top: var(--eoe-space-3);
+  border-top: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+}
+
+.stack-rotation-outcomes {
+  margin: var(--eoe-space-2) 0 0;
+  padding-left: var(--eoe-space-5);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.services-verify-heading {
+  margin: var(--eoe-space-6) 0 0;
+  font-size: var(--eoe-font-size-lg);
+}

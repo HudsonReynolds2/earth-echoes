@@ -5,6 +5,32 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #35 (2026-08-13): The bundle README template moves out of `deploy/` and into the package
+
+- **What changed:** `deploy/stack-templates/README.md` becomes
+  `backend/app/services/stack_templates/README.md`, and `stack.TEMPLATE_DIR` resolves beside its
+  own module. Two new guards in `tests/test_repo_layout.py` keep every runtime data file inside
+  the API image's build context.
+- **Why:** the phase document's location was **unshippable**, not merely inconvenient. The API
+  image is built with `context: ../backend`, so `deploy/` is outside the build context entirely
+  and no `COPY` can reach it; the download endpoint raised `FileNotFoundError` on
+  `/srv/deploy/stack-templates/README.md` in every containerized deployment. The whole suite was
+  green because tests run from the repo tree where the path exists — every README assertion was
+  true of the developer's filesystem and false of the artifact that ships. Details in D146.
+- **How it was found:** the first hand-run of `guide/e5-verification.md` against a real
+  container, minutes after the C5 gate went green.
+- **Why not keep the location and copy it in:** the only way to `COPY` a sibling of `backend/`
+  is to move the build context to the repo root, which changes `backend/Dockerfile`,
+  `deploy/docker-compose.yml` and CI — E0-owned infrastructure, for a file that has no reason to
+  live outside the package that reads it. Inside `app/`, `COPY app ./app` ships it by
+  construction rather than by anyone remembering.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.8b's "Static prose
+  lives in `deploy/stack-templates/`", addendum **PHASE5-4-07**) and section 6 (the handoff
+  artifact list, addendum **PHASE5-6-01**); docs/DECISIONS.md **D146**;
+  backend/app/services/stack.py; backend/tests/test_repo_layout.py;
+  backend/tests/test_stack_generator.py.
+- **Addendum:** PHASE5-4-07
+
 ## #34 (2026-08-13): A third E3-owned edit is taken, to fix a stranded broker connection
 
 - **What changed:** `app/controlplane/broker.py` gains `_open_client` and `_connection_loop`
