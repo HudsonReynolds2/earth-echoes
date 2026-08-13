@@ -1,5 +1,74 @@
 # Project Updates
 
+## 2026-08-13: SIM merges to main, E5 reconciles onto it, and the merged gate finds what neither branch could (Gate 63 GREEN)
+
+- **What closed:** epic **SIM** merged to `main` (PR #19). Epic **E5** reconciled onto it and is
+  ready to merge (PR #18). Plus the one E5 handoff-artifact gap an audit found after `gate-62`.
+  DECISIONS **D159**, project-changes **#39**, addendum **PHASE5-6-02**.
+- **Gate:** 63, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1142 backend / 163 vitest / 4 Playwright / 73 `/sim`** — 1382 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **240.17s** against C5's 240.10s, and
+  **sim-protocol 188.79s**. This is the first gate in the repository to run both suites: SIM.5
+  put `/sim` into `gate.sh`, and that only reaches this branch through the merge.
+- **The first run was RED, and the way it nearly passed is worth recording.** `sim-protocol` died
+  at COLLECTION, not at a test: `ModuleNotFoundError: No module named 'yaml'`, raised while
+  `/sim`'s conftest imported `app.main`, which reaches `app/services/stack.py`. The gate guard
+  failed closed (rule R0) and the run exited 2. **Every stage before it was green** — 1142
+  backend in 241.71s, 163 vitest, 4 Playwright, `sim-quality` — so the tail of the log looked
+  like a pass, and the process wrapper reported exit 0 because its last command was an `echo`.
+  The real exit code was only visible because it was captured deliberately. **A red gate that
+  reports 0 is worse than one that reports 1.**
+- **The defect was real and neither branch could have caught it (D159).** E5 promoted `pyyaml`,
+  `boto3` and `bcrypt` to backend **runtime** dependencies — the stack generator serialises
+  compose in production code and phase 5 forbids string templating; Prometheus's `web_config.yml`
+  reads bcrypt and nothing else. `/sim` is its own uv project with its own `.venv` that reaches
+  the platform **by path**, so it can only import `app.main` if its own dependency list carries
+  the backend's runtime set. SIM wrote that mirror list before any of the three existed.
+  **SIM gated without the dependencies; E5 gated without `/sim` in `gate.sh`. The first gate that
+  runs both suites is the first that could fail, and it failed on its first attempt.**
+- **SIM had written the test for exactly this, and it could not fire.**
+  `test_sims_dev_group_carries_the_whole_platform_runtime_set` compares the two dependency lists,
+  and its docstring predicts the failure word for word: "adding a dependency to the backend turns
+  the sim suite red weeks later with an ImportError that names a package nobody remembers
+  deciding to need". It never ran — the import is at collection time, so the crash precedes every
+  test in the suite **including the one written to explain it**. It is kept, and D159 says
+  plainly that it prevented nothing; a guard downstream of the import it guards cannot report on
+  it. The fix is what its own assertion message prescribes: the three specifiers added to
+  `/sim`'s dev group, matching the backend's exactly.
+- **The record reconciliation, which was larger than the branches' own notes predicted.** Both
+  had appended independently since the common ancestor (`2875063`, SIM.1), sharing D97-D103 and
+  then colliding from D104 up — D104 was "dynsec is required for v1" on E5 and "the local link
+  refuses contradictions" on SIM. SIM merged first, so its numbering is canonical: E5's
+  **D104-D146 became D116-D158** across 412 citations in 54 files, and **#24-#26 became
+  #36-#38**. Verified by count rather than by eye — 0 survivors in D104-D115, the 58 citations of
+  the shared D97-D103 unchanged, every cited number backed by a real heading, D1-D159 and
+  project-changes #1-#39 each present exactly once.
+- **One citation could not be renumbered mechanically, and nothing would have caught it.**
+  `backend/tests/test_mqtt_manager.py` was adopted verbatim from SIM's `959ff23` (D125), so the
+  `D109`/`D111` in its `_tasks_outliving` docstring are **SIM's** numbers and never were E5's.
+  The blanket shift moved them to D121/D123 — both of which exist and read plausibly, so no test
+  would have failed and no reviewer would have paused. Found by diffing the citation sets of both
+  branches' copies of every adopted file: `conftest.py` came back clean, this one did not.
+  **A file adopted from another branch carries that branch's numbering, and says so nowhere.**
+- **The four record logs are re-interleaved by DATE, not by branch**, so SIM's #26 (08-12) sits
+  above E5's 08-11 entries and its gate-58 entry sits between 59 and 57. The integers are
+  identifiers; chronology is the file's order. `conftest.py` was resolved per conflict region
+  rather than with `--ours`, because SIM's `Broker.refresh()` merged cleanly outside every
+  region and taking the whole file would have silently dropped it.
+- **The E5 handoff gap, found by audit after the epic was already tagged.** Phase 5 section 6
+  required two additive rows in `INTERFACES.md`'s **Owned by E0** environment-variable table and
+  **named both variables wrongly**: `EOE_COORDINATES_REFRESH_SECONDS` does not exist, and there
+  is no "services re-check interval" because D145 closed periodic re-checks as *deliberately not
+  built*. What shipped is `EOE_BROKER_REFRESH_SECONDS` (default 30) and
+  `EOE_SERVICE_CONFIG_SWEEP_SECONDS` (default 60). Both were already in `deploy/.env.example` and
+  the **Owned by E5** section, so nothing was undocumented — but the E0 table is where an
+  operator looks for the list, and **a green gate asserts nothing about a documentation artifact
+  no test names.**
+- **Manual verification:** the `deploy` compose stack was taken down before the run. It had been
+  up two hours from the earlier E5 walkthrough, holding the fixed ports 15432/16379 that the
+  compose suites bind — the same self-inflicted collision recorded at C5, removed as a cause
+  rather than retried as a measurement.
+
 ## 2026-08-13: E5.12 closes the epic, and the walkthrough found a 500 the green gate could not (Gate 62 GREEN)
 
 - **Tasks closed:** **E5.12a** (services wizard, Path A) and **E5.12b** (Path B, the rolled-up

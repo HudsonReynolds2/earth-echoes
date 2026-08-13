@@ -4,6 +4,44 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D159 (2026-08-13): The sim harness could not import the platform after E5 added three
+runtime dependencies, and only the merged gate could see it
+
+- **Decision:** `sim/pyproject.toml`'s `dev` group gains `boto3>=1.35`, `pyyaml>=6.0` and
+  `bcrypt>=5.0.0`, with the same specifiers `backend/pyproject.toml` carries. This is SIM-owned
+  surface edited from the E5 branch, and it restores an invariant **SIM itself declared and
+  tested** rather than introducing a new one: the group's own comment says it "carries the
+  backend's whole RUNTIME set, verbatim and with the same specifiers".
+- **The defect: `sim-protocol` died at collection**, not at a test. `/sim`'s `tests/conftest.py`
+  imports `app.main` by path (D100, D102), `app.main` imports `app.api.services`, which reaches
+  `app.services.stack`, which does `import yaml` at module scope. `/sim` is its own uv project
+  with its own `.venv`, so the backend's dependencies are not present unless that list names
+  them. `ModuleNotFoundError: No module named 'yaml'`, and the gate guard failed closed.
+- **Neither branch could have caught this, and that is the point.** E5 promoted all three to
+  backend RUNTIME dependencies (`boto3` for the object-storage tester, `pyyaml` because the
+  stack generator serialises compose in production code and phase-5 forbids string templating,
+  `bcrypt` because Prometheus's `web_config.yml` accepts no other hash). SIM wrote its mirror
+  list before any of them existed. **SIM gated without those dependencies; E5 gated without
+  `/sim` in `gate.sh`, because SIM.5 is what puts it there.** The first gate that runs both
+  suites is the first that could fail, and it failed on the first attempt.
+- **The guard existed and could not fire.**
+  `sim/tests/test_harness_boundaries.py::test_sims_dev_group_carries_the_whole_platform_runtime_set`
+  compares the two dependency lists and its docstring predicts this exact failure — "adding a
+  dependency to the backend turns the sim suite red weeks later with an ImportError that names a
+  package nobody remembers deciding to need". It never got to run: `conftest.py` imports the
+  platform at COLLECTION time, so the ImportError precedes every test in the suite, including
+  the one written to explain it. **A guard that lives downstream of the import it guards cannot
+  report on it** — it is still worth keeping, because it is what makes the fix obvious once the
+  crash is read, but it did not prevent anything and should not be credited with it.
+- **Why not narrow the import instead.** Making `app.main` lazy-import the services router, or
+  giving `/sim` a cut-down app, would buy a shorter dependency list at the cost of SIM.1's
+  acceptance, which runs the REAL platform in the test process on purpose — its API, publisher,
+  worker and consumer — because "the published revision reaches applied" is a claim about the
+  platform and cannot be made against a stub. The mirror list is the deliberate price of that,
+  and the harness's own `project.dependencies` stay a device's set, unchanged.
+- **Reference:** `sim/pyproject.toml`; `sim/tests/test_harness_boundaries.py`;
+  `backend/pyproject.toml` (E5.4e, E5.8b, E5.9); D100, D102; phase-sim §4 SIM.1.
+
 ## D158 (2026-08-13): The bundle README template moves inside the package, because the API
 image does not contain anything outside `backend/`
 

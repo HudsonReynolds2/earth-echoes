@@ -216,6 +216,18 @@ SIM sessions keep the primary tree.
   Found by diffing the citation sets of the two branches' copies of every adopted file —
   `conftest.py` came back clean, `test_mqtt_manager.py` did not. **An adopted file carries the
   source branch's numbering and says so nowhere.**
+- **The merged gate found a real defect on its first run, and it is the reason to merge before
+  declaring anything finished (D159).** `sim-protocol` died at COLLECTION with
+  `ModuleNotFoundError: No module named 'yaml'`: `/sim` is its own uv project, its conftest
+  imports `app.main` by path, and E5 had promoted `pyyaml`, `boto3` and `bcrypt` to backend
+  runtime dependencies after SIM wrote the mirror list that has to carry them. **SIM gated
+  without those dependencies; E5 gated without `/sim` in `gate.sh`, because SIM.5 is what puts
+  it there.** Neither branch could fail. Fixed by adding the three to `sim/pyproject.toml`'s dev
+  group with identical specifiers — which is what SIM's own
+  `test_sims_dev_group_carries_the_whole_platform_runtime_set` demands, and that test's docstring
+  predicts this failure word for word. It could not fire: the import is at collection time, so
+  the crash precedes every test including the one written to explain it. **Keep it anyway, but
+  do not credit it with prevention.**
 - **The log's integers are identifiers, not a sort key.** `project-changes.md` stays sorted by
   DATE, so #36-#38 (2026-08-11) now sit below #27-#35 (2026-08-11 to 08-13). With two branches
   numbering independently that is unavoidable whichever side moves.
