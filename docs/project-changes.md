@@ -5,6 +5,100 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #34 (2026-08-13): A third E3-owned edit is taken, to fix a stranded broker connection
+
+- **What changed:** `app/controlplane/broker.py` gains `_open_client` and `_connection_loop`
+  uses it, so a cancellation inside aiomqtt's `__aenter__` can no longer strand a connected
+  client off the `AsyncExitStack`. Plus a forced regression test in `test_mqtt_manager.py`.
+- **Why:** `stop()` cancelling mid-connect left a CONNECTED client with a live socket and a
+  running `_misc_loop` that nothing owned and nothing could close — a per-reconnect leak of
+  sockets and tasks in a process meant to run for months. Found by E3's own
+  `test_shutdown_leaves_no_running_tasks` under a loaded gate, and reproduced deterministically
+  before the fix was written. Details in D138.
+- **Whose scope this crosses:** the phase document authorizes **two** discretionary E3-owned
+  edits, both in E5.7b, and says a third is a stop-and-ask. It was asked and answered:
+  **taken on the owner's explicit authorization**, 2026-08-13, over the declined alternative of
+  recording the defect and deferring it to an E3 batch — which would have left a known flake
+  able to redden any later gate, E5.12's included.
+- **Affects:** project_planning/phase-5-deployment-services.md section 2 ("The E3-owned edits
+  this phase is authorized to make"); docs/DECISIONS.md D138, extending D94
+- **Addendum:** PHASE5-4-06
+
+## #33 (2026-08-12): The API process gets a root log handler, and an E0-owned docstring that
+was wrong is corrected
+
+- **What changed:** `app/middleware.py` gains `install_root_handler`, called by both
+  `create_app` and `runner.py::main`. `runner.py`'s docstring, which claimed "under uvicorn the
+  server installs the handlers", is corrected.
+- **Why:** uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves the ROOT logger
+  bare, so Python's last-resort handler passed WARNING and above and silently dropped every
+  `app.*` INFO line in the API process — broker connected, coordinates refreshed, publish
+  outcomes. Found by C3's manual walkthrough, which tried to prove `refresh()` had connected by
+  grepping the log and got nothing. The wrong docstring is why it survived three epics.
+- **Whose scope this crosses:** `app/middleware.py` is E0-owned. **Taken on the owner's
+  explicit authorization**, 2026-08-12, as an E0-owned fix made by E5; it closes D127, which
+  had been carried as a stop-and-ask.
+- **Affects:** project_planning/phase-5-deployment-services.md section 5 (definition of done);
+  docs/DECISIONS.md D136, closing D127
+- **Addendum:** PHASE5-4-05
+
+## #32 (2026-08-12): A thirteenth device-facing config key, so a rotation is visible to devices
+
+- **What changed:** the catalog gains `services.credentials_generation` (int,
+  `write_restricted=SERVICE_ONBOARDING`) and `deployment` gains a
+  `services_credentials_generation` column (migration `d5f28c60a419`). E5's projection, which
+  the phase document describes as "the twelve device-facing keys", now writes thirteen.
+- **Why:** a desired snapshot carries secret MARKERS and never plaintext (spec 5.4, 8; D51,
+  D126), and a marker is a SecretStore name — identical before and after a rotation. Measured:
+  rotating every credential minted ZERO revisions, while rotating to a different hostname minted
+  one per Aggregator and none per Listener. So E5.11's acceptance ("one new revision per
+  Aggregator") and spec 16.3's "rotation is a config revision, not a manual redistribution"
+  were unachievable without one non-secret thing that changes.
+- **Whose scope this crosses:** the catalog is E2-owned and this is a migration, so it is out of
+  phase 5's scope under rule R2. **Taken only on the owner's explicit decision**, 2026-08-12,
+  over the declined alternatives of accepting zero revisions and amending the acceptance, or
+  deferring the question to E7.
+- **Also changes the spec, which the first draft of this entry missed.** The catalog is spec
+  5.3's table and the suite asserts them key for key, so a thirteenth restricted key is a spec
+  change and not only a phase-document one: `echoes-of-earth-platform-spec-v1.1.md` gains a
+  thirty-eighth row and addendum **SPEC-5-01**. The frozen wire checksum in the merge-engine
+  suite moves with it — recorded separately in D137, because re-freezing a golden digest is
+  never routine.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.7a, E5.11);
+  project_planning/echoes-of-earth-platform-spec-v1.1.md section 5.3;
+  docs/DECISIONS.md D134, D137
+- **Addendum:** PHASE5-4-02
+
+## #31 (2026-08-12): Spec 16.5's periodic service re-checks are closed as deliberately not built
+
+- **What changed:** the platform runs no timed re-verification of deployment services. E5.11
+  registers no sweep, and spec 16.5's "periodic re-checks" item is closed as *not built* rather
+  than carried as outstanding work. `status.py::services_recheck_sweep` survives as an
+  on-demand bulk re-test invoked by an operator action, and its docstring now says so.
+- **Why:** the owner's decision, asked directly and answered directly on 2026-08-12 — timed
+  polling reports a fact that was true minutes ago, and the platform should fail fast and
+  loudly off real liveness instead. Degradation comes from observed events only: an
+  operator-run test, a rotation's re-verification, and for MQTT the control plane's own
+  connection and LWT.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.11); the E5.5
+  notes and the INTERFACES entry that both expected E5.7b to register the sweep
+- **Addendum:** PHASE5-4-03
+
+## #30 (2026-08-12): The broker fixtures are pinned to the version the generated stack ships
+
+- **What changed:** `backend/tests/conftest.py` and `deploy/docker-compose.yml` stop using the
+  floating `eclipse-mosquitto:2` tag. The fixture reads `app.services.stack.IMAGES` so there is
+  one pin; the dev compose stack names the same version.
+- **Why:** Docker Hub moved `:2` to 2.1.x, and 2.0 and 2.1 read `dynamic-security.json`
+  passwords differently (D132). Every dynsec test in the suite passed against 2.1.2 while the
+  2.0.20 the platform pins refused every login — a pinned artifact tested against a floating tag
+  proves nothing about what ships. Found by E5.10's keystone.
+- **Whose scope this crosses:** `conftest.py` is E0-owned test infrastructure and
+  `deploy/docker-compose.yml` is E0/E3-owned. **Taken on the owner's explicit authorization**,
+  2026-08-12.
+- **Affects:** project_planning/phase-5-deployment-services.md section 5 (gate-time design)
+- **Addendum:** PHASE5-4-04
+
 ## #29 (2026-08-12): An unnumbered infrastructure batch lands before C4, and phase 5's
 "additive-only in `conftest.py`" rule is broken deliberately
 

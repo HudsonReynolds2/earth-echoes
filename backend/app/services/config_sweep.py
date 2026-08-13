@@ -52,9 +52,9 @@ from app.config.plan import (
 )
 from app.config.selection import MatchedEntity
 from app.controlplane.publisher import DesiredPublisher, publish_all
-from app.models import ConfigRevision, DeploymentService
+from app.models import ConfigRevision, Deployment, DeploymentService
 from app.secrets import SecretStore
-from app.services.projection import service_settings
+from app.services.projection import GENERATION_KEY, service_settings
 from app.services.store import load_services
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,25 @@ def _plan_one(db: Session, secret_store: SecretStore, deployment_id: uuid.UUID) 
         # and no telemetry services yet, i.e. every deployment between E3 and
         # the operator finishing the S5 wizard.
         return []
+    # **The generation is added AFTER the early return, and the order is the
+    # whole point (D139).** `service_settings` omits the key when no generation
+    # is passed, so a projection built without it stops asserting a value and
+    # the effective config falls back to the catalog default of 0 — which this
+    # sweep then delivers as a revision. Omitted, a once-a-minute sweep reset
+    # every rotated deployment's counter from N back to 0 and minted a revision
+    # to publish the reset, destroying the one signal a rotation gives a device
+    # (D134) within a minute of the rotation.
+    #
+    # But it cannot be passed to the call ABOVE either: the counter is always
+    # present, so the projection would never be empty, the "nothing to deliver"
+    # return would be unreachable, and every deployment holding only an `mqtt`
+    # row would rebuild a full change plan every minute — the exact cost that
+    # return exists to avoid. A deployment with nothing else to deliver has no
+    # generated stack and therefore no rotation to announce, so riding along
+    # with a projection that already has content is both correct and cheap.
+    deployment = db.get(Deployment, deployment_id)
+    if deployment is not None:
+        projection[GENERATION_KEY] = deployment.services_credentials_generation
     matched = [
         MatchedEntity(
             entity_type="deployment",

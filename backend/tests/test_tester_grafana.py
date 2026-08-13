@@ -12,6 +12,14 @@ the phase document requires the offer and the act to be separate calls. So the
 suite asserts a full `run()` against a Grafana with no datasources creates
 none, and that `provision_datasource` - a different method, called
 deliberately - is what creates them.
+
+**That rule survives E5.10 and its boundary is worth stating.** The tester
+still creates nothing it was not asked to: what E5.10 added is a bootstrap that
+runs BEFORE the testers, only for a deployment whose operator supplied a
+Grafana ADMIN ACCOUNT rather than a token, and that mints the platform's own
+service account (`app/services/provision.py`, `tests/test_grafana_bootstrap.py`).
+An operator who pasted a service account token - the Path A this file tests -
+never reaches it, and nothing here changed.
 """
 
 import asyncio

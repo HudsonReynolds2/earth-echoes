@@ -224,3 +224,47 @@ def test_openapi_schema_generates(client: TestClient):
     schema = response.json()
     assert schema["openapi"].startswith("3.")
     assert f"{API_PREFIX}/health" in schema["paths"]
+
+
+# --- D127: the API process actually logs ------------------------------------
+
+
+def test_creating_the_app_gives_the_root_logger_a_handler():
+    """**Every `app.*` INFO line in the API was being dropped** (D127).
+
+    Uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves the
+    ROOT logger bare, so Python's last-resort handler passed WARNING and above
+    and silently discarded everything below — broker connected, coordinates
+    refreshed, publish outcomes, all of it. `runner.py::main`'s docstring
+    asserted the opposite, which is why it stood for so long.
+
+    Found by C3's manual walkthrough: it tried to prove the refresh loop had
+    connected by grepping the log, got nothing, and got nothing for a
+    deployment that had been connected since startup either — while a WARNING
+    from the same module was present. That asymmetry is what made it a logging
+    bug rather than a behaviour bug.
+    """
+    import logging
+
+    from app.middleware import install_root_handler
+
+    root = logging.getLogger()
+    saved = list(root.handlers)
+    try:
+        root.handlers.clear()
+        install_root_handler()
+        assert root.handlers, "the root logger has no handler; app.* INFO goes nowhere"
+        assert root.level <= logging.INFO
+    finally:
+        root.handlers[:] = saved
+
+
+def test_an_app_info_line_reaches_a_handler(caplog):
+    """The behavioural half: a real `app.*` INFO record is emitted rather than
+    dropped. Asserted at the level the defect lived at — INFO — because
+    WARNING was working the whole time and is what disguised it."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="app.controlplane.publisher"):
+        logging.getLogger("app.controlplane.publisher").info("d127 probe line")
+    assert any(record.message == "d127 probe line" for record in caplog.records)

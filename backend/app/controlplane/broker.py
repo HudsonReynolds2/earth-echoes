@@ -63,6 +63,43 @@ MQTT_SERVICE_KEY = "mqtt"
 KEEPALIVE_SECONDS = 30
 
 
+async def _open_client(stack: contextlib.AsyncExitStack, client: aiomqtt.Client) -> aiomqtt.Client:
+    """Enter a client's context so that a cancellation cannot strand it.
+
+    **The mirror image of `_close_client`, and the same defect from the other
+    end.** aiomqtt's `__aenter__` awaits twice: once on paho's blocking
+    `connect()` inside an executor thread, and once on the CONNACK. Cancel the
+    task at either point and `enter_async_context` never returns, so the client
+    is never registered on the stack — while the executor thread runs
+    `connect()` through to completion regardless, because a thread that has
+    already started cannot be cancelled. The socket opens, paho's
+    `_on_socket_open` schedules the `_misc_loop` task, and what is left is a
+    fully CONNECTED client holding a live socket that nothing owns and that
+    `stack.aclose()` has never heard of. It outlives `stop()` for the life of
+    the process.
+
+    So the entry runs in its OWN task, shielded. If we are cancelled while it
+    runs, we wait for it to finish — which is precisely what puts the client on
+    the stack — and only then let the cancellation continue, by which time the
+    caller's `_close_client` can see it and close it.
+
+    Found by `test_shutdown_leaves_no_running_tasks` under a loaded gate
+    (D138): the same detector that found D94 at the teardown end, reporting the
+    same shape of survivor.
+    """
+    entering = asyncio.ensure_future(stack.enter_async_context(client))
+    try:
+        return await asyncio.shield(entering)
+    except asyncio.CancelledError:
+        # The shield kept `entering` alive. Let it land so the stack really
+        # owns the client, then let the cancellation continue up. A connect
+        # that failed on its own raises here instead and leaves nothing to
+        # close, which is why the suppression is this broad.
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await entering
+        raise
+
+
 async def _close_client(stack: contextlib.AsyncExitStack) -> None:
     """Close an aiomqtt client's context, even while being cancelled.
 
@@ -605,7 +642,8 @@ class MqttClientManager:
             # inside an already-cancelled task strands its internal task.
             stack = contextlib.AsyncExitStack()
             try:
-                client = await stack.enter_async_context(
+                client = await _open_client(
+                    stack,
                     aiomqtt.Client(
                         hostname=coords.host,
                         port=coords.port,
@@ -615,7 +653,7 @@ class MqttClientManager:
                         tls_context=tls_context(coords),
                         keepalive=self._keepalive,
                         clean_session=True,
-                    )
+                    ),
                 )
                 attempt = 0
                 # Subscribe BEFORE announcing the connection: a caller that

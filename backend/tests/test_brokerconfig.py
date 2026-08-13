@@ -16,6 +16,7 @@ that the generated `mosquitto.conf` starts a broker whose dynsec probe answers
 """
 
 import ast
+import base64
 import json
 import uuid
 
@@ -30,6 +31,7 @@ from app.brokerconfig import (
     AclGrant,
     aggregator_acl_grants,
     dynamic_security_config,
+    dynsec_password_fields,
     dynsec_password_hash,
     generate_tls_material,
     stack_mosquitto_conf,
@@ -175,16 +177,51 @@ def test_the_platform_account_holds_both_the_admin_and_deployment_roles():
 
 
 def test_the_generated_config_never_carries_a_plaintext_password():
-    """The whole file is written into a downloadable bundle. `encoded_password`
+    """The whole file is written into a downloadable bundle. What lands in it
     is a PBKDF2 hash at the plugin's own iteration count, and the plaintext
     reaches SecretStore and the operator, never this JSON."""
     config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
     blob = json.dumps(config)
     assert ADMIN_PW not in blob
-    encoded = config["clients"][0]["encoded_password"]
-    marker, iterations, _salt, _hash = encoded.split("$")[1:]
+    client = config["clients"][0]
+    assert int(client["iterations"]) == DYNSEC_PW_ITERATIONS
+    assert base64.b64decode(client["password"])
+    assert base64.b64decode(client["salt"])
+
+
+def test_the_client_entry_uses_the_three_password_fields_mosquitto_2_0_reads():
+    """**Mosquitto 2.0 ignores `encoded_password` and leaves the account with
+    no password**, so every login is refused with CONNACK 135 and nothing in
+    the broker's log mentions the field it skipped (D132).
+
+    Pinned as its own test because the combined form is what 2.1 writes and
+    therefore what anyone reading a modern `dynamic-security.json` will copy;
+    the three-field form is the one BOTH versions accept, and
+    `IMAGES['mosquitto']` pins 2.0.x. The measurement is in
+    `brokerconfig.dynsec_password_fields`.
+    """
+    config = dynamic_security_config(SLUG, ADMIN_USER, dynsec_password_hash(ADMIN_PW))
+    client = config["clients"][0]
+    assert "encoded_password" not in client
+    assert {"password", "salt", "iterations"} <= set(client)
+
+
+def test_the_split_password_fields_round_trip_the_hash_they_came_from():
+    """`dynsec_password_fields` re-arranges a `$7$` group and invents nothing:
+    the hash the broker verifies has to be the hash E5.9 stored, or a rotation
+    would render a bundle whose password is not the one it saved."""
+    encoded = dynsec_password_hash(ADMIN_PW)
+    marker, iterations, salt, digest = encoded.split("$")[1:]
+    fields = dynsec_password_fields(encoded)
     assert marker == "7"
-    assert int(iterations) == DYNSEC_PW_ITERATIONS
+    assert fields == {"password": digest, "salt": salt, "iterations": int(iterations)}
+
+
+def test_a_hash_that_is_not_a_mosquitto_field_group_is_refused():
+    """A silently-wrong password field is exactly the failure D132 cost a
+    session, so the parse refuses rather than rendering something plausible."""
+    with pytest.raises(ValueError):
+        dynsec_password_fields("$6$1000$c2FsdA==$aGFzaA==")
 
 
 def test_the_deployment_role_is_scoped_to_one_namespace():

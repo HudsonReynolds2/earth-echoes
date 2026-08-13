@@ -44,6 +44,10 @@ IMAGES = {
     "prometheus": "prom/prometheus:v3.5.0",
     "grafana": "grafana/grafana:11.6.0",
     "minio": "minio/minio:latest",
+    #: `mc`, for the one job of creating the bucket. Separate from the server
+    #: image because `minio/minio` carries the server and nothing else — not
+    #: even a shell's worth of utilities to script it (`_minio_init_service`).
+    "minio_client": "minio/mc:latest",
 }
 
 #: Container-side ports. The compose file publishes each on the same host port
@@ -70,11 +74,36 @@ PORT_PURPOSE = {
     "minio_console": "MinIO web console.",
 }
 
-#: The name of the Influx database the platform writes telemetry into. Influx 3
-#: creates a database on first write, so nothing has to pre-create it; the name
-#: is fixed here because the testers and E7's read clients both need to agree
-#: on it without asking the operator.
+#: The name of the Influx database the platform writes telemetry into. The name
+#: is fixed here because the testers and E7's read clients both need to agree on
+#: it without asking the operator.
+#:
+#: Influx 3 creates a database on FIRST WRITE, so a freshly-started server has
+#: none — and E5.4b's tester reads before it writes, deliberately (a check whose
+#: first-run failure is normal is a check people learn to ignore). So the
+#: generated stack seeds it; see `_influx_init_service`.
 INFLUX_DATABASE = "echoes"
+
+#: Where the compose file mounts the admin token, and the name it has in the
+#: bundle. Influx 3 Core will not accept a token handed to it on the command
+#: line or in an environment variable — `INFLUXDB3_AUTH_TOKEN` configures the
+#: CLI, not the server — but `serve --admin-token-file` reads one from disk at
+#: startup, which is what lets the platform generate the token BEFORE the stack
+#: exists (fixed choice 7) rather than scraping it out of a container's logs
+#: afterwards.
+INFLUX_TOKEN_FILE = "influx/admin-token.json"
+INFLUX_ADMIN_MOUNT = "/etc/influxdb3/admin-token.json"
+
+#: Influx 3 tokens carry this prefix and the server rejects one without it —
+#: measured, by starting a server on a token file that lacked it and watching
+#: it refuse to come up.
+INFLUX_TOKEN_PREFIX = "apiv3_"
+
+#: The bucket raw audio is uploaded into. Fixed for the same reason
+#: `INFLUX_DATABASE` is: the generated stack creates it (`_minio_init_service`)
+#: and E5.9 writes the same name onto the `s3` row, so the tester heads a bucket
+#: that exists.
+S3_BUCKET = "echoes"
 
 #: The Grafana contact point E5.4d registers and E7.6's receiver consumes. The
 #: route does not exist yet and that is deliberate (phase-5 section 3).
@@ -294,6 +323,16 @@ def _mosquitto_service() -> dict[str, Any]:
 
 
 def _influx_service(spec: StackSpec) -> dict[str, Any]:
+    """InfluxDB 3 Core, started on a token the PLATFORM chose.
+
+    `--admin-token-file` is the whole reason this works within fixed choice 7.
+    Influx 3's documented route is `influxdb3 create token --admin` against a
+    running server, which prints a server-chosen token once — a value the
+    platform could only learn by scraping a container's stdout after the fact,
+    and could therefore not have committed before rendering. The token file is
+    the offline form of the same thing, so the credential is generated, stored
+    and committed first and the server is handed it at boot.
+    """
     return {
         "image": IMAGES["influx"],
         "restart": "unless-stopped",
@@ -305,9 +344,44 @@ def _influx_service(spec: StackSpec) -> dict[str, Any]:
             "--object-store=file",
             "--data-dir=/var/lib/influxdb3",
             f"--http-bind=0.0.0.0:{PORTS['influx']}",
+            f"--admin-token-file={INFLUX_ADMIN_MOUNT}",
         ],
-        "environment": {"INFLUXDB3_AUTH_TOKEN": spec.secrets.influx_token},
-        "volumes": ["influx-data:/var/lib/influxdb3"],
+        "volumes": [
+            f"./{INFLUX_TOKEN_FILE}:{INFLUX_ADMIN_MOUNT}:ro",
+            "influx-data:/var/lib/influxdb3",
+        ],
+    }
+
+
+def _influx_init_service(spec: StackSpec) -> dict[str, Any]:
+    """A short-lived container that brings `INFLUX_DATABASE` into existence.
+
+    Influx 3 creates a database on first write and E5.4b's tester reads first,
+    so a stack nobody has written to yet answers `not_found` to a verification
+    that is otherwise perfect. One line-protocol point fixes that, and it is
+    written to its own `_eoe_stack_seed` measurement rather than to the reserved
+    self-test measurement the tester drops — a seed the tester's own cleanup
+    removed would put the database right back where it started.
+
+    `restart: "no"` and a retry loop rather than `depends_on: condition:
+    service_healthy`: the Influx image ships no healthcheck, and a compose file
+    an operator has to debug should not fail on a condition that never becomes
+    true.
+    """
+    url = f"http://influx:{PORTS['influx']}"
+    return {
+        "image": IMAGES["influx"],
+        "restart": "no",
+        "depends_on": ["influx"],
+        "entrypoint": ["/bin/sh", "-c"],
+        "command": [
+            "for i in $$(seq 1 60); do "
+            f"if influxdb3 write --host {url} --database {INFLUX_DATABASE} "
+            f'--token "$$INFLUX_TOKEN" "_eoe_stack_seed,source=stack value=1i"; then '
+            "echo seeded; exit 0; fi; sleep 2; done; "
+            "echo 'influx never accepted the seed write' >&2; exit 1"
+        ],
+        "environment": {"INFLUX_TOKEN": "${INFLUX_TOKEN}"},
     }
 
 
@@ -372,6 +446,39 @@ def _minio_service(spec: StackSpec) -> dict[str, Any]:
     }
 
 
+def _minio_init_service(spec: StackSpec) -> dict[str, Any]:
+    """The `mc` container that creates the bucket.
+
+    The phase document's E5.8b line says "optional MinIO **with a created
+    bucket**" and nothing created one, so E5.4e's tester read `head_bucket` as
+    404 against a stack that was otherwise healthy. MinIO has no way to declare
+    a bucket in configuration; `mc mb` is the documented route and `--ignore-
+    existing` is what makes a second `docker compose up` a no-op rather than an
+    error.
+
+    A sixth image, and worth saying why it is not avoidable: the `minio/minio`
+    image ships the server only — no `mc`, and no shell utilities to script one.
+    """
+    return {
+        "image": IMAGES["minio_client"],
+        "restart": "no",
+        "depends_on": ["minio"],
+        "entrypoint": ["/bin/sh", "-c"],
+        "command": [
+            "for i in $$(seq 1 60); do "
+            f"if mc alias set stack http://minio:{PORTS['minio']} "
+            '"$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; then '
+            f"mc mb --ignore-existing stack/{S3_BUCKET} && echo created; exit $$?; "
+            "fi; sleep 2; done; "
+            "echo 'minio never accepted the bucket creation' >&2; exit 1"
+        ],
+        "environment": {
+            "MINIO_ROOT_USER": spec.secrets.minio_root_user,
+            "MINIO_ROOT_PASSWORD": spec.secrets.minio_root_password,
+        },
+    }
+
+
 def compose_file(spec: StackSpec) -> dict[str, Any]:
     """The whole `docker-compose.yml`, as a dict.
 
@@ -383,6 +490,12 @@ def compose_file(spec: StackSpec) -> dict[str, Any]:
     services: dict[str, Any] = {
         "mosquitto": _mosquitto_service(),
         "influx": _influx_service(spec),
+        # Init containers, both short-lived and both `restart: "no"`. They exist
+        # because two of the five services need one piece of state created
+        # before the platform's own verification can pass, and neither can be
+        # expressed as configuration: Influx creates a database on first write,
+        # and object storage has no bucket until something makes one.
+        "influx-init": _influx_init_service(spec),
         "prometheus": _prometheus_service(spec),
         "grafana": _grafana_service(spec),
     }
@@ -394,6 +507,7 @@ def compose_file(spec: StackSpec) -> dict[str, Any]:
     }
     if spec.include_object_storage:
         services["minio"] = _minio_service(spec)
+        services["minio-init"] = _minio_init_service(spec)
         volumes["minio-data"] = None
     return {"name": f"echoes-{spec.deployment_slug}", "services": services, "volumes": volumes}
 
@@ -507,6 +621,13 @@ def render_configs(spec: StackSpec) -> dict[str, str]:
                 spec.secrets.broker_admin_password_hash,
             ),
             indent=2,
+        )
+        + "\n",
+        # Influx reads this at startup and will not take the token any other
+        # way. `name` is what the token is called in Influx's own listing;
+        # `_admin` is what `influxdb3 create token --admin --offline` writes.
+        INFLUX_TOKEN_FILE: json.dumps(
+            {"token": spec.secrets.influx_token, "name": "_admin"}, indent=2
         )
         + "\n",
         "prometheus/prometheus.yml": _dump(prometheus_yml(spec)),

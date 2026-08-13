@@ -51,7 +51,6 @@ integration test buys nothing but minutes.
 import asyncio
 import contextlib
 import logging
-import os
 import signal
 import time
 import uuid
@@ -768,21 +767,27 @@ async def run_worker(settings: Settings | None = None) -> None:
 def main() -> None:
     """`python -m app.controlplane.runner` — the compose `worker` service.
 
-    Configures logging itself, which the API never has to: under uvicorn the
-    server installs the handlers, and a bare process has none, so Python's
-    last-resort handler passes WARNING and above and silently drops the rest.
-    Everything this worker does that is worth watching — started, connected,
-    which revision timed out, which device drifted — is INFO, and without this
-    the container's whole narrative is invisible while the process looks
-    healthy. `configure_logging` is still called: it installs the request-id
-    record factory, and only that.
-    """
-    from app.middleware import configure_logging
+    Installs a root handler, because a bare process has none and Python's
+    last-resort handler passes WARNING and above while silently dropping the
+    rest. Everything this worker does that is worth watching — started,
+    connected, which revision timed out, which device drifted — is INFO, and
+    without it the container's whole narrative is invisible while the process
+    looks healthy.
 
-    logging.basicConfig(
-        level=os.environ.get("EOE_LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    **This docstring used to claim the API did not need the same treatment
+    ("under uvicorn the server installs the handlers"), and that was wrong**
+    (D127): uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves
+    the ROOT logger bare, so the API dropped every `app.*` INFO line for as long
+    as that sentence stood. `create_app` now calls the same helper, which is why
+    it lives in `app.middleware` rather than here — one process configuring
+    logging correctly and another not was the whole defect.
+
+    `configure_logging` is separate and still called: it installs the
+    request-id record factory, and only that.
+    """
+    from app.middleware import configure_logging, install_root_handler
+
+    install_root_handler()
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(run_worker())

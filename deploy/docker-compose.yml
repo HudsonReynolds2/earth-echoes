@@ -114,7 +114,12 @@ services:
   # gitignored — run `uv run python -m app.devbroker --certs-only` before the
   # first `compose up`, then the full run once deployments exist.
   mosquitto:
-    image: eclipse-mosquitto:2
+    # Pinned to the version a generated stack ships (app/services/stack.py
+    # IMAGES), not the floating `:2` tag. Docker Hub moved `:2` to 2.1.x, and
+    # the two lines read dynamic-security.json passwords differently — a
+    # developer whose dev broker is a different version from the deployment
+    # broker debugs the wrong system (D132).
+    image: eclipse-mosquitto:2.0.20
     ports:
       - "18883:8883"
     volumes:

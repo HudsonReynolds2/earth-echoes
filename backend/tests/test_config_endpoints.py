@@ -153,7 +153,7 @@ def test_effective_carries_per_key_provenance(cfg_app):
     assert body["entity_id"] == MAC_A
     assert body["catalog_version"] == CATALOG_VERSION
     config = body["config"]
-    assert len(config) == 37  # every catalog key, inventory included at listener
+    assert len(config) == 38  # every catalog key, inventory included at listener
     assert config["logging.verbosity"] == {
         "value": "warn",
         "source": "organization",

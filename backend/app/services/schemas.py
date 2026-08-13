@@ -167,13 +167,30 @@ class PrometheusSettings(ServiceSettings):
 
 
 class GrafanaSettings(ServiceSettings):
-    """Grafana (spec 16.2 row 4): base URL and a service account token."""
+    """Grafana (spec 16.2 row 4): base URL, and one of two ways to authenticate.
+
+    **Either a service account token, or an admin account the platform mints
+    one from.** Grafana issues token values itself and shows them once, so a
+    Grafana the platform generated cannot be handed a token in advance — the
+    only credential a fresh instance takes up front is an admin username and
+    password. Rather than make that a special case for generated stacks, it is
+    a supported way to onboard any Grafana: supply an admin account and the
+    platform creates the `echoes-platform` service account, has Grafana issue a
+    token for it, stores that, and never sends the admin password again
+    (`app/services/provision.py`).
+
+    Both are optional at the model level because the wizard saves this form
+    before either has been entered; `provision.ensure_grafana_service_account`
+    is where "neither was supplied" becomes a real answer for the operator.
+    """
 
     service_key: ClassVar[str] = "grafana"
-    secret_fields: ClassVar[tuple[str, ...]] = ("service_account_token",)
+    secret_fields: ClassVar[tuple[str, ...]] = ("service_account_token", "admin_password")
 
     base_url: str = Field(min_length=1, max_length=500)
     service_account_token: SecretIn = None
+    admin_username: str | None = Field(default=None, max_length=255)
+    admin_password: SecretIn = None
 
 
 class S3Settings(ServiceSettings):

@@ -254,8 +254,44 @@ def dynsec_password_hash(password: str) -> str:
     a config function that hashed its own argument would produce a different
     file each call, and the platform stores no blob to compare against. E5.9
     calls this once, stores the result, and every later render is pure.
+
+    The stored form is the `$7$` field group, which is what E5.9 keeps in
+    SecretStore. `dynsec_password_fields` splits it into the shape the plugin
+    actually reads — see there for why those are not the same thing.
     """
     return password_hash(password, os.urandom(PW_SALT_BYTES), iterations=DYNSEC_PW_ITERATIONS)
+
+
+def dynsec_password_fields(encoded: str) -> dict[str, Any]:
+    """A `$7$` hash split into the plugin's THREE JSON fields.
+
+    **Mosquitto 2.0's dynamic security plugin does not understand
+    `encoded_password`.** It reads `password`, `salt` and `iterations` as
+    separate members and silently ignores a client entry's `encoded_password`,
+    which leaves the account with no password at all — every login is then
+    refused with CONNACK 135 and the broker logs `not authorised`, with nothing
+    said about the config it just skipped. Mosquitto 2.1 writes and reads the
+    combined form instead.
+
+    Measured on both, dialling a real broker with `mosquitto_sub`:
+
+    | client entry                     | 2.0.20  | 2.1.2 |
+    |----------------------------------|---------|-------|
+    | `encoded_password`               | REFUSED | ok    |
+    | `password` + `salt` + `iterations` | ok    | ok    |
+
+    So the three-field form is what is rendered: it is the only one both
+    versions accept, and `IMAGES["mosquitto"]` pins 2.0.x. This is not
+    theoretical — E5.10's keystone found it by bringing the generated bundle up,
+    and every dynsec test in the suite had passed because the FIXTURES run
+    `eclipse-mosquitto:2`, a floating tag that now resolves to 2.1.2 (D132).
+
+    Pure: same input, same output, so two downloads stay byte-identical.
+    """
+    marker, iterations, salt, digest = encoded.split("$")[1:]
+    if marker != "7":
+        raise ValueError(f"not a Mosquitto $7$ password hash: {marker!r}")
+    return {"password": digest, "salt": salt, "iterations": int(iterations)}
 
 
 def dynamic_security_config(
@@ -268,7 +304,10 @@ def dynamic_security_config(
 
     Takes an ALREADY-HASHED password (see `dynsec_password_hash`) so that
     rendering is a pure function of stored state and two downloads of one
-    bundle are byte-identical.
+    bundle are byte-identical. It is split into the plugin's three password
+    fields rather than written as one `encoded_password` string, because
+    Mosquitto 2.0 reads only the former — `dynsec_password_fields` carries the
+    measurement.
 
     **Only the platform account exists at generation time**, holding two roles:
     the plugin's `admin` role, which is what lets E5.6 create per-device clients
@@ -288,7 +327,7 @@ def dynamic_security_config(
         "clients": [
             {
                 "username": admin_username,
-                "encoded_password": admin_password_hash,
+                **dynsec_password_fields(admin_password_hash),
                 "roles": [
                     {"rolename": DYNSEC_ADMIN_ROLE},
                     {"rolename": DYNSEC_DEPLOYMENT_ROLE},

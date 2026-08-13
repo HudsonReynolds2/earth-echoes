@@ -171,6 +171,7 @@ E0_ROUTES = {
     # choice 7).
     ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack"),
     ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/download"),
+    ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/rotate"),
     # E5.6, spec 16.4: one Aggregator's own broker login. `MANAGE_SERVICES` to
     # mint and revoke because a broker credential is a grant on the
     # deployment's broker rather than a property of the inventory row;

@@ -56,7 +56,9 @@ MODE_DYNSEC = 0o666
 SECRET_PATHS = frozenset({".env"})
 
 #: Read by a container that has dropped privileges, so it cannot be 0600.
-CONTAINER_READ_PATHS = frozenset({"mosquitto/server.key", "prometheus/scrape_password"})
+CONTAINER_READ_PATHS = frozenset(
+    {"mosquitto/server.key", "prometheus/scrape_password", stack.INFLUX_TOKEN_FILE}
+)
 
 
 def bundle_files(

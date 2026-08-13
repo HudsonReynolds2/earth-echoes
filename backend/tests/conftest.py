@@ -30,6 +30,8 @@ from typing import Any
 import pytest
 from hypothesis import settings as hypothesis_settings
 
+from app.services.stack import IMAGES as STACK_IMAGES
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # E2.3: property-based cases in the test-critical merge suite run
@@ -62,6 +64,9 @@ RIG_MODULES = frozenset(
         "test_tester_prometheus",
         "test_tester_grafana",
         "test_tester_s3",
+        # E5.10's Grafana bootstrap dials the rig's Grafana too, so it joins
+        # the group rather than starting a sixth container.
+        "test_grafana_bootstrap",
     }
 )
 
@@ -964,6 +969,20 @@ class Broker:
         )
 
 
+#: **Read from the shipped constant, not written here** (D132).
+#:
+#: Every broker in the gate runs the image a generated stack ships, because a
+#: fixture on a different version proves nothing about what an operator gets.
+#: This was not hypothetical: the fixtures floated on `eclipse-mosquitto:2`,
+#: Docker Hub moved that tag to 2.1.2, and every dynsec test in the suite went
+#: on passing while the 2.0.x image the stack pins refused every login — the
+#: two versions read `dynamic-security.json` passwords differently
+#: (`brokerconfig.dynsec_password_fields` carries the measurement). E5.10's
+#: keystone found it by bringing the generated bundle up. Importing the
+#: constant rather than repeating it means the next version bump moves both.
+MOSQUITTO_IMAGE = STACK_IMAGES["mosquitto"]
+
+
 def _start_broker_container(
     dev_dir: Path,
     conf: Path,
@@ -1005,7 +1024,7 @@ def _start_broker_container(
                 # it just lives in RAM now (INFRA.1).
                 "--tmpfs",
                 f"/mosquitto/data:rw,size=64m,{TMPFS_WORLD_WRITABLE}",
-                "eclipse-mosquitto:2",
+                MOSQUITTO_IMAGE,
             ],
             capture_output=True,
             text=True,
@@ -1179,14 +1198,21 @@ def dynsec_config(deployment_slug: str) -> dict:
     `mosquitto_ctrl dynsec init`'s own default and the reason an unprivileged
     client's SUBSCRIBE to the control topic is refused.
     """
+    from app.brokerconfig import dynsec_password_fields
     from app.contracts.mqtt import deployment_root
     from app.devbroker import password_hash
 
     def client(username: str, password: str, rolename: str) -> dict:
+        # Split into `password`/`salt`/`iterations` through the SAME helper the
+        # generated stack renders with, because Mosquitto 2.0 ignores a
+        # combined `encoded_password` and leaves the account with no password
+        # at all (D132). This fixture used to write the combined form and
+        # passed only because it ran a floating `:2` tag that had moved to
+        # 2.1.x; both now run `MOSQUITTO_IMAGE`.
         return {
             "username": username,
-            "encoded_password": password_hash(
-                password, os.urandom(12), iterations=DYNSEC_PW_ITERATIONS
+            **dynsec_password_fields(
+                password_hash(password, os.urandom(12), iterations=DYNSEC_PW_ITERATIONS)
             ),
             "roles": [{"rolename": rolename}],
         }

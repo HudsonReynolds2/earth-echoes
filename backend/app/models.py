@@ -272,6 +272,23 @@ class Deployment(Base):
     services_status: Mapped[str] = mapped_column(
         String(30), default="unconfigured", server_default=text("'unconfigured'")
     )
+    #: **How many times this deployment's service credentials have been
+    #: generated** (E5.11). Projected onto `services.credentials_generation`,
+    #: which is the ONE non-secret thing a rotation changes in a device's
+    #: desired config.
+    #:
+    #: Without it a rotation is invisible to devices: a desired snapshot
+    #: carries secret MARKERS and never plaintext (spec 5.4, 8; D51, D126), and
+    #: a marker is a SecretStore NAME — the identical string before and after a
+    #: rotation. Every snapshot would be unchanged, every plan entry a no-op,
+    #: and nothing minted, so "rotation is a config revision and not a manual
+    #: redistribution" (spec 16.3) would not be true of any device. This is the
+    #: counter that makes it true, and it is deliberately a COUNT rather than a
+    #: timestamp: two renders of one generation have to be identical, and a
+    #: clock is not (D134).
+    services_credentials_generation: Mapped[int] = mapped_column(
+        default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

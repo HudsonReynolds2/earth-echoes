@@ -75,6 +75,14 @@ TWELVE = {
     "telemetry.grafana_url",
 }
 
+#: The twelve above plus E5.11's generation counter (D134). **The two sets are
+#: not interchangeable and the difference is the point:** `TWELVE` is what a
+#: projection of the SERVICE ROWS produces, and `THIRTEEN` is what the catalog
+#: marks write-restricted. The counter comes from the deployment rather than
+#: from any service row, so it is restricted (an operator may not write it) but
+#: is never part of `service_settings`' output unless a caller passes it.
+THIRTEEN = TWELVE | {"services.credentials_generation"}
+
 
 def full_body() -> dict:
     """All four projecting services configured, so the projection is complete."""
@@ -110,9 +118,9 @@ def full_body() -> dict:
 
 
 def test_the_catalog_is_the_source_of_the_restricted_set() -> None:
-    assert RESTRICTED_KEYS == TWELVE
-    assert restricted_keys() == TWELVE
-    assert {entry.key for entry in CATALOG if entry.write_restricted is not None} == TWELVE
+    assert RESTRICTED_KEYS == THIRTEEN
+    assert restricted_keys() == THIRTEEN
+    assert {entry.key for entry in CATALOG if entry.write_restricted is not None} == THIRTEEN
 
 
 def test_every_projected_key_is_a_write_restricted_catalog_key() -> None:
@@ -248,7 +256,7 @@ def test_config_overrides_still_refuses_every_one_of_the_twelve(owner, dep_id) -
     of deleting it. This is what proves the flag defaults off on the operator
     path, one key at a time so a failure names the key that leaked.
     """
-    for key in sorted(TWELVE):
+    for key in sorted(THIRTEEN):
         response = owner.put(
             f"{API_PREFIX}/deployments/{dep_id}/config/overrides",
             json={"overrides": {key: "anything"}},
@@ -261,10 +269,16 @@ def test_config_overrides_still_refuses_every_one_of_the_twelve(owner, dep_id) -
 
 def test_the_pure_validator_refuses_them_by_default_and_permits_them_on_request() -> None:
     """The same property one level down, where the flag actually lives."""
-    changes = dict.fromkeys(TWELVE, "value")
+    # Type-correct values per key: the counter is an `int`, and feeding it a
+    # string would make the second half of this test pass for the wrong reason
+    # — an `invalid_value` refusal looks nothing like a `service_restricted`
+    # one, but `permitted == []` cannot tell them apart.
+    changes: dict[str, object] = {
+        key: (0 if key == "services.credentials_generation" else "value") for key in THIRTEEN
+    }
     refused = validate_override_map(changes, CATALOG_BY_KEY, entity_level="deployment")
     assert {error.code for error in refused} == {"service_restricted"}
-    assert {error.key for error in refused} == TWELVE
+    assert {error.key for error in refused} == THIRTEEN
 
     permitted = validate_override_map(
         changes, CATALOG_BY_KEY, entity_level="deployment", allow_write_restricted=True

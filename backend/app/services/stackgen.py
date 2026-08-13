@@ -41,7 +41,14 @@ from app.models import Deployment, DeploymentService
 from app.secrets import SecretStore
 from app.services import store
 from app.services.schemas import secret_name
-from app.services.stack import INFLUX_DATABASE, PORTS, StackSecrets, StackSpec
+from app.services.stack import (
+    INFLUX_DATABASE,
+    INFLUX_TOKEN_PREFIX,
+    PORTS,
+    S3_BUCKET,
+    StackSecrets,
+    StackSpec,
+)
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +57,12 @@ log = logging.getLogger(__name__)
 #: the inventory could reconstruct is not a credential, and E5.9's acceptance
 #: diffs two generations for one deployment to prove it.
 TOKEN_BYTES = 32
+
+#: The admin account a generated Grafana starts with. Written onto the row as
+#: plain settings so `provision.ensure_grafana_service_account` finds it, and
+#: read back by `_assemble` so a re-render uses the STORED value rather than
+#: this default — an operator who changed it has to keep working.
+GRAFANA_ADMIN_USERNAME = "eoe"
 
 #: bcrypt work factor for the Prometheus password. 12 is the current sensible
 #: default; this hash is verified on every scrape, so a much higher factor buys
@@ -153,11 +166,19 @@ def generate_stack(
         # --- generate ---------------------------------------------------
         broker_admin_password = _token()
         broker_admin_hash = brokerconfig.dynsec_password_hash(broker_admin_password)
-        influx_token = _token()
+        # Influx 3 rejects a token without its own prefix, so the entropy is
+        # ours and the shape is theirs (`stack.INFLUX_TOKEN_PREFIX`).
+        influx_token = INFLUX_TOKEN_PREFIX + _token()
         prometheus_password = _token()
         prometheus_hash = bcrypt_hash(prometheus_password)
         grafana_password = _token()
-        minio_user = "eoe-stack"
+        # **Rotated, not constant.** `S3Settings` classifies `access_key` as a
+        # secret field, so leaving it fixed would mean a rotation that left one
+        # of the deployment's stored credentials exactly as it was — which is
+        # what E5.11's "the old credentials are absent afterwards" acceptance
+        # forbids, and what its test caught. The prefix keeps it recognisable
+        # in MinIO's own console.
+        minio_user = f"eoe-stack-{secretslib.token_urlsafe(6)}"
         minio_password = _token()
 
         tls = brokerconfig.generate_tls_material(hostnames=hostnames, ips=ips)
@@ -177,14 +198,22 @@ def generate_stack(
         mqtt_password_name = secret_name(deployment_id, "mqtt", "password")
         influx_token_name = secret_name(deployment_id, "influx", "token")
         prom_password_name = secret_name(deployment_id, "prometheus", "remote_write_password")
-        grafana_token_name = secret_name(deployment_id, "grafana", "service_account_token")
+        grafana_admin_name = secret_name(deployment_id, "grafana", "admin_password")
         put(mqtt_password_name, broker_admin_password)
         put(influx_token_name, influx_token)
         put(prom_password_name, prometheus_password)
-        # Grafana has no API token until someone creates one; the admin
-        # password is what the stack ships with, and E5.4d's tester dials the
-        # health and datasource endpoints with it.
-        put(grafana_token_name, grafana_password)
+        # **The admin account, stored as an admin account.** Grafana issues
+        # service account TOKENS itself and shows them once, so a stack that
+        # does not exist yet cannot be given one; what a fresh Grafana does
+        # accept is GF_SECURITY_ADMIN_USER/_PASSWORD. The first verification
+        # spends this once to mint the real credential
+        # (`provision.ensure_grafana_service_account`), and every dial after
+        # that sends the scoped token.
+        #
+        # This used to be stored under the `service_account_token` name, which
+        # made the tester send an admin password as a bearer token; Grafana
+        # answered 401 and the generated stack could never reach `verified`.
+        put(grafana_admin_name, grafana_password)
 
         if include_object_storage:
             s3_access_name = secret_name(deployment_id, "s3", "access_key")
@@ -227,8 +256,14 @@ def generate_stack(
             db,
             deployment_id,
             "grafana",
-            config={"base_url": f"http://{host}:{PORTS['grafana']}"},
-            secret_names={"service_account_token": grafana_token_name},
+            config={
+                "base_url": f"http://{host}:{PORTS['grafana']}",
+                "admin_username": GRAFANA_ADMIN_USERNAME,
+            },
+            # No `service_account_token` yet, and its absence is the signal:
+            # `provision.needs_grafana_bootstrap` reads exactly this — an admin
+            # account present and no token — and mints one on first test.
+            secret_names={"admin_password": grafana_admin_name},
         )
         if include_object_storage:
             store.upsert_service(
@@ -236,7 +271,7 @@ def generate_stack(
                 deployment_id,
                 "s3",
                 config={
-                    "bucket": "echoes",
+                    "bucket": S3_BUCKET,
                     "region": "us-east-1",
                     "endpoint": f"http://{host}:{PORTS['minio']}",
                 },
@@ -256,6 +291,14 @@ def generate_stack(
             row.last_tested_at = None
 
         _drop_object_storage_if_absent(db, secret_store, deployment_id, include_object_storage)
+        # **The one non-secret thing a rotation changes** (D134). Bumped in the
+        # SAME transaction as the credentials it describes, so a generation the
+        # devices were told about is always a generation that was stored — the
+        # projection reads this column, and a counter that could run ahead of
+        # the credentials would announce a rotation that had not happened.
+        deployment.services_credentials_generation = (
+            deployment.services_credentials_generation or 0
+        ) + 1
         db.commit()
     except BaseException:
         db.rollback()
@@ -328,10 +371,14 @@ def _assemble(
         prometheus_password=_secret_for(
             secret_store, rows.get("prometheus"), "remote_write_password"
         ),
-        grafana_admin_username="eoe",
-        grafana_admin_password=_secret_for(
-            secret_store, rows.get("grafana"), "service_account_token"
+        grafana_admin_username=str(
+            (rows["grafana"].config.get("admin_username") if "grafana" in rows else None)
+            or GRAFANA_ADMIN_USERNAME
         ),
+        # The bootstrap account the compose file sets GF_SECURITY_ADMIN_* from,
+        # NOT the service account token — which does not exist until the stack
+        # has been up once and cannot be rendered into the file that starts it.
+        grafana_admin_password=_secret_for(secret_store, rows.get("grafana"), "admin_password"),
         minio_root_user=(
             _secret_for(secret_store, rows.get("s3"), "access_key")
             if include_object_storage

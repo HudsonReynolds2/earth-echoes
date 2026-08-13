@@ -30,7 +30,7 @@ from app.models import AuditLog, Deployment, Organization, RoleAssignment, Secre
 from app.services.store import load_services
 from app.settings import Settings
 
-PASSWORD = "stack-endpoint-test-pw"
+PASSWORD = "e510-bundle-pw"
 ROLE_EMAILS = {
     Role.OWNER: "e510-owner@example.com",
     Role.DEPLOYMENT_OPERATOR: "e510-operator@example.com",

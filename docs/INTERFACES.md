@@ -1734,3 +1734,72 @@ reimplement their logic.** Signatures, verbatim:
   and E5's projection is pinned to it by a test asserting the marker AND that no plaintext appears
   anywhere in the payload.
 - **Suite:** `backend/tests/test_broker_refresh.py` (9 tests, real broker, two deployments).
+
+### The generated stack: bundle, rotation, and the thirteenth key (E5.8-E5.11; spec 16.3, 16.5; D130-D137)
+
+- **Three endpoints, all `MANAGE_SERVICES`, all audited, none returning a credential.**
+  `POST /deployments/{id}/services/stack` generates, `GET .../services/stack/download` streams
+  the archive, and `POST .../services/stack/rotate` regenerates. The download's audit detail is
+  the byte count and nothing else.
+- **The platform stores no blob and there is no `deployment_stack` table** (D131). Every
+  generation parameter is recovered from stored rows — object storage is *whether an `s3` row
+  exists*, the hostname is the `mqtt` row's `host`, the CA is its `ca_cert_pem` — and the rest
+  lives under deterministic `deployment:{id}:stack:*` SecretStore names kept separate from
+  E5.2's per-service names, so an operator's hand-save cannot clobber them. **Two consecutive
+  downloads are byte-identical**, which is what makes re-rendering an acceptable substitute for
+  storing the archive; entry order, mtime, uid/gid, uname/gname and the gzip header are all
+  pinned.
+- **Credentials are generated, stored and committed BEFORE a byte renders** (fixed choice 7).
+  `SecretStore.put` commits on its own session, so "zero secrets after a fault" is
+  compensation rather than a shared transaction, and a failed generation **restores prior
+  values rather than deleting names** (D131) — regeneration overwrites the same deterministic
+  names, so the destructive version wiped the working stack it was replacing.
+- **`services.credentials_generation` is the thirteenth write-restricted key** and the only one
+  that is not a projection of a service row (D134, spec addendum SPEC-5-01). It is an `int` on
+  `deployment.services_credentials_generation`, bumped in the same transaction as every
+  generation. **It exists because a rotation is otherwise invisible to devices:** a desired
+  snapshot carries secret MARKERS, and a marker is a SecretStore name — the same string before
+  and after. `write_restricted` keeps it out of Listener-bound config, so rotation mints one
+  revision per Aggregator and zero per Listener. Adding it moved the frozen merge-engine golden
+  checksum, recorded in D137.
+- **Rotation publishes BEFORE it knows whether re-verification passed, and unconditionally.**
+  The intuitive order is wrong: the likeliest reason re-verification fails is that the operator
+  has not restarted the stack yet, which is exactly when the devices need the new credentials.
+  A failed re-verification therefore leaves `services_status` at `degraded` **and still
+  publishes**. `verified` is never optimistic — generation returns every service to `untested`
+  and only a real test pass moves it on. The code carries a comment saying so; do not "fix" it.
+- **Grafana is the one credential that cannot be generated ahead of the stack**
+  (`app/services/provision.py`). Service account tokens are issued at runtime and shown once,
+  so the platform generates an ADMIN account and the first verification uses it once as a
+  bootstrap to mint the scoped token. **This is the only place in the phase where verifying can
+  create something on a target system**, and it is deliberately outside the testers:
+  `GrafanaTester.run` still writes nothing, and an operator who pasted their own token never
+  reaches this module.
+- **No sweep re-checks any of this on a timer, deliberately** (D133). Degradation comes from
+  observed events only — an operator-run test, a rotation's re-verification, and for MQTT the
+  control plane's connection and LWT. `status.py::services_recheck_sweep` is an on-demand bulk
+  re-test for an operator action to invoke, not a scheduled job.
+- **Suites:** `test_stack_generator.py`, `test_stack_generation.py`, `test_stack_endpoints.py`,
+  `test_stack_rotation.py`, `test_grafana_bootstrap.py`, and `test_stack_keystone.py` — the
+  keystone being the only test in the epic that RUNS the generated artifact under
+  `docker compose` and points all five testers at it, rather than inspecting it.
+
+### Amendment: the connection lifecycle is shielded at BOTH ends (E5, D138; extends D94)
+
+- **`app/controlplane/broker.py` has two symmetric helpers, and they are not optional.**
+  `_close_client` (D94) and `_open_client` (D138) each run an aiomqtt context transition in its
+  own task, shield it, and await it to completion if the surrounding task is cancelled. Neither
+  may be reduced to a bare `async with` or a bare `enter_async_context`.
+- **Why the entry needs it too.** aiomqtt's `__aenter__` awaits paho's blocking `connect()` in
+  an executor thread and then the CONNACK. A cancellation at either point abandons
+  `enter_async_context` **before the client is registered on the stack**, while the executor
+  thread completes the connect anyway — a started thread cannot be cancelled. The result is a
+  CONNECTED client with a live socket and a running `_misc_loop` owned by nothing, which
+  `stop()` cannot close and which outlives the process's shutdown.
+- **`stop()` therefore means the sockets are going away, not that they are already gone.**
+  aiomqtt schedules its `_misc_loop` cancel from paho's `_on_socket_close` via
+  `call_soon_threadsafe` and nothing awaits it, so a `_misc_loop` task may briefly outlive
+  `stop()` — **with no socket under it**. A survivor still holding a LIVE socket is a leak, not
+  a slow teardown, because anything that reached `__aexit__` has already resolved
+  `_disconnected`. `test_mqtt_manager.py::_tasks_outliving` encodes exactly that distinction
+  and must not be given a grace period for the live-socket case.

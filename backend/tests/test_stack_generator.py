@@ -15,6 +15,7 @@ The phase document's acceptance is three claims, and each one is here:
    existing.
 """
 
+import json
 import subprocess
 
 import pytest
@@ -23,9 +24,13 @@ from conftest import REPO_ROOT, docker_cli, docker_env
 
 from app import brokerconfig
 from app.services.stack import (
+    IMAGES,
+    INFLUX_ADMIN_MOUNT,
     INFLUX_DATABASE,
+    INFLUX_TOKEN_FILE,
     PORT_PURPOSE,
     PORTS,
+    S3_BUCKET,
     StackSecrets,
     StackSpec,
     compose_file,
@@ -122,7 +127,11 @@ def test_the_minio_shape_is_the_only_difference_between_the_two(spec):
     about. Only the object-storage service and its volume appear."""
     without = set(compose_file(_spec(include_object_storage=False))["services"])
     with_minio = set(compose_file(_spec(include_object_storage=True))["services"])
-    assert with_minio - without == {"minio"}
+    # The server AND its bucket-creating init container. MinIO has no way to
+    # declare a bucket in configuration, and the phase document's E5.8b line
+    # asks for "optional MinIO with a created bucket" — so the init service is
+    # part of the object-storage shape rather than a sixth thing.
+    assert with_minio - without == {"minio", "minio-init"}
     assert without - with_minio == set()
 
 
@@ -283,12 +292,55 @@ def test_the_contact_point_targets_the_route_e76_will_build(spec):
 def test_influx_gets_its_token_and_the_agreed_database_name(spec):
     """The testers and E7's read clients both need the database name without
     asking the operator, so it is fixed rather than configurable."""
-    env = compose_file(spec)["services"]["influx"]["environment"]
-    assert env["INFLUXDB3_AUTH_TOKEN"] == INFLUX_BEARER
     influx_ds = next(
         ds for ds in grafana_datasources(spec)["datasources"] if ds["name"] == "InfluxDB"
     )
     assert influx_ds["jsonData"]["dbName"] == INFLUX_DATABASE
+
+
+def test_influx_takes_its_admin_token_from_a_file_and_not_the_environment():
+    """**`INFLUXDB3_AUTH_TOKEN` configures the influxdb3 CLI, not the server.**
+
+    Setting it on the server container looks exactly like preseeding a token
+    and does nothing at all: Influx 3 Core creates its own admin token and
+    refuses everything else, so the platform's stored token got 401 on every
+    call and a generated stack could never be verified. `serve
+    --admin-token-file` is the mechanism that does work, and it is what lets
+    the token be generated and committed before the stack exists (fixed choice
+    7) rather than scraped out of a container's log afterwards.
+    """
+    influx = compose_file(_spec())["services"]["influx"]
+    assert "INFLUXDB3_AUTH_TOKEN" not in influx.get("environment", {})
+    assert f"--admin-token-file={INFLUX_ADMIN_MOUNT}" in influx["command"]
+    assert f"./{INFLUX_TOKEN_FILE}:{INFLUX_ADMIN_MOUNT}:ro" in influx["volumes"]
+
+
+def test_the_influx_token_file_carries_the_token_in_influxs_own_shape():
+    """`{"token": ..., "name": "_admin"}` is what `influxdb3 create token
+    --admin --offline` writes, and the server parses that and nothing else."""
+    files = render_configs(_spec())
+    payload = json.loads(files[INFLUX_TOKEN_FILE])
+    assert payload == {"token": INFLUX_BEARER, "name": "_admin"}
+
+
+def test_the_generated_stack_creates_the_database_and_the_bucket():
+    """Two init containers, for the two pieces of state that cannot be
+    configuration.
+
+    Influx 3 creates a database on first WRITE and E5.4b's tester reads first;
+    MinIO has no declarative bucket. Without these the platform generates a
+    stack its own verification rejects — which is exactly what E5.10's keystone
+    caught, and the reason both are asserted here rather than only end to end.
+    """
+    services = compose_file(_spec(include_object_storage=True))["services"]
+    assert services["influx-init"]["depends_on"] == ["influx"]
+    assert services["minio-init"]["depends_on"] == ["minio"]
+    for name in ("influx-init", "minio-init"):
+        assert services[name]["restart"] == "no", (
+            f"{name} does its job once; `unless-stopped` would restart it forever"
+        )
+    assert INFLUX_DATABASE in " ".join(services["influx-init"]["command"])
+    assert S3_BUCKET in " ".join(services["minio-init"]["command"])
 
 
 def test_the_dynsec_file_is_the_one_writable_mount(spec):
@@ -309,13 +361,27 @@ def test_state_lives_in_named_volumes_so_down_does_not_destroy_it(spec):
     assert "mosquitto-data:/mosquitto/data" in compose["services"]["mosquitto"]["volumes"]
 
 
+#: The images allowed to float, by IMAGE and not by service name — MinIO
+#: publishes only `:latest` on Docker Hub, and both its server and its `mc`
+#: client are in that position. Keyed this way so a service that quietly
+#: switched to a floating tag is caught even if it is named `minio-something`.
+FLOATING_BY_NECESSITY = frozenset({IMAGES["minio"], IMAGES["minio_client"]})
+
+
 def test_no_image_is_floating(spec):
     """An operator brings this up months later. `:latest` means a different
-    Influx from the one the testers were written against."""
+    Influx from the one the testers were written against.
+
+    **The gate's fixtures run these same pins** (`conftest.MOSQUITTO_IMAGE`
+    reads `IMAGES`), which is the property that was missing when the broker
+    fixture floated on `eclipse-mosquitto:2`: the tag moved to a version that
+    reads dynsec passwords differently, and the suite went on passing against a
+    broker no operator would ever run (D132).
+    """
     for name, service in compose_file(spec)["services"].items():
         image = service["image"]
         assert ":" in image, f"{name} has no tag"
-        if name != "minio":
+        if image not in FLOATING_BY_NECESSITY:
             assert not image.endswith(":latest"), f"{name} is pinned to a floating tag"
 
 

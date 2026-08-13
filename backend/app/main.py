@@ -49,7 +49,12 @@ from app.controlplane.events import Hub, listen
 from app.controlplane.runner import ReconciliationWorker
 from app.db import create_session_factory
 from app.errors import install_error_handlers
-from app.middleware import RequestIdMiddleware, SecurityHeadersMiddleware, configure_logging
+from app.middleware import (
+    RequestIdMiddleware,
+    SecurityHeadersMiddleware,
+    configure_logging,
+    install_root_handler,
+)
 from app.secrets import SecretStore
 from app.services.credentials import default_provider
 from app.settings import Settings
@@ -169,6 +174,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Settings() resolves its required fields from the environment and the
     # optional TOML file (D5); mypy cannot see those sources.
     resolved = settings if settings is not None else Settings()  # type: ignore[call-arg]
+    # D127: uvicorn handles its own loggers and leaves the root logger bare, so
+    # without this every `app.*` INFO line in the API process is dropped.
+    install_root_handler()
     configure_logging()
 
     app = FastAPI(

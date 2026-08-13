@@ -314,6 +314,19 @@ CHECK holds. It is counted here rather than folded into the two, because a docum
    sweep runner is already a generic `(name, interval, callable)`; this is a third entry and
    one settings field, not new machinery.
 
+> **Addendum PHASE5-4-06 (2026-08-13, ref project-changes #34):** **the third discretionary
+> E3 edit was asked for and taken** — `app/controlplane/broker.py` gains `_open_client`, and
+> `_connection_loop` establishes its client through it. A cancellation inside aiomqtt's
+> `__aenter__` (paho's blocking connect in an executor thread, then the CONNACK) abandoned
+> `enter_async_context` before it registered the client, while the executor thread finished
+> connecting regardless, leaving a CONNECTED client with a live socket and a running
+> `_misc_loop` that no stack owned and `stop()` could not close. It is D94's leak from the
+> entry side, and the fix is deliberately D94's shape — own task, shielded, awaited to
+> completion on cancellation. Found by E3's own `test_shutdown_leaves_no_running_tasks` under a
+> loaded gate and reproduced deterministically before the fix was written (D138). The count in
+> this section is now **three discretionary edits and one forced**; a fourth is still a
+> stop-and-ask.
+
 ### The E2-owned defect this phase must fix on the way through
 
 `DevicePlan.changed_keys` in `app/config/plan.py` compares raw before/after maps **including**
@@ -630,6 +643,25 @@ optimistically; **a rotation whose re-verification fails leaves `services_status
 and still publishes**, because the devices need the new credentials precisely because the old
 ones stopped working — the intuitive order is wrong and the code carries a comment saying so.
 
+> **Addendum PHASE5-4-02 (2026-08-12, ref project-changes #32):** "one new revision per
+> Aggregator" needed a **thirteenth** projected key to be achievable, and this unit adds it.
+> A desired snapshot carries secret MARKERS and never plaintext (spec 5.4, 8; D51, D126), and a
+> marker is a SecretStore NAME — the identical string before and after a rotation. Measured:
+> rotating every credential minted ZERO revisions, while rotating to a different hostname minted
+> one per Aggregator and none per Listener, so the projection path was working and there was
+> simply nothing to say. `services.credentials_generation` (catalog key,
+> `write_restricted=SERVICE_ONBOARDING`; column `deployment.services_credentials_generation`,
+> migration `d5f28c60a419`) is the non-secret counter that changes. It is E2-owned surface plus
+> a migration, taken only on the owner's explicit decision (D134); `write_restricted` is what
+> keeps it out of Listener snapshots and therefore keeps the "zero for Listeners" half true.
+
+> **Addendum PHASE5-4-03 (2026-08-12, ref project-changes #31):** **this unit registers no
+> sweep.** Spec 16.5's "periodic re-checks" are closed as *deliberately not built* on the
+> owner's decision — timed polling reports a fact that was true minutes ago, and degradation
+> should come from observed events only (an operator-run test, this re-verification, and for
+> MQTT the control plane's connection and LWT). `status.py::services_recheck_sweep` survives as
+> an on-demand bulk re-test an operator action invokes, never a scheduled job (D133).
+
 > **C4 — full gate.**
 
 **E5.12a Onboarding wizard UI: Path A.** Route
@@ -683,6 +715,24 @@ failure. Plus:
 - The universal definition of done (handbook section 4): CI green, every mutation audited,
   every endpoint RBAC-gated, `INTERFACES.md` and `DECISIONS.md` updated, the demo fixture still
   seeds, the compose stack still starts clean.
+
+> **Addendum PHASE5-4-04 (2026-08-12, ref project-changes #30):** the gate-time design above
+> assumed the fixtures exercise what the platform ships, and they did not. `conftest.py` and
+> `deploy/docker-compose.yml` used the floating `eclipse-mosquitto:2` tag while
+> `stack.IMAGES` pins 2.0.20, and Docker Hub has since moved `:2` to 2.1.x — two versions that
+> read `dynamic-security.json` passwords differently (D132). Every dynsec test in the suite
+> passed against a broker no operator would ever run. Both now read the pin from
+> `stack.IMAGES` so there is one version fact; **a pinned artifact tested against a floating
+> tag proves nothing about what ships.** E0/E3-owned files, taken on the owner's explicit
+> authorization.
+
+> **Addendum PHASE5-4-05 (2026-08-12, ref project-changes #33):** "CI green" hid a process
+> that logged almost nothing. Uvicorn attaches handlers to its own `uvicorn.*` loggers and
+> leaves the ROOT logger bare, so every `app.*` INFO line in the API process was dropped
+> (D127, now closed by D136) — while `runner.py::main`'s docstring asserted the opposite,
+> which is why it survived three epics. `app/middleware.py::install_root_handler` is now
+> called by both hosts, so "which processes log" is a single fact. E0-owned surface, taken by
+> this epic on the owner's explicit authorization.
 
 ## 6. Handoff artifacts
 

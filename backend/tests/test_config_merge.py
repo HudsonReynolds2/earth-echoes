@@ -312,14 +312,32 @@ def test_golden_checksums_are_frozen():
     matches acks against has changed — that is never a routine test fix.
 
     A: the full defaults-only listener snapshot (raw effective values, all
-       37 keys, the INVENTORY constant above).
+       38 keys, the INVENTORY constant above).
     B: non-ASCII strings (locks ensure_ascii=False).
     C: float and int representations (locks Python's repr behavior).
+
+    **Digest A was re-frozen once, at E5.11, and that is the only time.** Spec
+    5.3 gained a thirty-eighth row (`services.credentials_generation`, addendum
+    SPEC-5-01, D134), so the defaults-only snapshot legitimately gained a key
+    and this digest had to move with it — see D137. It is re-frozen only
+    because the change was proven to be exactly that and nothing more: the
+    assertion below removes the new key and reproduces the ORIGINAL digest
+    byte for byte, so a merge-semantics regression hiding inside the re-freeze
+    would fail it. Any FUTURE change to these constants is still a
+    wire-protocol break rather than a test update.
     """
     config = _merge([])
     snapshot = {key: rv.value for key, rv in config.items()}
-    assert len(snapshot) == 37
+    assert len(snapshot) == 38
     assert config_checksum(snapshot) == (
+        "sha256:91ff585cd3d0af1e054ad32fd0d2f30034817389e6eae643785036033bd82374"
+    )
+    # The re-freeze is falsifiable: drop E5.11's key and the pre-E5.11 digest
+    # must come back unchanged. This is what makes the line above a recorded
+    # addition rather than an unexplained new constant.
+    pre_e511 = {k: v for k, v in snapshot.items() if k != "services.credentials_generation"}
+    assert len(pre_e511) == 37
+    assert config_checksum(pre_e511) == (
         "sha256:3f23f0376667b44ee2f4e819757314afa329a67b5880e29857814d6c8a9153b8"
     )
     assert config_checksum({"network.wifi_ssid": "tømmer-skog", "note": "Okabe–Ito"}) == (

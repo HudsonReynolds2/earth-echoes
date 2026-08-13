@@ -49,6 +49,7 @@ from app.secrets import SecretStore
 from app.services import bundle, stackgen
 from app.services import testers as testers_module
 from app.services.projection import service_settings
+from app.services.provision import ensure_service_credentials
 from app.services.schemas import (
     GrafanaSettings,
     InfluxSettings,
@@ -400,7 +401,15 @@ def _project_to_config(
     projection, the revisions and the audit entry are one unit or none of them.
     """
     rows = load_services(db, deployment_id)
-    projection = service_settings(rows, store.get)
+    deployment = db.get(Deployment, deployment_id)
+    projection = service_settings(
+        rows,
+        store.get,
+        # D134: without this a rotation changes nothing any device can see, and
+        # `services_credentials_generation` is the only key in the projection
+        # that does not come from a service row.
+        generation=deployment.services_credentials_generation if deployment else 0,
+    )
     matched = [
         MatchedEntity(
             entity_type="deployment",
@@ -508,6 +517,16 @@ async def test_services(
     deployment = _get_deployment(db, deployment_id)
     store = request.app.state.secret_store
     submitted = (body.services if body is not None else ServicesIn()).by_key()
+
+    # Credentials a service can only issue once it is running — today that is
+    # Grafana's service account token, which Grafana mints itself and shows
+    # once (`app/services/provision.py`). Runs BEFORE credentials are resolved
+    # so the tester dials with the token this call may have just stored, and
+    # only for a deployment whose operator supplied an admin account. It never
+    # raises: a bootstrap failure becomes that one service's auth failure with
+    # its remedy, and the other four verdicts stay real.
+    if "grafana" not in submitted:
+        await ensure_service_credentials(db, store, deployment_id)
 
     # Read through the MODULE, not a from-import: E5.4a-e register into
     # `testers_module.REGISTRY` at import time, and a rebound name here
@@ -723,4 +742,180 @@ def download_stack_bundle(
         headers={
             "Content-Disposition": (f'attachment; filename="echoes-stack-{deployment.slug}.tar.gz"')
         },
+    )
+
+
+# --- E5.11: rotation ---------------------------------------------------------
+
+
+class StackRotateOut(BaseModel):
+    deployment_id: str
+    services_status: str
+    #: How many Aggregators were told. Zero for Listeners is the acceptance,
+    #: and it is a property of the projection rather than of this endpoint.
+    revisions: int
+    #: Whether the re-verification passed. `False` with a 200 is a real and
+    #: expected outcome — see the docstring.
+    verified: bool
+    results: list[TestResultOut]
+    download_path: str
+
+
+@router.post("/stack/rotate", response_model=StackRotateOut, dependencies=[Depends(require_csrf)])
+async def rotate_stack_credentials(
+    deployment_id: uuid.UUID,
+    db: DbDep,
+    request: Request,
+    body: StackGenerateBody,
+    actor: Annotated[
+        UserSession, Depends(require_permission(Permission.MANAGE_SERVICES, "deployment_id"))
+    ],
+) -> StackRotateOut:
+    """Rotate every credential in the deployment's generated stack.
+
+    Regenerate (E5.9) → re-render → re-verify (E5.3) → republish (E5.7a), so
+    **rotation is a config revision and not a manual redistribution** (spec
+    16.3). The operator downloads the new bundle and restarts the stack; the
+    Aggregators are told the new credentials over the control plane they are
+    already connected to.
+
+    **The order looks wrong and is not: a rotation whose re-verification FAILS
+    still publishes.** The intuitive reading — do not ship credentials that
+    have not been proven — is exactly backwards here. Rotation replaces
+    credentials the devices are currently using; the moment the new ones are
+    generated, the old ones are gone from SecretStore and the operator's next
+    restart makes the stack refuse the old ones. A device that was not told is
+    a device that is locked out, and the likeliest reason re-verification fails
+    is that the operator has not restarted the stack yet — precisely the case
+    where the devices need the new credentials most. So the deployment is left
+    `degraded`, honestly, and the revisions go out anyway.
+
+    `services_status` reaches `verified` only through a real test pass. It is
+    never set optimistically: generation puts every service back to `untested`
+    (`pending_verification` when rolled up), and only `apply_test_results` on
+    a genuine pass moves it on.
+
+    **No sweep is registered here, deliberately.** Spec 16.5's "periodic
+    re-checks" are closed as not built (D133): timed polling reports a fact
+    that was true minutes ago, and degradation comes from observed events
+    instead — an operator-run test, this re-verification, and for MQTT the
+    control plane's own connection and LWT.
+    """
+    deployment = _get_deployment(db, deployment_id)
+    secret_store = request.app.state.secret_store
+
+    # Refuse to "rotate" a deployment that never generated a stack: the call
+    # would silently become a generate, and an operator who meant to rotate one
+    # deployment and typed another's id would get a brand-new set of
+    # credentials for it rather than a 404.
+    try:
+        stackgen.load_generated_stack(db, secret_store, deployment)
+    except stackgen.StackNotGenerated as error:
+        raise AppError(
+            "not_found",
+            "no generated stack for this deployment; POST .../services/stack generates one",
+            status_code=404,
+        ) from error
+
+    # 1. Regenerate. Same call as generation, and idempotent by design: it
+    #    overwrites the same deterministic secret names, so the old credentials
+    #    are gone rather than orphaned (E5.9's acceptance).
+    stackgen.generate_stack(
+        db,
+        secret_store,
+        deployment,
+        include_object_storage=body.include_object_storage,
+        hostnames=(body.hostname,),
+        ips=(body.ip,) if body.ip else (),
+    )
+
+    # 2. Project and mint the revisions, in one transaction with the rows.
+    recompute(db, deployment_id)
+    revisions = _project_to_config(db, secret_store, deployment_id, actor)
+    record_audit(
+        db,
+        action="services.stack.rotate",
+        entity_type="deployment",
+        entity_id=str(deployment_id),
+        actor_user_id=actor.user_id,
+        scope=deployment_id,
+        detail={
+            "include_object_storage": body.include_object_storage,
+            "revisions": len(revisions),
+        },
+    )
+    db.commit()
+
+    # 3. Publish BEFORE the re-verification decides anything, and unconditionally
+    #    — see the docstring. The devices are told either way.
+    await publish_all(
+        request.app.state.session_factory,
+        getattr(request.app.state, "mqtt", None),
+        revisions,
+        publish_enabled=request.app.state.settings.publish_enabled,
+        actor_user_id=actor.user_id,
+    )
+
+    # 4. Re-verify against the rotated credentials. The Grafana service account
+    #    is re-minted here rather than reused: its old token was revoked with
+    #    everything else, and `force=True` is what says "rotate this one too".
+    await ensure_service_credentials(db, secret_store, deployment_id, force=True)
+    db.commit()
+
+    registry = testers_module.REGISTRY
+    testers = [registry[key] for key in SERVICE_KEYS if key in registry]
+    credentials = {
+        tester.service_key: resolve_credentials(
+            tester.service_key,
+            load_service(db, deployment_id, tester.service_key),
+            None,
+            secret_store.get,
+            deployment_id=deployment_id,
+            deployment_slug=deployment.slug,
+        )
+        for tester in testers
+    }
+    results = await run_testers(testers, credentials)
+    # Every result here is about STORED credentials, so every one is a verdict
+    # of record (E5.5, D117) — there is no candidate in a rotation.
+    applied = apply_test_results(db, deployment_id, results)
+    status = recompute(db, deployment_id)
+    record_audit(
+        db,
+        action="services.stack.reverify",
+        entity_type="deployment",
+        entity_id=str(deployment_id),
+        actor_user_id=actor.user_id,
+        scope=deployment_id,
+        detail={
+            "outcomes": {result.service_key: result.outcome for result in results},
+            "recorded": audited_outcomes(applied),
+            "services_status": status,
+        },
+    )
+    db.commit()
+
+    return StackRotateOut(
+        deployment_id=str(deployment_id),
+        services_status=status,
+        revisions=len(revisions),
+        verified=status == "verified",
+        results=[
+            TestResultOut(
+                service_key=result.service_key,
+                outcome=result.outcome,
+                checks=[
+                    CheckOut(
+                        name=check.name,
+                        passed=check.passed,
+                        detail=check.detail,
+                        remedy=check.remedy,
+                        elapsed_ms=check.elapsed_ms,
+                    )
+                    for check in result.checks
+                ],
+            )
+            for result in results
+        ],
+        download_path=f"/deployments/{deployment_id}/services/stack/download",
     )

@@ -4,6 +4,226 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D139 (2026-08-13): The service-config sweep was resetting the rotation counter it exists to
+deliver, and the fix has to sit after the early return
+
+- **Decision:** `config_sweep.py::_plan_one` writes `services.credentials_generation` into the
+  projection, **after** the "nothing to deliver" early return rather than by passing
+  `generation=` to `service_settings`.
+- **The defect, and it defeated D134 entirely.** `service_settings` OMITS the counter when no
+  generation is passed, so the projection stops asserting a value and the effective config
+  falls back to the catalog default of `0`. The sweep did not pass one. Since the sweep runs
+  once a minute over every deployment with services, it did not merely fail to deliver the
+  counter — it **actively reset every rotated deployment's counter from N back to 0 and minted
+  a revision to publish the reset**. A rotation's signal to its devices survived less than a
+  minute, and the device-visible value moved BACKWARDS, which is worse than never sending it
+  for a number whose stated purpose is "a count a device compares cheaply against what it last
+  acted on".
+- **Why the obvious fix was wrong.** Passing `generation=` to the `service_settings` call
+  makes the key always present, so the projection is never empty, the early return becomes
+  unreachable, and every deployment holding only an `mqtt` row rebuilds a full change plan
+  every minute — on a 20x30 fleet, 620 merges per deployment per pass, which is exactly the
+  cost that return was written to avoid. Measured: it broke
+  `test_a_broker_only_deployment_never_builds_a_plan` immediately. The counter is added after
+  the return instead: a deployment with nothing else to deliver has no generated stack and so
+  no rotation to announce.
+- **Found by hand, against a live stack, and not by the suite.** The C4 gate was green. The
+  manual verification ran generate → rotate → regenerate through a real uvicorn and read the
+  minted snapshots: the platform's column said 3 while the devices had been told
+  `2 -> 0`. No test covered "what does the sweep do to a rotated deployment", because every
+  existing sweep test used a deployment whose counter was 0, where the bug is invisible.
+  `test_the_sweep_does_not_reset_the_credentials_generation` now sets it to 7 first, which is
+  what makes the assertion able to fail.
+- **The general shape, worth remembering:** `service_settings`' `generation=None` means "do not
+  assert this key", and for a WHOLESALE projection that is indistinguishable from "assert the
+  default". Any third caller that projects for delivery has the same trap; the parameter's
+  docstring says every such caller must pass one, and this one did not.
+
+## D138 (2026-08-13): A cancelled connect stranded a live broker connection, and the third
+E3-owned edit was taken to fix it
+
+- **Decision:** `app/controlplane/broker.py` gains `_open_client`, the mirror of the existing
+  `_close_client`, and `_connection_loop` establishes its client through it. Taken as an
+  **E3-owned fix made by E5 on the owner's explicit authorization** — the phase document
+  authorizes exactly two discretionary E3 edits, both in E5.7b, and makes a third a
+  stop-and-ask. This is the third.
+- **The defect.** aiomqtt's `__aenter__` awaits twice: paho's blocking `connect()` inside an
+  executor thread, then the CONNACK. Cancel the task at either point — which is exactly what
+  `stop()` does — and `enter_async_context` never returns, so **the client is never registered
+  on the `AsyncExitStack`**, while the executor thread runs the connect through to completion
+  anyway, because a thread that has already started cannot be cancelled. paho opens the socket,
+  `_on_socket_open` schedules the `_misc_loop` task, and what survives is a fully CONNECTED
+  client with a live socket that nothing owns and `stack.aclose()` has never heard of. It
+  outlives `stop()` for the life of the process.
+- **This is D94's leak from the other end of the lifecycle.** `_close_client` already existed
+  because aiomqtt's `__aexit__` could be abandoned mid-teardown; nobody had asked what happens
+  when the ENTRY is abandoned instead. The fix is deliberately the same shape — run it in its
+  own task, shield it, and on cancellation await it to completion so the stack really owns the
+  client before the cancellation continues — so the file has one idiom rather than two.
+- **Found by `test_shutdown_leaves_no_running_tasks`**, once, in a loaded six-worker gate, as
+  `socket=LIVE state=MQTT_CS_CONNECTED`. It passed 3/3 in isolation afterwards. **The test's
+  fast-fail-on-live-socket rule was right and must not be softened:** a teardown in flight has
+  already resolved `_disconnected` and cannot present as CONNECTED, so a live socket there is
+  evidence of a leak and not of a slow shutdown. The first instinct — to treat a rare failure
+  in a well-worn concurrency test as flakiness and give it a grace period — would have deleted
+  the detector and kept the bug.
+- **Proven falsifiable rather than assumed.** `test_a_cancelled_connect_cannot_strand_a_
+  connected_client` forces the cancellation against a real broker, and asserts the socket is
+  open BEFORE cancelling so a pass cannot be the vacuous one where nothing had connected.
+  Measured with the shield removed: the test fails on the stranded socket. Measured with it
+  restored: 25 passed.
+- **A correction this turned up.** The helper's docstring said aiomqtt cancels `_misc_loop`
+  from `__aexit__`. It does not — `__aexit__` never touches that task; the cancel is scheduled
+  from `_on_socket_close` (aiomqtt 2.5.1). The conclusion drawn from it was still right, but
+  the stated reason was wrong and is now corrected in place.
+- **Reference:** project-changes #34, addendum PHASE5-4-06. Extends D94, D97, D109, D111.
+
+## D137 (2026-08-13): A frozen golden checksum moved, for the first and only time so far, and
+what makes that not a weakening
+
+- **Decision:** digest A in `test_config_merge.py::test_golden_checksums_are_frozen` is
+  re-frozen from `sha256:3f23f037…` to `sha256:91ff585c…`, and the three key-count assertions
+  in `test_config_merge`, `test_config_endpoints` and `test_settings_catalog` move from 37 to
+  38.
+- **Why it had to move.** D134 added spec 5.3's thirty-eighth key,
+  `services.credentials_generation`. Digest A is the defaults-only listener snapshot over the
+  WHOLE catalog, so a new catalog key changes it by construction. That suite is one of the four
+  test-critical suites rule R0 says no later session may weaken, and its own docstring says
+  changing these constants is "a wire-protocol break, not a test update" — so the change is
+  recorded here rather than made quietly.
+- **What makes it an addition and not a regression, proven rather than asserted.** The
+  re-freeze ships with a second assertion that DELETES the new key from the snapshot and
+  requires the original `3f23f037…` digest back, byte for byte. Measured before the constant
+  was edited. A merge-semantics change hiding inside the re-freeze — a reordered key, a
+  changed default, an altered float repr — would fail that line, so the new constant is pinned
+  to "the old snapshot plus exactly one key" instead of to whatever the code now happens to
+  produce. **Regenerating a golden digest from current behaviour is the failure mode this
+  avoids**, and it is the reason the entry exists.
+- **Scope.** The catalog addition itself is D134 and the owner's decision; this entry covers
+  only its consequence for the frozen contract. Spec addendum SPEC-5-01, project-changes #32.
+- **Still true afterwards:** any future movement in these constants is a wire-protocol break.
+  One recorded exception does not make the next one routine.
+
+## D136 (2026-08-12): The API's root logger gets a handler, and `runner.py`'s docstring was
+wrong (D127 closed)
+
+- **Decision:** `app/middleware.py::install_root_handler` is called by BOTH `create_app` and
+  `runner.py::main`. Authorized by the owner as an E0-owned fix taken by E5.
+- **What was broken.** Uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves the
+  ROOT logger bare, so Python's last-resort handler passed WARNING and above and silently
+  dropped every `app.*` INFO line in the API process — broker connected, coordinates
+  refreshed, publish outcomes. `runner.py::main`'s docstring asserted the opposite ("under
+  uvicorn the server installs the handlers"), which is why it survived three epics.
+- **Why one helper and not two `basicConfig` calls.** The defect was precisely that one
+  process configured logging correctly and the other believed it did not have to. A shared
+  function makes "which processes log" a single fact. `basicConfig` is a no-op when the root
+  logger already has handlers, so a host with its own logging configuration is unaffected.
+- **Pinned by a test at INFO**, not at WARNING: WARNING worked throughout and is what
+  disguised the bug for so long (`tests/test_api_skeleton.py`).
+- **Reference:** D127, which recorded this as a stop-and-ask and is now closed.
+
+## D135 (2026-08-12): The generated stack creates its own database and bucket, and Influx
+takes its admin token from a file
+
+- **Decision:** the generated compose file gains two short-lived init services, `influx-init`
+  and `minio-init`, and Influx is started with `serve --admin-token-file` rather than an
+  environment variable.
+- **`INFLUXDB3_AUTH_TOKEN` configures the CLI, not the server.** Setting it on the server
+  container looks exactly like preseeding a token and does nothing: Influx 3 Core mints its own
+  admin token and refuses every other, so the platform's stored token got 401 on every call.
+  `--admin-token-file` reads a `{"token": ..., "name": "_admin"}` JSON document at startup —
+  the offline form of `influxdb3 create token --admin` — which is what lets the token be
+  generated, stored and committed BEFORE the stack exists (fixed choice 7) instead of being
+  scraped out of a container's log afterwards. The `apiv3_` prefix is required; measured, by
+  starting a server on a token file without it and watching it refuse to come up.
+- **Two pieces of state cannot be configuration.** Influx 3 creates a database on first WRITE
+  and E5.4b's tester reads first (deliberately: a check whose first-run failure is normal is a
+  check people learn to ignore); MinIO has no declarative bucket, and the phase document's
+  E5.8b line asks for "optional MinIO **with a created bucket**". Both are seeded by an init
+  container with `restart: "no"` and a retry loop rather than a healthcheck condition, because
+  the Influx image ships no healthcheck and a compose file an operator debugs should not hang
+  on a condition that never becomes true.
+- **A sixth image, `minio/mc`.** Unavoidable: `minio/minio` carries the server and not even a
+  shell's worth of utilities to script a bucket creation. It and the MinIO server are the two
+  images allowed to float on `:latest`, because MinIO publishes nothing else; the carve-out in
+  `test_no_image_is_floating` is now keyed by IMAGE rather than by service name.
+- **Found by the keystone**, which is the only test that runs the artifact instead of
+  inspecting it.
+
+## D134 (2026-08-12): A rotation bumps a non-secret counter, because secret markers make
+rotation invisible to devices
+
+- **Decision:** a new catalog key `services.credentials_generation` (int,
+  `write_restricted=SERVICE_ONBOARDING`) and a new column
+  `deployment.services_credentials_generation` (migration `d5f28c60a419`), bumped in the same
+  transaction as every credential generation and projected onto device config.
+- **The problem, measured before it was believed.** A device's desired snapshot carries secret
+  MARKERS and never plaintext (spec 5.4 and 8; D51, D126), and a marker is a SecretStore NAME —
+  the identical string before and after a rotation. So a rotation that changed every credential
+  a deployment has minted **zero** revisions: every snapshot unchanged, every plan entry a
+  no-op, no device told anything. Rotating to a different hostname minted one revision per
+  Aggregator and none per Listener, which proved the projection path was working and the marker
+  convention was behaving exactly as designed. There was simply nothing to say.
+- **Why it matters.** The phase document's E5.11 acceptance asks rotation to produce one
+  revision per Aggregator so that "rotation is a config revision, not a manual redistribution"
+  (spec 16.3). Without a non-secret signal that sentence is false of every device.
+- **A count, not a timestamp.** Two renders of one generation must be byte-identical (fixed
+  choice 7) and a clock is not; a count is also what a device compares cheaply against what it
+  last acted on.
+- **Owner decision, asked and answered on 2026-08-12.** The alternatives declined were
+  accepting zero revisions and amending the acceptance, and deferring to E7. This is an
+  **E2-owned catalog change plus a migration**, out of E5's scope under rule R2, and was taken
+  only on that authorization. `write_restricted` keeps it off operator-writable surface and out
+  of Listener snapshots, which is what preserves the "zero per Listener" half of the acceptance.
+- **Reference:** project-changes #32, addendum PHASE5-4-02.
+
+## D133 (2026-08-12): Periodic service re-checks are deliberately not built
+
+- **Decision, the owner's, asked directly and answered directly on 2026-08-12:** the platform
+  runs **no timed re-verification of deployment services, ever**. Spec 16.5's "periodic
+  re-checks" item is closed as *deliberately not built* rather than left outstanding, and
+  **E5.11 registers no sweep**.
+- **Rationale, in the owner's terms:** timed polling reports a fact that was true minutes ago,
+  and the platform should "fail fast and loudly and accurately" off real liveness instead.
+  Degradation now comes only from observed events: an operator-run test, a rotation's
+  re-verification, and for MQTT the control plane's own live connection and LWT.
+- **What survives.** `status.py::services_recheck_sweep` stays as an **on-demand bulk
+  re-test** — a callable an operator action invokes, not a scheduled job — on the owner's call
+  in the same conversation. Its docstring says so rather than promising a timer.
+- **What this closes.** The E5.5 note and the INTERFACES entry that both expected E5.7b to
+  register the sweep, and the ledger's "OUTSTANDING for a later unit" item. Registering it
+  would have needed a production `ServiceTestRunner` dialling every deployment's services on a
+  timer, which no unit in this phase scoped.
+- **Reference:** project-changes #31, addendum PHASE5-4-03.
+
+## D132 (2026-08-12): Mosquitto 2.0 ignores `encoded_password`, and the fixtures were running a
+different broker from the one that ships
+
+- **Two findings, and the second is why the first survived so long.**
+- **The format.** `dynamic-security.json` wrote the platform account's password as one
+  `encoded_password` `$7$` field group. **Mosquitto 2.0's dynamic security plugin does not read
+  that member**; it reads `password`, `salt` and `iterations` separately, silently ignores the
+  combined form, and leaves the account with no password at all. Every connect was refused with
+  CONNACK 135 and `not authorised`, with nothing in the broker's log naming the field it had
+  skipped. Mosquitto 2.1 writes and reads the combined form. Measured against real brokers with
+  `mosquitto_sub`: `encoded_password` is REFUSED on 2.0.20 and accepted on 2.1.2; the
+  three-field form is accepted on BOTH. `brokerconfig.dynsec_password_fields` renders the
+  three-field form and carries the table.
+- **The reason nothing caught it.** `IMAGES["mosquitto"]` pins `eclipse-mosquitto:2.0.20`, and
+  the test fixtures used `eclipse-mosquitto:2` — a floating tag Docker Hub has since moved to
+  2.1.2. Every dynsec test in the suite passed against a broker no operator would ever run,
+  including E5.8a's acceptance that the generated config starts a real broker whose probe
+  answers `available`. **A pinned artifact tested against a floating tag proves nothing about
+  what ships.**
+- **Fixed, on the owner's authorization (E0/E3-owned files):** `conftest.MOSQUITTO_IMAGE`
+  now reads `IMAGES["mosquitto"]` rather than repeating a tag, so the next version bump moves
+  both; `deploy/docker-compose.yml` pins 2.0.20 for the same reason a developer's dev broker
+  should be the deployment broker. `conftest.dynsec_config` renders through the same helper the
+  shipped stack uses.
+- **Found by E5.10's keystone**, and only by it: it is the one test that runs the generated
+  artifact instead of inspecting it.
+- **Reference:** project-changes #30, addendum PHASE5-4-04.
+
 ## D131 (2026-08-12): A failed stack generation restores prior secrets rather than deleting
 them, and there is no `deployment_stack` table
 

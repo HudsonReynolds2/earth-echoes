@@ -80,13 +80,24 @@ PROJECTION: tuple[tuple[str, str, str, bool], ...] = (
     ("grafana", "base_url", "telemetry.grafana_url", False),
 )
 
+#: The one projected key that comes from the DEPLOYMENT rather than from a
+#: service row (E5.11, D134).
+#:
+#: A rotation changes only secret values, and a device's desired snapshot
+#: carries secret MARKERS — SecretStore names, identical before and after. So
+#: without this counter a rotation changes nothing in any snapshot, mints no
+#: revision, and tells no device anything, which would make spec 16.3's
+#: "rotation is a config revision, not a manual redistribution" false in
+#: practice. This is the non-secret thing that changes.
+GENERATION_KEY = "services.credentials_generation"
+
 #: Every write-restricted key in the catalog. Read FROM `CATALOG` rather than
 #: written out, so a catalog change cannot leave a stale copy here.
 RESTRICTED_KEYS: frozenset[str] = frozenset(
     entry.key for entry in CATALOG if entry.write_restricted is not None
 )
 
-_PROJECTED_KEYS = frozenset(key for _, _, key, _ in PROJECTION)
+_PROJECTED_KEYS = frozenset(key for _, _, key, _ in PROJECTION) | {GENERATION_KEY}
 
 if not _PROJECTED_KEYS <= RESTRICTED_KEYS:  # pragma: no cover - import-time invariant
     raise RuntimeError(
@@ -99,6 +110,8 @@ if not _PROJECTED_KEYS <= RESTRICTED_KEYS:  # pragma: no cover - import-time inv
 def service_settings(
     rows: Iterable[DeploymentService],
     read_secret: Callable[[str], str],
+    *,
+    generation: int | None = None,
 ) -> dict[str, Any]:
     """The twelve keys, as an override map ready for `put_overrides`.
 
@@ -138,6 +151,12 @@ def service_settings(
         value = row.config.get(field)
         if value is not None:
             out[catalog_key] = value
+    # Omitted rather than defaulted when the caller did not pass one: the
+    # catalog's own default is 0, and writing a 0 the caller did not mean would
+    # be a projection asserting something about a deployment it was not told
+    # about. Every caller that projects for delivery passes it.
+    if generation is not None:
+        out[GENERATION_KEY] = generation
     return out
 
 

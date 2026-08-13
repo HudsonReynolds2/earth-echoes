@@ -36,6 +36,7 @@ from conftest import (
     make_kek,
 )
 
+from app.config.overrides import get_overrides
 from app.contracts.mqtt import QOS, aggregator_root, deployment_root
 from app.controlplane.broker import (
     MqttClientManager,
@@ -497,6 +498,51 @@ async def test_the_sweep_is_a_no_op_the_second_time(
     assert second.revisions == 0, second
     assert second.published == 0, second
     assert not second.changed
+
+
+async def test_the_sweep_does_not_reset_the_credentials_generation(
+    factory, store, hierarchy
+) -> None:
+    """D139: the sweep must DELIVER the rotation counter, never overwrite it.
+
+    `service_settings` omits `services.credentials_generation` when no
+    generation is passed, so the projection stops asserting a value and the
+    effective config falls back to the catalog default of 0. This sweep runs
+    once a minute over every deployment with services — so an omission here
+    did not merely fail to help, it actively reset every rotated deployment's
+    counter from N back to 0 and minted a revision to publish the reset,
+    destroying within a minute the one signal a rotation gives a device
+    (D134).
+
+    Found by hand against a live stack, not by the suite: the device-visible
+    counter went 2 -> 0 after a regeneration while the platform's own column
+    read 3.
+    """
+    deployment_id = hierarchy["alpha"]
+    with factory() as db:
+        upsert_service(
+            db,
+            deployment_id,
+            "grafana",
+            config={"base_url": "https://grafana.example:3000"},
+            secret_names={},
+            password_secret_name=None,
+        )
+        db.get(Deployment, deployment_id).services_credentials_generation = 7
+        db.commit()
+
+    await service_config_sweep(factory, store, None, publish_enabled=False)
+
+    with factory() as db:
+        overrides = get_overrides(db, "deployment", str(deployment_id))
+    assert overrides.get("services.credentials_generation") == 7, (
+        "the sweep dropped or reset the rotation counter"
+    )
+
+    # And it is stable: a second pass must not mint a revision to change it
+    # back, which is what makes the first assertion more than a coincidence.
+    second = await service_config_sweep(factory, store, None, publish_enabled=False)
+    assert second.revisions == 0, second
 
 
 async def test_the_sweep_skips_deployments_with_no_services(factory, store) -> None:

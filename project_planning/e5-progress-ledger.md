@@ -43,9 +43,11 @@ SIM sessions keep the primary tree.
 | E5.8a Broker material extraction | **done (local)** | C4 | — | `app/brokerconfig.py` takes `Account`, `AclGrant`, `aggregator_acl_grants`, `password_hash`, `password_file_text` and `generate_tls_material`; `devbroker.py` keeps its CLI, `acl_file_text` and the database side, and re-exports the moved names through `__all__` so **`test_dev_broker.py` passes unchanged** (30 tests, untouched by this batch). `Account` moved too, one name wider than the phase doc's list, because `password_file_text` consumes it and a shim would have left the password format in two places. `credentials.py` now imports the grant list from its new home. `generate_tls_material` gained `hostnames`/`ips` with E3.1's values as defaults, and refuses an empty hostname list rather than building a certificate with no CN. Plus the generated broker: `dynamic_security_config` (platform admin only — devices are minted at provisioning time, and a bundle cannot ship credentials it cannot revoke) and `stack_mosquitto_conf`. mTLS comment in `deploy/mosquitto/mosquitto.conf` amended to name E8 instead of E5. **Acceptance met: the generated conf and dynsec JSON start a real broker through `ephemeral_broker(conf=…)` and E5.4a's probe answers `available`.** Targeted: `test_brokerconfig.py` 28 passed, `test_dev_broker.py` 30 passed unchanged, plus 137 across eight affected suites; ruff, `ruff format`, `mypy app` clean. |
 | E5.8b Compose and service configs | **done (local)** | C4 | D130 | `app/services/stack.py`: `StackSpec`/`StackSecrets`, `compose_file`, `prometheus_yml`/`prometheus_web_config`, `grafana_datasources`/`grafana_contact_points`, `render_configs`, and the README (`deploy/stack-templates/README.md` prose + a generated port table). Every YAML built as a dict and `yaml.safe_dump`ed; `mosquitto.conf`/`dynamic-security.json` imported from E5.8a rather than copied. **`pyyaml` promoted from the dev group to runtime dependencies** — `app/` now imports it — and `types-pyyaml` added for `mypy --strict`. **D130: `dynamic_security_config` now takes an already-hashed password.** It salted a fresh hash per call, so two renders differed and fixed choice 7's byte-identical download was already broken before E5.10 could assert it; `dynsec_password_hash` does the salting once and E5.9 stores the result. Found by writing the determinism test, not by reasoning. All three acceptances met: `docker compose config` exits 0 for both shapes (proven falsifiable — a corrupted file returns 1 with `services.broken must be a mapping`), README/compose ports asserted in both directions off the rendered artifacts rather than the shared constant, and no dev-conf literal in any generated file. Targeted: `test_stack_generator.py` 37 passed, plus 132 across six suites; ruff, `ruff format`, `mypy app` clean. |
 | E5.9 Stack credential generation | **done (local)** | C4 | D131 | `app/services/stackgen.py`: `generate_stack` (generate → store → write rows → commit, all before a byte renders), `load_generated_stack`, `tls_material`, `delete_stack_secrets`, `STACK_SECRET_ITEMS`. **No `deployment_stack` table** — fixed choice 7 says the download re-renders "from those rows", so every generation parameter is recovered from stored state: object storage is *whether an `s3` row exists*, the hostname is the `mqtt` row's `host`, the CA is its `ca_cert_pem`, and the rest lives under deterministic `deployment:{id}:stack:*` secret names kept separate from E5.2's per-service names so a hand save cannot clobber them. `bcrypt` added as a dependency (Prometheus's `web_config.yml` takes bcrypt and nothing else; user auth stays on argon2). **`SecretStore.put` commits on its own session, so "zero secrets after a fault" is compensation, not a shared transaction** — and the honest limit (a kill between put and rollback leaves harmless unreferenced ciphertext) is stated in the module docstring. **D131: the first compensation was destructive.** It deleted every name it wrote, but regeneration overwrites the SAME deterministic names, so a failed rotation wiped the working stack it was replacing; it now snapshots and restores prior values and deletes only genuinely new names. Found by the test, not foreseen. All three acceptances met. Targeted: `test_stack_generation.py` 15 passed, plus 129 across six suites; ruff, `ruff format`, `mypy app` clean. |
-| E5.10 Stack bundle endpoints | **endpoints done (local); keystone RED** | C4 | — | `POST .../services/stack` + `GET .../services/stack/download`, `app/services/bundle.py` (deterministic tar.gz: entry order, mtime, uid/gid, uname/gname and the gzip header all pinned — `tarfile`'s `w:gz` cannot set the gzip mtime, hence the explicit `GzipFile`). Both routes `MANAGE_SERVICES`; download audit detail is the byte count and nothing else; a tempfile spy proves nothing is written server-side. `E0_ROUTES` extended by both. Fixed a defect found by reading rather than running: the compose file mounted `./prometheus/scrape_password`, which `render_configs` never produced, so Docker would have made a directory and Prometheus would have scraped nothing — `StackSecrets` now carries the Prometheus password in both forms (hash for `web_config.yml`'s incoming auth, plaintext for the outgoing self-scrape). Then the keystone found the permissions defect: the bundle shipped `server.key` at 0600 and **Mosquitto would not start** (`Unable to load server key file`), because these files are bind-mounted into containers that drop privileges. Only `.env` is 0600 now. Targeted: `test_stack_endpoints.py` 14 passed, 66 across three stack suites. **`test_stack_keystone.py` is NOT committed — it is red.** See the handoff note below. |
-| E5.11 Rotation and regeneration | not started | C4 | — | A failed re-verification still publishes. The intuitive order is wrong. |
-| **C4 full gate** | — | — | — | |
+| E5.10 Stack bundle endpoints | **endpoints done (local); keystone RED** | C4 | — | `POST .../services/stack` + `GET .../services/stack/download`, `app/services/bundle.py` (deterministic tar.gz: entry order, mtime, uid/gid, uname/gname and the gzip header all pinned — `tarfile`'s `w:gz` cannot set the gzip mtime, hence the explicit `GzipFile`). Both routes `MANAGE_SERVICES`; download audit detail is the byte count and nothing else; a tempfile spy proves nothing is written server-side. `E0_ROUTES` extended by both. Fixed a defect found by reading rather than running: the compose file mounted `./prometheus/scrape_password`, which `render_configs` never produced, so Docker would have made a directory and Prometheus would have scraped nothing — `StackSecrets` now carries the Prometheus password in both forms (hash for `web_config.yml`'s incoming auth, plaintext for the outgoing self-scrape). Then the keystone found the permissions defect: the bundle shipped `server.key` at 0600 and **Mosquitto would not start** (`Unable to load server key file`), because these files are bind-mounted into containers that drop privileges. Only `.env` is 0600 now. Targeted: `test_stack_endpoints.py` 14 passed, 66 across three stack suites. |
+| E5.10 keystone: the four failures it found | **done (local)** | C4 | D132, D135 | The keystone was RED on arrival and every failure was a real gap in the generated stack, not a test defect — it is the one test in this epic that runs the artifact instead of inspecting it, and it has now paid for itself four times over. **mqtt:** `dynamic-security.json` wrote the platform password as one `encoded_password` `$7$` group, which **Mosquitto 2.0's plugin does not read** — it wants `password`/`salt`/`iterations` separately, ignores the combined form silently, and refuses every connect with CONNACK 135 naming nothing. The reason nothing caught it is worse than the bug: the fixtures ran `eclipse-mosquitto:2`, which Docker Hub has moved to 2.1.2, while `IMAGES` pins 2.0.20 — **a pinned artifact tested against a floating tag proves nothing about what ships** (D132, project-changes #30). **grafana:** a generated stack has no service account token, and E5.9 stored the ADMIN PASSWORD under the `service_account_token` name; resolved as a stop-and-ask, see the E5.10b row. **s3:** nothing created the bucket the phase document's E5.8b line asks for. **influx:** `INFLUXDB3_AUTH_TOKEN` configures the CLI and not the server, so Influx 3 minted its own admin token and 401'd the platform's — `serve --admin-token-file` is the offline form that lets the token be generated and committed *before* the stack exists (fixed choice 7). Both fixed with short-lived init containers (`influx-init`, `minio-init`, `restart: "no"`, retry loops rather than healthcheck conditions) and a sixth image, `minio/mc`, since `minio/minio` carries no shell (D135). Targeted: `test_stack_keystone.py` 1 passed — the bundle unpacks, comes up in ~14s, and **all five E5.4 testers pass against it**. |
+| E5.10b Grafana service-account bootstrap | **done (local)** | C4 | — | `app/services/provision.py` + `GrafanaAdminClient`: a service account token is issued by Grafana at runtime and shown exactly once, so it cannot be generated ahead of the stack the way every other credential is. The platform generates an admin account, and the FIRST verification uses it once as a bootstrap — create `echoes-platform` with the Admin role, have Grafana mint its token, store that as the deployment's Grafana credential. Every test afterwards sends the scoped token; the admin password stays in SecretStore until a rotation needs it. **E5.4d's rule that provisioning is never a side effect of a test still holds** — `GrafanaTester.run` writes nothing, and an operator who supplied their own service account token never reaches this module. Targeted: `test_grafana_bootstrap.py` 12 passed, including minting twice leaving exactly one account. |
+| E5.11 Rotation and regeneration | **done (local)** | C4 | D133, D134 | `POST .../services/stack/rotate`: regenerate through E5.9 → re-render → re-verify (E5.3) → republish (E5.7a). Rotating a deployment that never generated a stack is a **404 and not a silent generate**, so a mistyped id cannot mint a fresh stack for the wrong deployment. **D134: rotation was invisible to devices and the measurement is why.** A desired snapshot carries secret MARKERS, and a marker is a SecretStore NAME — the same string before and after — so rotating every credential minted **zero** revisions while rotating to a different hostname minted one per Aggregator and none per Listener. The projection was working; there was nothing to say. `services.credentials_generation` (catalog key, `write_restricted=SERVICE_ONBOARDING`, column + migration `d5f28c60a419`) is the non-secret counter that changes — E2-owned surface plus a migration, taken **only on the owner's explicit decision**, and `write_restricted` is what keeps the "zero for Listeners" half true. **The publish happens BEFORE the re-verification decides anything and unconditionally**, which is the acceptance's inverted order and carries the comment saying so: the likeliest reason re-verification fails is that the operator has not restarted the stack yet, which is exactly when the devices need the new credentials. Left `degraded`, honestly, and the revisions go out. `verified` is never optimistic — generation puts every service back to `untested`. **No sweep is registered (D133).** Targeted: `test_stack_rotation.py` 16 passed. |
+| **C4 full gate** | **GREEN, gate-61** | — | D132-D139 | 1139 backend / 115 vitest / 4 Playwright, 0 failed / 0 skipped / 0 xfailed / 0 deselected. Backend stage **242.05s** against INFRA.1's 224.15s baseline — **+17.9s for 133 new backend tests** (1006 → 1139), including the keystone's full `docker compose` bring-up, which the rig design paid for in advance by BEING the generated stack. **The first C4 run was RED with eight failures and is recorded honestly in project-updates:** six were one root cause (D134's catalog key, whose ripple nobody had run — two constants in `test_settings_catalog`, the frozen merge checksum, the provenance count, and the restricted-set identity), one was the missing `PHASE5-4-04` addendum that `test_governance` correctly refused, and **one was a real broker leak masquerading as a flake (D138)**. Two later runs were **invalid measurements**, not red gates: a `/forwards/expose` container fault (D99/D112), and the two fixed-port compose suites colliding with the manual-verification stack still holding 15432/16379 — self-inflicted, so the cause was removed rather than the run repeated. **Manual verification ran against the full compose stack and a real uvicorn, and found D139**, which 1138 green tests did not. |
 | E5.12a Wizard UI: Path A | not started | C5 | — | Schema-rendered forms, per-service result rows with remedy. |
 | E5.12b Path B, gating, walkthrough | not started | C5 | — | S5 layout at v2 values. `guide/e5-verification.md` plus e3 amendments in the same batch. |
 | **C5 full gate + PR** | — | — | — | |
@@ -62,54 +64,93 @@ SIM sessions keep the primary tree.
 
 ## Notes for whoever picks this up next
 
-- **THE KEYSTONE IS RED, AND IT IS RIGHT TO BE.** `test_stack_keystone.py` is parked
-  UNCOMMITTED at `/tmp/claude-1000/-home-hudsonre-earth-echoes/0488864e-bf83-4357-b4f4-73e295f7251e/scratchpad/test_stack_keystone.py.wip`
-  because R0 forbids committing a red test. It works: the generated bundle unpacks, comes up
-  under `docker compose` in **~12 seconds**, and all five E5.4 testers run against it. **Four
-  of them fail, and every failure looks like a real gap in the generated stack rather than a
-  test defect.** In the order they need investigating:
-  1. **mqtt — `refused these credentials ([code:135] Not authorized)`.** CONNACK 135 is
-     username/password, so either the `$7$` hash in `dynamic-security.json` is not what the
-     plugin expects at `DYNSEC_PW_ITERATIONS`, or the plugin rewrote the file on first start
-     before the tester dialled. Note the conftest `dynsec_broker` fixture uses the SAME hash
-     helper at the same iteration count and works, so diff the two configs first — that is
-     the cheapest discriminator and it is sitting right there.
-  2. **grafana — 401 on `/api/datasources` and `/api/v1/provisioning/contact-points`.**
-     Almost certainly not a bug in the tester: E5.9 stores the Grafana ADMIN PASSWORD under
-     the `service_account_token` secret name, and E5.4d sends that value as a Bearer token.
-     A generated stack has no service account token yet. Either the stack provisions one, or
-     the tester learns basic auth for the generated-stack case. **This is a design decision,
-     not a fix — it is a stop-and-ask.**
-  3. **s3 — `bucket echoes does not exist`.** The phase document's E5.8b line says "optional
-     MinIO **with a created bucket**" and nothing creates it. Needs a `createbuckets` init
-     service in the generated compose (a short-lived `mc` container), which is new compose
-     surface rather than a one-line fix.
-  4. **influx** — output was truncated in the run; re-run and read it before assuming.
-  **Do not weaken the keystone to make it pass.** Its whole value is that it is the only test
-  in this epic that runs the artifact instead of inspecting it, and it has already paid for
-  itself twice (the 0600 private key that stopped Mosquitto booting, and the missing
-  `scrape_password`).
+- **The green C4 gate still shipped a bug that manual verification caught in minutes (D139).**
+  The once-a-minute service-config sweep was resetting `services.credentials_generation` from
+  N back to 0 and minting a revision to publish the reset, because `service_settings` omits the
+  key when no generation is passed and the effective config then falls back to the catalog
+  default. **A rotation's signal to its devices survived less than a minute**, and D134's whole
+  purpose with it. Every existing sweep test used a deployment whose counter was 0, where the
+  bug is invisible — which is why 1138 green tests did not see it and running
+  generate → rotate → regenerate through a real uvicorn did. **The fix belongs AFTER the
+  sweep's early return**, not in the `service_settings` call: putting it there makes the
+  projection never empty and costs a full change plan per deployment per minute. Both halves
+  are now pinned by tests.
+- **A rare failure in a well-worn concurrency test was a real leak, not a flake (D138).** C4's
+  first gate failed `test_shutdown_leaves_no_running_tasks` once, with
+  `socket=LIVE state=MQTT_CS_CONNECTED`; it then passed 3/3 in isolation and on every later
+  gate. **The instinct to write that off as flakiness — or to soften the test's
+  fail-immediately-on-a-live-socket rule with a grace period — would have deleted the detector
+  and kept the bug.** The bug: a cancellation inside aiomqtt's `__aenter__` abandons
+  `enter_async_context` before the client is registered on the stack, while paho's executor
+  thread finishes connecting anyway, stranding a CONNECTED client that `stop()` cannot close.
+  `_open_client` is the fix and is the mirror of D94's `_close_client`. **The third
+  discretionary E3 edit, taken on the owner's authorization** (project-changes #34, addendum
+  PHASE5-4-06); a fourth is still a stop-and-ask. The reproduction is forced, not awaited, and
+  was measured failing with the shield removed before it was believed.
+- **A catalog key is never a one-file change, and this is the measured blast radius.** D134's
+  thirteenth key was written correctly and its own suites passed, but the unit was committed
+  without running the rest — and the first C4 gate came back with **six** failures in suites
+  nobody had thought about: `test_settings_catalog` (two constants: the spec-key set AND the
+  write-restricted set, plus `len(CATALOG)`), `test_config_merge` (the frozen golden checksum),
+  `test_config_endpoints` (the per-key provenance count), and `test_service_projection` (the
+  restricted-set identity). **The exact lesson the ledger already recorded for E5.4a — run the
+  affected suites, not only the new ones — cost a second gate anyway.** If you add a catalog
+  key, grep the suite for `== 37` and for the key sets before you run anything.
+- **The frozen merge checksum can move, and there is now a right way to move it (D137).** Do
+  not regenerate a golden digest from current behaviour. The re-freeze ships with an assertion
+  that removes the newly added key and requires the ORIGINAL digest back byte for byte, so the
+  new constant is pinned to "the old snapshot plus exactly one key" rather than to whatever the
+  code now emits. That is what separates a recorded addition from a silently laundered
+  regression, and it is the pattern to copy if it ever has to happen again.
+- **`test_repo_layout.SECRET_PATTERNS` matches an uppercase constant NAME, not just a value,**
+  and it caught four sites in this epic at once: `SERVICE_ACCOUNT_TOKEN_NAME`,
+  `INFLUX_TOKEN_MOUNT` (a filesystem PATH), and two test-account `PASSWORD` constants. The
+  regex is `(SECRET|TOKEN|PASSWORD|PASSWD|API_KEY)\w*\s*[=:]\s*"[A-Za-z0-9+/_-]{20,}`, so any
+  identifier CONTAINING one of those words before the `=` trips when the value is 20+
+  URL-safe characters. **Rename the constant or shorten the value; do not touch the scanner** —
+  it cannot tell a field name from a field value, and blunting it to save a nicer identifier
+  trades a real guarantee for cosmetics. Note the scanner asserts on the FIRST offending file
+  it meets, so a green-looking fix may just be revealing the next one; scan the whole tree in a
+  loop instead of re-running the gate per site.
+- **Baseline-protected planning documents take SINGLE-LINE addenda only.** The spec, the plan,
+  the handbook and the phase-0..4 documents are pinned by the `planning-baseline` tag, and
+  `test_governance._strip_addenda` removes only lines matching `^> **Addendum ID (date, ref
+  project-changes #N):** ...$` — one line, however long. A multi-line blockquote fails as an
+  unauthorized modification, and **editing the body at all fails even when the edit is
+  obviously correct**: adding the thirty-eighth row to spec 5.3's own table was rejected, and
+  rightly. The addendum IS the row. `phase-5-deployment-services.md` is NOT baseline-pinned (it
+  postdates the tag), which is why its addenda are multi-line blockquotes — do not copy that
+  shape into the spec.
+
+- **THE KEYSTONE IS GREEN, and all four of its failures were real.** It is committed now:
+  the generated bundle unpacks, comes up under `docker compose` in ~14 seconds, and **all five
+  E5.4 testers pass against it**. None of the four was a test defect and none was fixed by
+  weakening the test — see the E5.10-keystone row for what each one was (D132 mosquitto
+  password fields and the floating fixture tag, D135 the Influx admin-token file and the two
+  init containers, and the Grafana bootstrap that became E5.10b). **Do not weaken it later
+  either.** Its whole value is that it is the only test in this epic that runs the artifact
+  instead of inspecting it, and it has now paid for itself four times over — plus the 0600
+  private key that stopped Mosquitto booting and the missing `scrape_password` before that.
 - **Two cheap lessons from building it,** both already written into its comments so they are
   not re-learned: Compose merges `ports` by CONCATENATION, so a `docker-compose.override.yml`
   that remaps a port ADDS a binding rather than replacing it (the fixed port still binds and
   still collides); and Mosquitto prints no startup banner under the generated conf's
   `log_type` set, so log-scraping for readiness waits forever on a broker that is serving
   perfectly well — wait on the port, as `conftest._wait_until_accepting` does.
-- **E5.11 (rotation) is NOT started.** `generate_stack` is already idempotent and rotates
-  every credential, so rotation is mostly the endpoint, the re-verify, and the republish. The
-  owner's decision on re-checks (below) removes the sweep question from it entirely.
-- **OWNER DECISION, 2026-08-12: no periodic re-checks, ever.** Asked directly and answered
-  directly: timed polling is stale, and the platform should "fail fast and loudly and
-  accurately" off real liveness instead. So **E5.11 does not register any sweep**, and the
-  spec 16.5 "periodic re-checks" item is closed as *deliberately not built* rather than
-  outstanding. `services_recheck_sweep` **stays** as an on-demand bulk re-test (the owner's
-  call, same conversation) — it is a callable an operator action can invoke, not a scheduled
-  job, and its docstring still needs rewording to say so. Degradation now comes only from
-  observed facts: an operator-run test, a rotation's re-verification, and for MQTT the
-  control plane's live connection and LWT. **This still needs its DECISIONS entry and a
-  project-changes entry + phase-doc addendum** — not yet written.
-- **OWNER DECISION, 2026-08-12: fix D127 (uvicorn drops all `app.*` INFO logging) in this
-  batch.** Authorized explicitly as an E0-owned fix taken by E5. **Not yet done.**
+- **E5.11 is done, and the sweep question is closed.** Rotation was mostly the endpoint, the
+  re-verify and the republish, because `generate_stack` was already idempotent — the one thing
+  it needed that did not exist was a non-secret counter, D134, without which rotation is
+  invisible to every device. **OWNER DECISION, 2026-08-12: no periodic re-checks, ever** —
+  timed polling is stale and the platform should fail fast and loudly off real liveness
+  instead, so E5.11 registers no sweep and spec 16.5's item is closed as *deliberately not
+  built*. `services_recheck_sweep` stays as an on-demand bulk re-test invoked by an operator
+  action, never a scheduled job, and its docstring says so. Written up in **D133 and
+  project-changes #31 / addendum PHASE5-4-03.**
+- **D127 is fixed and closed (D136, project-changes #33 / addendum PHASE5-4-05).** The
+  owner authorized it as an E0-owned fix taken by E5. `install_root_handler` in
+  `app/middleware.py` is called by BOTH `create_app` and `runner.py::main`, so "which
+  processes log" is one fact rather than two beliefs; pinned by a test at INFO, not WARNING,
+  because WARNING worked throughout and is what disguised the bug for three epics.
 
 - **ANSWERED (2026-08-12, owner): what makes object storage "not required".** The question was
   that spec 16.2 and section 721 make object storage conditionally required on "raw-audio upload
@@ -124,22 +165,18 @@ SIM sessions keep the primary tree.
   the toggle. DECISIONS D123, project-changes #28. Nothing in the code changed; the note at the
   top of `app/services/testers/s3.py` stands as written.
 
-- **OUTSTANDING, and a stop-and-ask: the API logs nothing below WARNING** (D127). Every
-  `app.*` INFO line in the uvicorn process is dropped, because uvicorn attaches handlers to its
-  own loggers and leaves the root logger bare — and `runner.py::main`'s docstring asserts the
-  opposite ("under uvicorn the server installs the handlers"). Found by C3's manual walkthrough,
-  which first tried to prove `refresh()` had connected by grepping the log and got nothing —
-  including for the deployment connected since startup. The walkthrough now proves it
-  behaviourally instead (draft before the broker row, `pending` after one refresh interval,
-  same process). The fix is small and E0-owned; it was not taken here.
+- **CLOSED (was: the API logs nothing below WARNING, D127).** Fixed in this batch on the
+  owner's authorization — see the D136 note above. C3's manual walkthrough still proves
+  `refresh()` behaviourally (draft before the broker row, `pending` after one refresh
+  interval, same process) rather than by grepping the log, and that is worth keeping: it is
+  the stronger assertion of the two whether or not the logging works.
 
-- **OUTSTANDING for a later unit: spec 16.5's periodic re-checks are not running.**
-  `status.py::services_recheck_sweep` is a tested callable with **no caller**. The E5.5 notes and
-  the INTERFACES entry both said E5.7b would register it; **it did not**, and both have been
-  corrected rather than left to imply otherwise (D125). Registering it needs a production
-  `ServiceTestRunner` that dials every deployment's real services on a timer — a behaviour no
-  unit in this phase scoped, and a real decision about cadence and cost. E5.11 (rotation and
-  regeneration) is the natural home; **it is a stop-and-ask, not a gap to fill quietly.**
+- **CLOSED (was: spec 16.5's periodic re-checks are not running).** Not a gap any more and not
+  a later unit's problem — the owner closed the question as *deliberately not built* (D133,
+  project-changes #31). `status.py::services_recheck_sweep` keeps its single caller-less state
+  on purpose: it is an on-demand bulk re-test for an operator action to invoke, and the E5.5
+  notes and the INTERFACES entry that once said E5.7b would register it on a timer were
+  already corrected (D125). **Do not "finish" this by adding a scheduler.**
 
 - **Cross-branch record collision, for whoever merges.** `docs/project-changes.md` numbers
   **#24, #25 and #26 twice** — once on `e5-batch-1` (E5 topics) and once on `sim-batch-1` (SIM

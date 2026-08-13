@@ -1,5 +1,83 @@
 # Project Updates
 
+## 2026-08-13: E5.10 keystone, E5.11 rotation, and three defects a green gate did not catch (Gate 61 GREEN)
+
+- **Tasks closed:** E5.10's keystone (red on arrival, and every failure real), E5.10b (the
+  Grafana service-account bootstrap the keystone forced), and **E5.11** (rotation and
+  regeneration). Checkpoint **C4**. DECISIONS **D132-D139**, project-changes **#30-#34**,
+  addenda **PHASE5-4-02** through **PHASE5-4-06** and **SPEC-5-01**.
+- **Gate:** 61, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1139 backend / 115 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage **242.05s** against INFRA.1's 224.15s baseline (+17.9s for 133
+  new backend tests, 1006 → 1139). ruff, `ruff format`, `mypy app` and the frontend typecheck
+  all clean.
+- **The keystone is green, and all four of its failures were real.** The generated bundle
+  unpacks, comes up under `docker compose` in ~14s, and **all five E5.4 testers pass against
+  it**. None was a test defect and none was fixed by weakening the test. Mosquitto 2.0 ignores
+  the `encoded_password` field group and wants `password`/`salt`/`iterations` separately —
+  which survived because the fixtures ran the floating `eclipse-mosquitto:2` tag (now 2.1.2)
+  while the platform pins 2.0.20, so **a pinned artifact was being tested against a tag no
+  operator would run** (D132). `INFLUXDB3_AUTH_TOKEN` configures the CLI and not the server, so
+  the stack now starts Influx with `--admin-token-file`, the offline form that lets a token be
+  generated and committed before the stack exists (D135). MinIO's bucket and Influx's database
+  are seeded by init containers. Grafana became E5.10b.
+- **E5.11 rotation**, with the acceptance's inverted order intact: a rotation **publishes
+  before re-verification decides anything, and unconditionally**, because the likeliest reason
+  re-verification fails is that the operator has not restarted the stack yet — exactly when the
+  devices most need the new credentials. A failed re-verification leaves `degraded` and still
+  publishes. `verified` is never optimistic. Rotating a deployment with no stack is a 404 and
+  not a silent generate.
+- **D134's counter, and why it had to exist:** a desired snapshot carries secret MARKERS, and a
+  marker is a SecretStore name — the same string before and after. Measured, rotating every
+  credential minted **zero** revisions. `services.credentials_generation` is the non-secret
+  thing that changes; an E2-owned catalog key plus migration `d5f28c60a419`, taken on the
+  owner's explicit decision.
+- **Three defects, none of which a green gate caught, and the middle one matters most:**
+  1. **The first C4 gate failed `test_shutdown_leaves_no_running_tasks` once**, under load,
+     with `socket=LIVE state=MQTT_CS_CONNECTED`, then passed 3/3 in isolation. It was **not a
+     flake**: a cancellation inside aiomqtt's `__aenter__` abandons `enter_async_context`
+     before the client is registered on the stack, while paho's executor thread finishes
+     connecting anyway, stranding a CONNECTED client nothing owns. Treating it as flakiness —
+     or softening the test's fail-on-live-socket rule — would have deleted the detector and
+     kept the bug. Fixed by `_open_client`, D94's shape from the entry side; **the third
+     discretionary E3 edit, on the owner's authorization** (D138).
+  2. **A green 1138-test gate still shipped a broken feature, and manual verification found it
+     in minutes.** The once-a-minute service-config sweep called `service_settings` without a
+     generation, so the key was omitted, the effective config fell back to the catalog default,
+     and the sweep **reset every rotated deployment's counter from N back to 0 and minted a
+     revision to publish the reset** — destroying a rotation's signal within a minute of it.
+     Every existing sweep test used a deployment whose counter was 0, where the bug is
+     invisible (D139).
+  3. **The first fix for (2) was itself wrong** — passing the generation to the projection call
+     makes it never empty, so the sweep's "nothing to deliver" early return becomes unreachable
+     and every `mqtt`-only deployment rebuilds a full change plan every minute. The existing
+     test caught it immediately. The counter is added after the return instead.
+- **A frozen golden checksum moved, for the first time (D137),** because the catalog gained a
+  38th key. Re-frozen only with a companion assertion that removes the new key and requires the
+  ORIGINAL digest back byte for byte, so the constant is pinned to "the old snapshot plus
+  exactly one key" rather than to whatever the code now emits. Regenerating a golden digest
+  from current behaviour is the failure mode that avoids.
+- **Record-keeping corrections found on the way through:** D132, D133 and D134 each cited the
+  wrong addendum id (every one off by one); project-changes #30 named `PHASE5-4-04`, which did
+  not exist, and `test_governance` was failing on exactly that; and #32 affected the SPEC, not
+  only the phase document, since the catalog is spec 5.3's table asserted key for key.
+- **Manual verification:** the full compose stack, brought up from a clean `deploy/.env` per
+  `guide/getting-started.md` — six containers healthy, owner seeded, broker accounts minted in
+  the documented two passes. Then generate → rotate → regenerate driven against a real uvicorn
+  and read out of the database: the rotate-without-a-stack 404, `degraded` with `verified:
+  false` and 3 revisions published anyway, all 7 stack secrets rotated with none unchanged
+  (compared by digest, never by value), revisions aggregator-only with zero for Listeners, and
+  no credential in any response or audit detail. **This is what found defect (2)** — the
+  platform's column read 3 while the devices had been told `2 -> 0`. Re-checked after the fix
+  across sweep ticks: the counter reached 4, devices were told 4, and no tick reset it.
+- **Two invalid measurements, recorded as such rather than as red gates.** One run came back
+  with four `docker start` failures (`/forwards/expose returned unexpected status: 500`) in one
+  module on one worker and 0 test failures — the D99/D112 fault, re-run rather than recorded.
+  A later run failed the two fixed-port compose suites because the manual-verification stack
+  was holding 15432 and 16379; that one was self-inflicted, so the cause was removed before
+  re-running rather than the run simply repeated.
+- **Command:** `make gate`.
+
 ## 2026-08-12: INFRA.1 — the test suite stops starting a container per module (Gate 60 GREEN)
 
 - **Task closed:** INFRA.1, an unnumbered E0-owned infrastructure batch landed at the head of
