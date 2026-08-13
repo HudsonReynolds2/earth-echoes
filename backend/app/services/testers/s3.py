@@ -7,9 +7,9 @@ delete it and prove the prefix is empty - and one outcome that is not a check.
 
 Spec 16.2 makes object storage **conditionally** required, and the phase
 document is explicit that reporting it red would "train operators to ignore
-red". So this is the one tester that can answer `not_required` (E5.3's D111
+red". So this is the one tester that can answer `not_required` (E5.3's D123
 vocabulary), and E5.5 persists that answer onto `deployment_service.required`
-so the deployment can still reach `verified` (D117).
+so the deployment can still reach `verified` (D129).
 
 **What "the condition" is, concretely.** The settings catalog has no
 `upload.raw_audio_enabled` key - it carries `upload.s3_bucket`, `s3_prefix`,

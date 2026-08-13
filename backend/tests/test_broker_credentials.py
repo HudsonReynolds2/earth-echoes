@@ -22,7 +22,7 @@ cheap version of it proves nothing:
    trying to log in afterwards and being refused, not by reading a row — the
    row is the platform's belief and the broker is the fact.
 
-Plus the state the owner added on 2026-08-12 (D121): an unreachable broker
+Plus the state the owner added on 2026-08-12 (D133): an unreachable broker
 leaves `revoke_pending` and never blocks the delete.
 """
 
@@ -507,7 +507,7 @@ async def test_deleting_an_aggregator_revokes_its_client_on_the_broker(
 async def test_an_unreachable_broker_leaves_revoke_pending_and_never_blocks(
     app, coordinates, monkeypatch
 ) -> None:
-    """D121: the owner's call. The delete succeeds, the credential is not
+    """D133: the owner's call. The delete succeeds, the credential is not
     forgotten, and `revoked_at` stays NULL because nothing confirmed."""
     await _mint(app, coordinates)
 

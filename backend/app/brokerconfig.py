@@ -284,7 +284,7 @@ def dynsec_password_fields(encoded: str) -> dict[str, Any]:
     versions accept, and `IMAGES["mosquitto"]` pins 2.0.x. This is not
     theoretical — E5.10's keystone found it by bringing the generated bundle up,
     and every dynsec test in the suite had passed because the FIXTURES run
-    `eclipse-mosquitto:2`, a floating tag that now resolves to 2.1.2 (D132).
+    `eclipse-mosquitto:2`, a floating tag that now resolves to 2.1.2 (D144).
 
     Pure: same input, same output, so two downloads stay byte-identical.
     """

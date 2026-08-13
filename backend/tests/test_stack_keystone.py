@@ -32,7 +32,7 @@ this epic could have had.** In the order they were found:
    **Mosquitto 2.0 ignores**, leaving the platform account with no password at
    all: CONNACK 135 on every connect. Every dynsec test in the suite passed
    because the fixtures floated on `eclipse-mosquitto:2` and Docker Hub had
-   moved that tag to 2.1.x (D132).
+   moved that tag to 2.1.x (D144).
 4. Influx got its token through `INFLUXDB3_AUTH_TOKEN`, which configures the
    CLI and not the server, so the platform's own token was refused; and the
    `echoes` database did not exist, because Influx 3 creates one on first write

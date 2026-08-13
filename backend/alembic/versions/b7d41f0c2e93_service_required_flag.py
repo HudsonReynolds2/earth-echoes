@@ -8,7 +8,7 @@ Task E5.5 (spec 16.2, 16.5; phase-5 fixed choice 2). One boolean:
 `deployment_service.required`, whether this service has to reach `verified` for
 its DEPLOYMENT to.
 
-**Why it is a stored column and not an argument to `roll_up`** (D117). Spec
+**Why it is a stored column and not an argument to `roll_up`** (D129). Spec
 16.2 makes object storage conditionally required, so "is this service required"
 is a real per-deployment fact, and E5.4e's tester is what discovers it -- it
 answers `not_required` when raw-audio upload is off. That answer arrives during

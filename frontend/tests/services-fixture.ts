@@ -95,7 +95,7 @@ export function fixtureServices(deploymentId: string) {
 /**
  * The rollup, computed the way `status.py::roll_up` computes it, so the
  * fixture cannot tell the UI a story the backend would not. Object storage is
- * required only when it is configured (D123's reading: absent credentials
+ * required only when it is configured (D135's reading: absent credentials
  * mean the deployment does not upload raw audio).
  */
 export function fixtureServicesStatus(deploymentId: string) {

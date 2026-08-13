@@ -4,7 +4,7 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
-## D146 (2026-08-13): The bundle README template moves inside the package, because the API
+## D158 (2026-08-13): The bundle README template moves inside the package, because the API
 image does not contain anything outside `backend/`
 
 - **Decision:** `deploy/stack-templates/README.md` becomes
@@ -23,7 +23,7 @@ image does not contain anything outside `backend/`
 - **Why 1139 green tests did not see it, and this is the general lesson.** The suite runs from
   the repo working tree, where `deploy/stack-templates/README.md` is present and the path
   resolves. **Every assertion about the README was true of the developer's filesystem and false
-  of the artifact that ships.** This is D132's shape again — a pinned artifact tested against a
+  of the artifact that ships.** This is D144's shape again — a pinned artifact tested against a
   floating tag proves nothing — with the filesystem in place of the image tag, and it is the
   second time in this epic that running the thing beat inspecting it.
 - **Found by the E5 walkthrough on its first run**, against a real container, minutes after the
@@ -43,7 +43,7 @@ image does not contain anything outside `backend/`
 - **A new runtime data file goes under `backend/app/`.** If a later epic genuinely needs one in
   `deploy/`, it has to move the build context first, and the test above is what will say so.
 
-## D145 (2026-08-13): E5 REPORTS the spec 16.5 provisioning gate; E4 enforces it
+## D157 (2026-08-13): E5 REPORTS the spec 16.5 provisioning gate; E4 enforces it
 
 - **Decision:** the services page renders the state of spec 16.5's gate — blocked or unblocked,
   and the "your other services are not verified" warning — and does not implement it. Nothing
@@ -62,7 +62,7 @@ image does not contain anything outside `backend/`
   those devices will come online with nowhere to ship analysis, metrics or audio. That is a
   warning, not a block, in the spec and here.
 
-## D144 (2026-08-13): The UI cannot know whether a stack was generated, and it asks rather
+## D156 (2026-08-13): The UI cannot know whether a stack was generated, and it asks rather
 than guesses
 
 - **Decision:** Download and Rotate are always offered on Path B, and a 404 from the download
@@ -83,19 +83,19 @@ than guesses
   with the remedy in it, not a stack trace and not a silent no-op. The cost is one wasted
   click on a deployment that has no stack.
 
-## D143 (2026-08-13): Two sentences in the S5 mock are now false, and the page says something
+## D155 (2026-08-13): Two sentences in the S5 mock are now false, and the page says something
 else
 
 - **Decision:** the services page does **not** reproduce S5's "Re-checks run every 5 minutes"
   or its "Required only when raw-audio upload is enabled for this deployment". Both were true
   of the design and are not true of what shipped.
-- **Re-checks.** D133 closed spec 16.5's periodic re-checks as *deliberately not built*: timed
+- **Re-checks.** D145 closed spec 16.5's periodic re-checks as *deliberately not built*: timed
   polling reports a fact that was true minutes ago. The panel says instead that nothing
   re-checks on a timer and names the observed events that do degrade a service — a test the
   operator runs, a rotation's re-verification, and for the broker the control plane's own
   connection and last-will. A UI promising a five-minute re-check the platform never performs
   would be worse than saying nothing.
-- **Object storage.** D123 settled that there is no `upload.raw_audio_enabled` catalog key and
+- **Object storage.** D135 settled that there is no `upload.raw_audio_enabled` catalog key and
   that `not_required` keys on both S3 credentials being absent. The page says object storage
   is required exactly when it is configured, and takes the `required` flag from the API rather
   than restating the rule. A test asserts the `optional` tag comes from the response.
@@ -103,7 +103,7 @@ else
   It exists because the mock is the natural thing to copy from, and copying it here would
   quietly reintroduce a promise the platform does not keep.
 
-## D142 (2026-08-13): Service status gets its own chip, and its tokens are var() aliases of the
+## D154 (2026-08-13): Service status gets its own chip, and its tokens are var() aliases of the
 device palette
 
 - **Decision:** `ServiceResultRow.ServiceChip` and `.service-chip` are a separate component and
@@ -124,7 +124,7 @@ device palette
   together. The night theme also comes free: `tokens.ext.alt.css` relights the keys these
   point at, so this block is deliberately absent from that sheet (check 9 keeps it a subset).
 
-## D141 (2026-08-13): The services wizard nests in the inventory frame instead of drawing S5's
+## D153 (2026-08-13): The services wizard nests in the inventory frame instead of drawing S5's
 standalone chrome
 
 - **Decision:** the route `inventory/deployments/:deploymentId/services` renders inside
@@ -144,7 +144,7 @@ standalone chrome
 - **Recorded as a design deviation** in the same spirit as the ToggleSwitch's ink track: the
   layout is S5's, the frame is the application's.
 
-## D140 (2026-08-13): The services form schema is a TypeScript mirror of the Pydantic models,
+## D152 (2026-08-13): The services form schema is a TypeScript mirror of the Pydantic models,
 held honest by a cross-language parity test
 
 - **Decision:** `frontend/src/lib/services.ts::SERVICE_SCHEMA` declares the five services'
@@ -172,13 +172,13 @@ held honest by a cross-language parity test
   directions — a model field missing from the table can never be entered, and a table field
   missing from the model is a 422 on save.
 
-## D139 (2026-08-13): The service-config sweep was resetting the rotation counter it exists to
+## D151 (2026-08-13): The service-config sweep was resetting the rotation counter it exists to
 deliver, and the fix has to sit after the early return
 
 - **Decision:** `config_sweep.py::_plan_one` writes `services.credentials_generation` into the
   projection, **after** the "nothing to deliver" early return rather than by passing
   `generation=` to `service_settings`.
-- **The defect, and it defeated D134 entirely.** `service_settings` OMITS the counter when no
+- **The defect, and it defeated D146 entirely.** `service_settings` OMITS the counter when no
   generation is passed, so the projection stops asserting a value and the effective config
   falls back to the catalog default of `0`. The sweep did not pass one. Since the sweep runs
   once a minute over every deployment with services, it did not merely fail to deliver the
@@ -207,7 +207,7 @@ deliver, and the fix has to sit after the early return
   default". Any third caller that projects for delivery has the same trap; the parameter's
   docstring says every such caller must pass one, and this one did not.
 
-## D138 (2026-08-13): A cancelled connect stranded a live broker connection, and the third
+## D150 (2026-08-13): A cancelled connect stranded a live broker connection, and the third
 E3-owned edit was taken to fix it
 
 - **Decision:** `app/controlplane/broker.py` gains `_open_client`, the mirror of the existing
@@ -244,16 +244,16 @@ E3-owned edit was taken to fix it
   from `__aexit__`. It does not — `__aexit__` never touches that task; the cancel is scheduled
   from `_on_socket_close` (aiomqtt 2.5.1). The conclusion drawn from it was still right, but
   the stated reason was wrong and is now corrected in place.
-- **Reference:** project-changes #34, addendum PHASE5-4-06. Extends D94, D97, D109, D111.
+- **Reference:** project-changes #34, addendum PHASE5-4-06. Extends D94, D97, D121, D123.
 
-## D137 (2026-08-13): A frozen golden checksum moved, for the first and only time so far, and
+## D149 (2026-08-13): A frozen golden checksum moved, for the first and only time so far, and
 what makes that not a weakening
 
 - **Decision:** digest A in `test_config_merge.py::test_golden_checksums_are_frozen` is
   re-frozen from `sha256:3f23f037…` to `sha256:91ff585c…`, and the three key-count assertions
   in `test_config_merge`, `test_config_endpoints` and `test_settings_catalog` move from 37 to
   38.
-- **Why it had to move.** D134 added spec 5.3's thirty-eighth key,
+- **Why it had to move.** D146 added spec 5.3's thirty-eighth key,
   `services.credentials_generation`. Digest A is the defaults-only listener snapshot over the
   WHOLE catalog, so a new catalog key changes it by construction. That suite is one of the four
   test-critical suites rule R0 says no later session may weaken, and its own docstring says
@@ -267,13 +267,13 @@ what makes that not a weakening
   to "the old snapshot plus exactly one key" instead of to whatever the code now happens to
   produce. **Regenerating a golden digest from current behaviour is the failure mode this
   avoids**, and it is the reason the entry exists.
-- **Scope.** The catalog addition itself is D134 and the owner's decision; this entry covers
+- **Scope.** The catalog addition itself is D146 and the owner's decision; this entry covers
   only its consequence for the frozen contract. Spec addendum SPEC-5-01, project-changes #32.
 - **Still true afterwards:** any future movement in these constants is a wire-protocol break.
   One recorded exception does not make the next one routine.
 
-## D136 (2026-08-12): The API's root logger gets a handler, and `runner.py`'s docstring was
-wrong (D127 closed)
+## D148 (2026-08-12): The API's root logger gets a handler, and `runner.py`'s docstring was
+wrong (D139 closed)
 
 - **Decision:** `app/middleware.py::install_root_handler` is called by BOTH `create_app` and
   `runner.py::main`. Authorized by the owner as an E0-owned fix taken by E5.
@@ -288,9 +288,9 @@ wrong (D127 closed)
   logger already has handlers, so a host with its own logging configuration is unaffected.
 - **Pinned by a test at INFO**, not at WARNING: WARNING worked throughout and is what
   disguised the bug for so long (`tests/test_api_skeleton.py`).
-- **Reference:** D127, which recorded this as a stop-and-ask and is now closed.
+- **Reference:** D139, which recorded this as a stop-and-ask and is now closed.
 
-## D135 (2026-08-12): The generated stack creates its own database and bucket, and Influx
+## D147 (2026-08-12): The generated stack creates its own database and bucket, and Influx
 takes its admin token from a file
 
 - **Decision:** the generated compose file gains two short-lived init services, `influx-init`
@@ -318,7 +318,7 @@ takes its admin token from a file
 - **Found by the keystone**, which is the only test that runs the artifact instead of
   inspecting it.
 
-## D134 (2026-08-12): A rotation bumps a non-secret counter, because secret markers make
+## D146 (2026-08-12): A rotation bumps a non-secret counter, because secret markers make
 rotation invisible to devices
 
 - **Decision:** a new catalog key `services.credentials_generation` (int,
@@ -326,7 +326,7 @@ rotation invisible to devices
   `deployment.services_credentials_generation` (migration `d5f28c60a419`), bumped in the same
   transaction as every credential generation and projected onto device config.
 - **The problem, measured before it was believed.** A device's desired snapshot carries secret
-  MARKERS and never plaintext (spec 5.4 and 8; D51, D126), and a marker is a SecretStore NAME —
+  MARKERS and never plaintext (spec 5.4 and 8; D51, D138), and a marker is a SecretStore NAME —
   the identical string before and after a rotation. So a rotation that changed every credential
   a deployment has minted **zero** revisions: every snapshot unchanged, every plan entry a
   no-op, no device told anything. Rotating to a different hostname minted one revision per
@@ -345,7 +345,7 @@ rotation invisible to devices
   of Listener snapshots, which is what preserves the "zero per Listener" half of the acceptance.
 - **Reference:** project-changes #32, addendum PHASE5-4-02.
 
-## D133 (2026-08-12): Periodic service re-checks are deliberately not built
+## D145 (2026-08-12): Periodic service re-checks are deliberately not built
 
 - **Decision, the owner's, asked directly and answered directly on 2026-08-12:** the platform
   runs **no timed re-verification of deployment services, ever**. Spec 16.5's "periodic
@@ -364,7 +364,7 @@ rotation invisible to devices
   timer, which no unit in this phase scoped.
 - **Reference:** project-changes #31, addendum PHASE5-4-03.
 
-## D132 (2026-08-12): Mosquitto 2.0 ignores `encoded_password`, and the fixtures were running a
+## D144 (2026-08-12): Mosquitto 2.0 ignores `encoded_password`, and the fixtures were running a
 different broker from the one that ships
 
 - **Two findings, and the second is why the first survived so long.**
@@ -392,7 +392,7 @@ different broker from the one that ships
   artifact instead of inspecting it.
 - **Reference:** project-changes #30, addendum PHASE5-4-04.
 
-## D131 (2026-08-12): A failed stack generation restores prior secrets rather than deleting
+## D143 (2026-08-12): A failed stack generation restores prior secrets rather than deleting
 them, and there is no `deployment_stack` table
 
 - **Two decisions from E5.9, both about where state lives.**
@@ -424,7 +424,7 @@ them, and there is no `deployment_stack` table
 - **Reference:** phase-5-deployment-services.md section 2 fixed choice 7, task E5.9;
   `backend/tests/test_stack_generation.py::test_a_failed_regeneration_leaves_the_previous_stack_intact`.
 
-## D130 (2026-08-12): `dynamic_security_config` takes a hashed password, because hashing at
+## D142 (2026-08-12): `dynamic_security_config` takes a hashed password, because hashing at
 render time had already broken the byte-identical download
 
 - **What changed.** `app/brokerconfig.py::dynamic_security_config` accepted a plaintext admin
@@ -449,18 +449,18 @@ render time had already broken the byte-identical download
 - **Reference:** phase-5-deployment-services.md section 2 fixed choice 7, tasks E5.8a/E5.9/
   E5.10; `backend/tests/test_stack_generator.py::test_rendering_is_deterministic`.
 
-## D129 (2026-08-12): The whole-container retry extends to brokers and rig services, and
+## D141 (2026-08-12): The whole-container retry extends to brokers and rig services, and
 `docker_retry` is still not widened
 
 - **What changed.** `ephemeral_broker` and `_rig_container` now retry the WHOLE container, up
   to three times, when its published port never answers from the host —
   `_start_ephemeral_postgres` has always done this and they never did.
-- **Why it surfaced now.** D128 removed 55 Postgres container startups from the gate, and those
+- **Why it surfaced now.** D140 removed 55 Postgres container startups from the gate, and those
   startups were accidentally PACING the suite. Without them the remaining container starts land
   in much tighter bursts, and D99's forwarder fault — the container is up and accepting inside,
   `docker port` reports a mapping, the host connection is refused — went from rare to seven
   `test_dev_broker` setup errors in a single run whose 999 tests all passed. Making the suite
-  faster made this more likely, which is a real cost of D128 and is recorded as one.
+  faster made this more likely, which is a real cost of D140 and is recorded as one.
 - **Why not widen `docker_retry`.** D99 made it narrow on purpose: it matches three specific
   stderr signatures on a command that FAILED. This fault is different in kind — the command
   succeeds, and the failure is only observable later, from the host, over TCP. There is nothing
@@ -473,7 +473,7 @@ render time had already broken the byte-identical download
   broker misconfiguration still fails on the first attempt with the broker's own logs attached,
   because that path raises rather than retrying.
 
-## D128 (2026-08-12): The test suite stops starting a Postgres container per module, and every
+## D140 (2026-08-12): The test suite stops starting a Postgres container per module, and every
 container's writable state moves to RAM
 
 - **What was measured, first.** A full green gate on the C3 tree, instrumented: **290.21s
@@ -504,7 +504,7 @@ container's writable state moves to RAM
   there is nothing for a crash to leave half-written that a restart would need to recover. A
   pooled server that dies is REPLACED, not repaired — `_pool_container_healthy` checks both that
   the container runs and that its port answers, and starts a new one otherwise.
-- **Concurrency, which was a requirement and not an afterthought.** Coordination reuses D113's
+- **Concurrency, which was a requirement and not an afterthought.** Coordination reuses D125's
   existing primitives rather than inventing any: `GATE_STATE_DIR` for machine-wide state,
   `gate_lock` around every read-modify-write of the registry, `wait_for_host_port` for host-side
   readiness. Two agents in two worktrees share ONE server and are isolated by having different
@@ -517,7 +517,7 @@ container's writable state moves to RAM
   fixed by `mode=1777`. And Grafana's startup on tmpfs got fast enough to expose a latent race
   the rig had always had: nothing waited for Prometheus to SCRAPE ITSELF, and `/-/ready` answers
   strictly earlier than having data, so E5.4c's read check saw `up ... 0 series`. The fixture now
-  waits for the thing it promises. See also D129 for the third.
+  waits for the thing it promises. See also D141 for the third.
 - **What it did not fix, measured so the next attempt aims correctly.** The remaining writes are
   not container churn: `docker build` accounts for ~638 MB of them (400 MB in
   `test_e0_readiness`, which builds and runs the prod frontend image, and 238 MB in the
@@ -526,7 +526,7 @@ container's writable state moves to RAM
   and 186 seconds of broker-heavy tests write 19 MB. Cutting further means either not proving
   the images build or not bringing the shipped compose file up, and neither is worth it.
 
-## D127 (2026-08-12): Every `app.*` INFO log is invisible in the API process, and `runner.py`'s
+## D139 (2026-08-12): Every `app.*` INFO log is invisible in the API process, and `runner.py`'s
 docstring says the opposite (found by C3's manual verification; NOT fixed here)
 
 - **What was observed, and how.** C3's manual walkthrough first asserted that the API's new
@@ -558,7 +558,7 @@ docstring says the opposite (found by C3's manual verification; NOT fixed here)
 - **Reference:** `backend/app/main.py`, `backend/app/controlplane/runner.py::main` (the
   docstring that is wrong), `backend/app/middleware.py::configure_logging`.
 
-## D126 (2026-08-12): A retained desired message carries secret MARKERS, and E5's projection is
+## D138 (2026-08-12): A retained desired message carries secret MARKERS, and E5's projection is
 pinned to that boundary rather than allowed to cross it (E5.7b)
 
 - **Found by a test that asserted the wrong thing, which is why it is worth an entry.** The
@@ -585,7 +585,7 @@ pinned to that boundary rather than allowed to cross it (E5.7b)
 - **Reference:** `backend/app/controlplane/publisher.py::desired_payload`,
   `backend/tests/test_broker_refresh.py`, phase-5 section 4 (E5.7b), D51, D55.
 
-## D125 (2026-08-12): The E3-owned surface E5.7b actually took is three sweep registrations and
+## D137 (2026-08-12): The E3-owned surface E5.7b actually took is three sweep registrations and
 two refresh loops, not the one registration the phase document counted
 
 - **What the document authorized.** Phase-5 section 2 names two discretionary E3-owned edits,
@@ -599,7 +599,7 @@ two refresh loops, not the one registration the phase document counted
   `app/main.py`: `_refresh_forever` and its task. Nothing in `consumer.py`,
   `revision_state.py` or `contracts/mqtt.py`.
 - **Why the second registration is not a third EDIT.** `broker-credential` is the retry loop
-  D121 promises. It is the same mechanism as the one the document authorized — a `(name,
+  D133 promises. It is the same mechanism as the one the document authorized — a `(name,
   interval, callable)` entry on a runner explicitly built generic for exactly this — with an
   E5-owned body, and it exists because the owner chose `revoke_pending` over a 503 on
   2026-08-12. Registering it elsewhere would mean a second scheduler in the codebase to avoid
@@ -618,9 +618,9 @@ two refresh loops, not the one registration the phase document counted
   behaviour no unit in this phase scoped. It is named in the E5 ledger as outstanding.
 - **Reference:** phase-5 section 2 ("The E3-owned edits this phase is authorized to make"),
   `app/services/config_sweep.py`, `app/services/credentials.py::drain_pending_revocations`,
-  D108 (the three edits authorized in advance), D121.
+  D120 (the three edits authorized in advance), D133.
 
-## D124 (2026-08-12): `changed_keys` is computed through `snapshot_from_raw`, closing the
+## D136 (2026-08-12): `changed_keys` is computed through `snapshot_from_raw`, closing the
 E2-owned defect that made one services save mint a revision per Listener (E5.7a)
 
 - **The defect, as phase-5 section 2 describes it.** `DevicePlan.changed_keys` compared the raw
@@ -648,7 +648,7 @@ E2-owned defect that made one services save mint a revision per Listener (E5.7a)
 - **Reference:** `backend/app/config/plan.py::build_change_plan`, phase-5 section 2 ("The
   E2-owned defect this phase must fix on the way through"), D55, D56.
 
-## D123 (2026-08-12): Object storage stays conditionally required on "both credentials absent",
+## D135 (2026-08-12): Object storage stays conditionally required on "both credentials absent",
 and the platform supports raw audio only (owner, closing the E5 ledger's open question)
 
 - **The question the ledger raised at C2.** Spec 16.2 and section 721 make object storage
@@ -670,9 +670,9 @@ and the platform supports raw audio only (owner, closing the E5 ledger's open qu
   code changes; E5.4e's reading is now a decision rather than a placeholder, and the note at the
   top of `app/services/testers/s3.py` stands as written.
 - **Reference:** `backend/app/services/testers/s3.py`, spec 16.2 and section 721,
-  `project_planning/e5-progress-ledger.md`, D111 (the four tester outcomes), D117.
+  `project_planning/e5-progress-ledger.md`, D123 (the four tester outcomes), D129.
 
-## D122 (2026-08-12): `allow_write_restricted` is four signatures rather than three, and it
+## D134 (2026-08-12): `allow_write_restricted` is four signatures rather than three, and it
 means two things that are one idea (E5.7a)
 
 - **The document said three.** Phase-5 fixed choice 3: the flag is "threaded through
@@ -698,7 +698,7 @@ means two things that are one idea (E5.7a)
   `backend/app/config/plan.py`, `backend/tests/test_service_projection.py`, phase-5 fixed
   choice 3.
 
-## D121 (2026-08-12): A broker credential has three states, because deleting a device must
+## D133 (2026-08-12): A broker credential has three states, because deleting a device must
 never be blocked by somebody else's outage and never strand a live login (E5.6, owner)
 
 - **The question the phase document left implicit.** E5.6's acceptance says "deleting an
@@ -732,7 +732,7 @@ never be blocked by somebody else's outage and never strand a live login (E5.6, 
   `backend/app/services/credentials.py`, `backend/app/api/aggregators.py::delete_aggregator`,
   `backend/tests/test_broker_credentials.py`, phase-5 section 4 (E5.6).
 
-## D120 (2026-08-12): The Aggregator ACL grants are ONE list with two renderers, because two
+## D132 (2026-08-12): The Aggregator ACL grants are ONE list with two renderers, because two
 literal readings of spec 7.2 eventually disagree by one line (E5.6)
 
 - **Why this needed doing at all.** Until E5.6 there was one authorization backend: the dev
@@ -761,7 +761,7 @@ literal readings of spec 7.2 eventually disagree by one line (E5.6)
 - **Reference:** `backend/app/devbroker.py`, `backend/app/services/credentials.py`,
   `backend/tests/test_broker_credentials.py`, phase-5 section 4 (E5.6 acceptance), spec 7.1/7.2.
 
-## D119 (2026-08-12): Importing a conftest FIXTURE into a test module silently defeats session
+## D131 (2026-08-12): Importing a conftest FIXTURE into a test module silently defeats session
 scope, and it cost the rig its whole gate-time design (E5.4b)
 
 - **The defect.** All four E5.4b-e modules opened with `from conftest import rig`. A fixture
@@ -791,7 +791,7 @@ scope, and it cost the rig its whole gate-time design (E5.4b)
   `RIG_GROUP`), `backend/tests/test_tester_{influx,prometheus,grafana,s3}.py`, phase-5 section
   5, D99 (the module-grouping hook this builds on).
 
-## D118 (2026-08-12): An E5.3 test pinned "no tester exists yet" rather than a behaviour, and
+## D130 (2026-08-12): An E5.3 test pinned "no tester exists yet" rather than a behaviour, and
 E5.4a invalidated it (rule R0)
 
 - **What changed.** `test_service_testers.py::test_the_endpoint_reports_nothing_while_no_tester_is_registered`
@@ -810,7 +810,7 @@ E5.4a invalidated it (rule R0)
 - **How it was found, which is the part worth keeping.** E5.4a ran only its own new
   `test_tester_mqtt.py` (24 passed) and not the E5.3 suite it had just changed the inputs of,
   so this failure was invisible at the time it was introduced. It surfaced on the next broader
-  run. The E5 epic gates at five checkpoints rather than per task (D107), and the compensating
+  run. The E5 epic gates at five checkpoints rather than per task (D119), and the compensating
   discipline that makes that safe is running the *affected* suites per unit, not only the new
   ones. **A unit that registers into a shared structure has to re-run every suite that reads
   it.**
@@ -825,9 +825,9 @@ E5.4a invalidated it (rule R0)
   by whichever module happened to be last.
 - **Reference:** `backend/tests/test_service_testers.py`, `backend/tests/test_tester_mqtt.py`,
   `backend/tests/test_e0_readiness.py`, `app/services/testers/__init__.py`,
-  D107 (the checkpoint cadence), D111 (the four tester outcomes).
+  D119 (the checkpoint cadence), D123 (the four tester outcomes).
 
-## D117 (2026-08-12): "Is this service required" is a stored column, not an argument to
+## D129 (2026-08-12): "Is this service required" is a stored column, not an argument to
 `roll_up` (E5.5)
 
 - **The decision.** `deployment_service.required` (boolean, `NOT NULL DEFAULT true`, migration
@@ -859,14 +859,14 @@ E5.4a invalidated it (rule R0)
   verdict and no stray write can excuse `mqtt`, `influx`, `prometheus` or `grafana`. Spec 16.2
   makes only object storage conditional, and the column exists to express that one case.
 - **Provenance.** This entry is written by the session that finished E5.5; the column, the
-  model comment citing "D117" and the first draft of `status.py` were written by an earlier
+  model comment citing "D129" and the first draft of `status.py` were written by an earlier
   agent session that terminated mid-refactor, leaving the column with no migration and
   `status.py` still on the parameter form. See `project_planning/e5-progress-ledger.md`.
 - **Reference:** `app/services/status.py` (`required_keys`, `roll_up`, `apply_test_results`),
   `alembic/versions/b7d41f0c2e93_service_required_flag.py`, `backend/tests/test_services_status.py`,
   phase-5 fixed choice 2, spec 16.2 and 16.5.
 
-## D116 (2026-08-11): `app/services/clients/` may not import `app/services/testers/`, and the
+## D128 (2026-08-11): `app/services/clients/` may not import `app/services/testers/`, and the
 credential set grew a deployment identity (E5.4a)
 
 - **The cycle.** `testers/__init__` imports every tester so `REGISTRY` is populated at import
@@ -890,7 +890,7 @@ credential set grew a deployment identity (E5.4a)
 - **Reference:** `app/services/clients/mqtt.py`, `app/services/testers/mqtt.py::client_for`,
   `app/services/testers/base.py::ServiceCredentials`; phase-5 fixed choice 8.
 
-## D115 (2026-08-11): `app/services/dynsec.py` is created by E5.4a, one unit before the phase
+## D127 (2026-08-11): `app/services/dynsec.py` is created by E5.4a, one unit before the phase
 document places it (E5.4a)
 
 - **What moved.** The phase document names `app/services/dynsec.py` under **E5.6**. E5.4a needs
@@ -912,7 +912,7 @@ document places it (E5.4a)
   reused so D65's pinned-anchor property holds identically.
 - **Reference:** `app/services/dynsec.py`; phase-5 section 4, E5.6; D64, D65.
 
-## D114 (2026-08-11): The dynsec probe's three verdicts are decided by the SUBACK, not by the
+## D126 (2026-08-11): The dynsec probe's three verdicts are decided by the SUBACK, not by the
 publish — and the obvious discriminator does not work (E5.4a)
 
 - **The requirement.** Phase-5 fixed choice 4 makes dynsec required for v1, so the probe's
@@ -949,13 +949,13 @@ publish — and the obvious discriminator does not work (E5.4a)
 - **Reference:** `app/services/dynsec.py`; `backend/tests/test_tester_mqtt.py`;
   `backend/tests/conftest.py::dynsec_broker`; phase-5 fixed choice 4; spec 17 item 14.
 
-## D113 (2026-08-11): D112's fix is adopted from the SIM branch rather than written again, and
-D112's interim rule is retired
+## D125 (2026-08-11): D124's fix is adopted from the SIM branch rather than written again, and
+D124's interim rule is retired
 
 - **What changed.** `backend/tests/conftest.py` and `backend/tests/test_mqtt_manager.py` are
   taken verbatim from the SIM branch's gate-56 commit (`959ff23`, "Let several gate runs share
   one machine, and make one assertion decisive"). That commit implements two of the three
-  candidate fixes D112 listed as owed: a machine-wide cross-process lock and port-claim
+  candidate fixes D124 listed as owed: a machine-wide cross-process lock and port-claim
   registry (`gate_lock`, `free_port`, `GATE_STATE_DIR`), and host-side TCP readiness probes
   (`wait_for_host_port`) replacing the `docker exec` probes that asserted the wrong thing.
 - **Why it had to be done here and now.** `e5-batch-1` was cut at `2875063` (SIM.1), which is
@@ -965,26 +965,26 @@ D112's interim rule is retired
   `git diff 2875063 HEAD -- backend/tests/conftest.py backend/tests/test_mqtt_manager.py`,
   which is empty — so this is a clean adoption and not a merge, and the two branches now carry
   byte-identical copies.
-- **This is E0-owned test infrastructure, exactly as D112 said.** E5 neither designed nor
+- **This is E0-owned test infrastructure, exactly as D124 said.** E5 neither designed nor
   modified it; E5 imported it. The rationale for every part of it lives in the SIM branch's own
   decision entries (the ones titled "The suite is safe to run from several processes at once…"
   and "The shutdown assertion classifies the survivor instead of timing it out…"), which arrive
   on `main` with the SIM pull request.
-- **D112's interim rule is retired by this.** "Confirm no other session is running tests before
+- **D124's interim rule is retired by this.** "Confirm no other session is running tests before
   you start" was a habit standing in for a fix; the fix is now present in this tree. What
-  survives from D112 is its other half, which is still binding: a run that comes back with
+  survives from D124 is its other half, which is still binding: a run that comes back with
   container-startup errors is an **invalid measurement** to re-run, never a red gate to record,
   and `docker_retry` is still not to be widened.
 - **Numbering hazard for whoever merges.** Both branches appended to this file independently, so
-  `D110` and `D111` name different decisions on each: on `e5-batch-1` they are the services PUT
+  `D122` and `D123` name different decisions on each: on `e5-batch-1` they are the services PUT
   and the four tester outcomes; on `sim-batch-1` they are the concurrency fix and the shutdown
   assertion. Cross-references above are therefore by TITLE, not by number. Renumbering is the
   merge's job and must not be done inside either branch, because every commit message, ledger
   row and `project-updates.md` entry already written points at the local numbers.
-- **Reference:** `docs/DECISIONS.md` D99, D112; `backend/tests/conftest.py`;
+- **Reference:** `docs/DECISIONS.md` D99, D124; `backend/tests/conftest.py`;
   `project_planning/e5-progress-ledger.md`.
 
-## D112 (2026-08-11): The test harness is not safe to run twice at once, and that is a defect
+## D124 (2026-08-11): The test harness is not safe to run twice at once, and that is a defect
 to fix rather than a habit to work around
 
 - **The defect.** Container fixtures publish Docker host ports, and two concurrent runs of the
@@ -1030,7 +1030,7 @@ to fix rather than a habit to work around
   added the narrow retry); `backend/tests/conftest.py::docker_retry`,
   `ephemeral_postgres`, `ephemeral_broker`; `project_planning/e5-progress-ledger.md`.
 
-## D111 (2026-08-11): A tester says four things, not three, and two of them are not failures
+## D123 (2026-08-11): A tester says four things, not three, and two of them are not failures
 (E5.3)
 
 - **Decision:** `TesterOutcome` is `pass` | `fail` | `not_required` | `not_configured`. It is a
@@ -1074,7 +1074,7 @@ to fix rather than a habit to work around
 - **Reference:** phase-5 §4 task E5.3, spec 16.2 and 16.5; `backend/tests/test_service_testers.py`;
   `docs/INTERFACES.md` "Owned by E5".
 
-## D110 (2026-08-11): The services PUT is a partial collection of wholesale members, and it
+## D122 (2026-08-11): The services PUT is a partial collection of wholesale members, and it
 has no delete (E5.2)
 
 - **Decision:** `PUT /deployments/{id}/services` takes an object of up to five services. A
@@ -1104,10 +1104,10 @@ has no delete (E5.2)
   being quietly treated as a plaintext value that happens to look like an object. The sentinel
   VALUE is still `app.config.validation.KEEP_SENTINEL` — reused, not reinvented, so the
   services form and the config editor round-trip secrets the same way.
-- **Reference:** phase-5 §4 task E5.2, D51, D110's own suite
+- **Reference:** phase-5 §4 task E5.2, D51, D122's own suite
   `backend/tests/test_services_api.py`; `docs/INTERFACES.md` "Owned by E5".
 
-## D109 (2026-08-11): A fourth cross-epic edit, forced rather than chosen: an under-specified
+## D121 (2026-08-11): A fourth cross-epic edit, forced rather than chosen: an under-specified
 broker row is skipped, not fatal (E5.1)
 
 - **Decision:** `load_broker_coordinates` in `app/controlplane/broker.py` now skips a
@@ -1115,8 +1115,8 @@ broker row is skipped, not fatal (E5.1)
   logging a warning that names the deployment slug and the missing **column names** and never a
   credential. This sits beside the existing `SecretStoreError` skip and follows the same D64
   rule: one badly provisioned deployment must not deafen the others.
-- **Why it is a fourth edit when D108 says three, and why that is not a boundary being quietly
-  widened.** D108 authorized three *discretionary* cross-epic edits. This one is **forced**:
+- **Why it is a fourth edit when D120 says three, and why that is not a boundary being quietly
+  widened.** D120 authorized three *discretionary* cross-epic edits. This one is **forced**:
   E5.1 makes those four columns nullable so non-`mqtt` service rows can exist at all, which
   turns `Mapped[str]` into `Mapped[str | None]` and makes the existing loader body fail
   `mypy --strict`. Something had to change there. The alternatives were to raise (a single
@@ -1131,9 +1131,9 @@ broker row is skipped, not fatal (E5.1)
 - **The count in the phase document and the ledger was corrected rather than left to drift.**
   Both now say three discretionary plus this one forced, with the distinction stated. A record
   that says "exactly two" while the tree contains four is worse than no record.
-- **Reference:** D64, D108; phase-5 §2 and task E5.1; `backend/tests/test_services_model.py`.
+- **Reference:** D64, D120; phase-5 §2 and task E5.1; `backend/tests/test_services_model.py`.
 
-## D108 (2026-08-11): Three cross-epic edits are authorized in advance, and a fourth is a
+## D120 (2026-08-11): Three cross-epic edits are authorized in advance, and a fourth is a
 stop-and-ask (E5.0)
 
 - **Decision:** epic E5 may make exactly three edits outside its own surface, named here
@@ -1165,9 +1165,9 @@ stop-and-ask (E5.0)
   `app/controlplane/revision_state.py`, `app/config/merge.py`, and every assertion in the four
   test-critical suites. A fourth cross-epic edit is a stop-and-ask under rule R2, not a
   judgement the implementing session gets to make.
-- **Reference:** spec 16.4; phase-5 §2 and tasks E5.7a/E5.7b; project-changes #24.
+- **Reference:** spec 16.4; phase-5 §2 and tasks E5.7a/E5.7b; project-changes #36.
 
-## D107 (2026-08-11): E5 gates at five checkpoints rather than per task, and nothing unverified
+## D119 (2026-08-11): E5 gates at five checkpoints rather than per task, and nothing unverified
 reaches the remote (E5.0)
 
 - **Decision:** for epic E5 only, the full `make gate` runs at five checkpoints (C1-C5 in the
@@ -1190,7 +1190,7 @@ reaches the remote (E5.0)
   purpose rather than across the epic.
 - **Reference:** rule R0; phase-5 §2 "Process choices"; e5-progress-ledger.md.
 
-## D106 (2026-08-11): `MANAGE_SERVICES` and `VIEW_SERVICES` join the permission enum (E5.0)
+## D118 (2026-08-11): `MANAGE_SERVICES` and `VIEW_SERVICES` join the permission enum (E5.0)
 
 - **Decision:** E5 adds two permissions rather than reusing `MANAGE_CONFIG`. Manage goes to
   Owner and Deployment Operator; view goes to all four roles. `app/auth/rbac.py`,
@@ -1207,9 +1207,9 @@ reaches the remote (E5.0)
   additional rows in its table, and the frontend parity test covers them the same way.
   `rbac.py`'s own docstring authorizes exactly this shape: "later epics extend the enum and the
   map deliberately, never ad hoc."
-- **Reference:** spec 12.3, 14.5, 16.2; phase-5 §2 fixed choice 9; project-changes #24.
+- **Reference:** spec 12.3, 14.5, 16.2; phase-5 §2 fixed choice 9; project-changes #36.
 
-## D105 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4, reversing
+## D117 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4, reversing
 the phase-4 ordering (E5.0)
 
 - **Decision:** `phase-4-provisioning.md` §2 fixed choice 1 says E4.6 ships the provider seam
@@ -1227,9 +1227,9 @@ the phase-4 ordering (E5.0)
   it without a named interface, for E4 to later wrap, would be the same work with the seam
   discovered afterwards rather than designed.
 - **Reference:** spec 16.4; phase-4 §2 fixed choice 1; phase-5 §2 fixed choice 6;
-  project-changes #26.
+  project-changes #38.
 
-## D104 (2026-08-11): dynsec is required for v1, closing spec 17 item 14 (E5.0)
+## D116 (2026-08-11): dynsec is required for v1, closing spec 17 item 14 (E5.0)
 
 - **Decision:** the platform mints per-device broker credentials through Mosquitto's dynamic
   security API, and a broker without the plugin cannot be verified. Spec 16.4's manual-install
@@ -1254,7 +1254,7 @@ the phase-4 ordering (E5.0)
 - **Item 14 is now closed.** Item 13 (Chameleon Cloud VM auto-provisioning) stays open and
   stays out of scope; Path B still ends at a downloadable bundle.
 - **Reference:** spec 16.2, 16.4, 16.5, 17 item 14; phase-5 §2 fixed choice 4 and task E5.6;
-  project-changes #25; spec addendum SPEC-17-01.
+  project-changes #37; spec addendum SPEC-17-01.
 
 ## D103 (2026-08-11): A mock Aggregator announces `offline` when it leaves politely, and the
 LWT acceptance kills a real process (SIM.1)

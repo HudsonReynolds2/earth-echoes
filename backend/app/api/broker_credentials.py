@@ -65,7 +65,7 @@ class BrokerCredentialOut(BaseModel):
     username: str
     #: minted | revoke_pending | revoked. `revoke_pending` is a real answer and
     #: not an error state: the operator asked, the broker was unreachable, and
-    #: the worker's sweep is still trying (D121).
+    #: the worker's sweep is still trying (D133).
     state: str
     created_at: datetime
     updated_at: datetime

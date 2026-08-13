@@ -84,7 +84,7 @@ async def _open_client(stack: contextlib.AsyncExitStack, client: aiomqtt.Client)
     caller's `_close_client` can see it and close it.
 
     Found by `test_shutdown_leaves_no_running_tasks` under a loaded gate
-    (D138): the same detector that found D94 at the teardown end, reporting the
+    (D150): the same detector that found D94 at the teardown end, reporting the
     same shape of survivor.
     """
     entering = asyncio.ensure_future(stack.enter_async_context(client))

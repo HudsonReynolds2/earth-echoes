@@ -85,7 +85,7 @@ def _spec(**overrides) -> StackSpec:
 @pytest.fixture(params=[False, True], ids=["without-minio", "with-minio"])
 def spec(request) -> StackSpec:
     """Both shapes, everywhere. Object storage is conditionally required
-    (D123), so the two are equally real and neither is the exception."""
+    (D135), so the two are equally real and neither is the exception."""
     return _spec(include_object_storage=request.param)
 
 
@@ -161,7 +161,7 @@ def test_the_port_table_is_generated_not_pasted(spec):
     """The template ships a marker, not a table. If someone pastes a literal
     table into the prose the marker goes away and this fails, rather than the
     two quietly diverging at the next port change."""
-    # Read through TEMPLATE_DIR rather than rebuilding the path: D146 moved the
+    # Read through TEMPLATE_DIR rather than rebuilding the path: D158 moved the
     # prose inside the package so the API image actually ships it, and a test
     # holding its own copy of the path is how the two drift again.
     template = (TEMPLATE_DIR / "README.md").read_text(encoding="utf-8")
@@ -380,7 +380,7 @@ def test_no_image_is_floating(spec):
     reads `IMAGES`), which is the property that was missing when the broker
     fixture floated on `eclipse-mosquitto:2`: the tag moved to a version that
     reads dynsec passwords differently, and the suite went on passing against a
-    broker no operator would ever run (D132).
+    broker no operator would ever run (D144).
     """
     for name, service in compose_file(spec)["services"].items():
         image = service["image"]

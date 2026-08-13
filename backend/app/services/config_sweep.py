@@ -117,13 +117,13 @@ def _plan_one(db: Session, secret_store: SecretStore, deployment_id: uuid.UUID) 
         # the operator finishing the S5 wizard.
         return []
     # **The generation is added AFTER the early return, and the order is the
-    # whole point (D139).** `service_settings` omits the key when no generation
+    # whole point (D151).** `service_settings` omits the key when no generation
     # is passed, so a projection built without it stops asserting a value and
     # the effective config falls back to the catalog default of 0 — which this
     # sweep then delivers as a revision. Omitted, a once-a-minute sweep reset
     # every rotated deployment's counter from N back to 0 and minted a revision
     # to publish the reset, destroying the one signal a rotation gives a device
-    # (D134) within a minute of the rotation.
+    # (D146) within a minute of the rotation.
     #
     # But it cannot be passed to the call ABOVE either: the counter is always
     # present, so the projection would never be empty, the "nothing to deliver"

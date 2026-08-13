@@ -506,7 +506,7 @@ def test_the_client_never_reprs_its_password(dev_broker):
 def test_the_registry_carries_the_mqtt_tester():
     """This module owns the `mqtt` entry, and asserts only that.
 
-    **Amended by E5.4e** — the third instance of D118's shape in this epic.
+    **Amended by E5.4e** — the third instance of D130's shape in this epic.
     The original also asserted `set(REGISTRY) == {"mqtt"}`, which pinned
     "E5.4b-e have not been written yet" rather than anything about the MQTT
     tester, and expired the moment they were. Completeness of the registry is

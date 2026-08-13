@@ -174,7 +174,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Settings() resolves its required fields from the environment and the
     # optional TOML file (D5); mypy cannot see those sources.
     resolved = settings if settings is not None else Settings()  # type: ignore[call-arg]
-    # D127: uvicorn handles its own loggers and leaves the root logger bare, so
+    # D139: uvicorn handles its own loggers and leaves the root logger bare, so
     # without this every `app.*` INFO line in the API process is dropped.
     install_root_handler()
     configure_logging()

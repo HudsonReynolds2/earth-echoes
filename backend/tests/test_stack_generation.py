@@ -205,7 +205,7 @@ def test_generated_credentials_have_real_length(env):
 
 
 def test_regenerating_rotates_the_broker_and_prometheus_hashes_too(env):
-    """The hashes are stored, not recomputed (D130), so rotation has to
+    """The hashes are stored, not recomputed (D142), so rotation has to
     overwrite them explicitly — a rotation that changed the password but left
     the hash would ship a bundle whose broker rejects the new credential."""
     db, secret_store, deployment, factory = env
@@ -254,7 +254,7 @@ def test_every_service_row_lands_untested(env):
 
 
 def test_object_storage_is_written_only_when_asked_for(env):
-    """D123: object storage is conditionally required, so a deployment that
+    """D135: object storage is conditionally required, so a deployment that
     does not upload raw audio must not carry an s3 row waiting to be
     verified."""
     db, secret_store, deployment, _ = env

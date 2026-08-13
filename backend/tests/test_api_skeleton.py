@@ -226,11 +226,11 @@ def test_openapi_schema_generates(client: TestClient):
     assert f"{API_PREFIX}/health" in schema["paths"]
 
 
-# --- D127: the API process actually logs ------------------------------------
+# --- D139: the API process actually logs ------------------------------------
 
 
 def test_creating_the_app_gives_the_root_logger_a_handler():
-    """**Every `app.*` INFO line in the API was being dropped** (D127).
+    """**Every `app.*` INFO line in the API was being dropped** (D139).
 
     Uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves the
     ROOT logger bare, so Python's last-resort handler passed WARNING and above

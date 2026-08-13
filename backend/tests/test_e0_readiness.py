@@ -243,7 +243,7 @@ E0_TABLES = {
     # Mosquitto's dynamic security plugin. `aggregator_uuid` is deliberately
     # NOT a foreign key - the row has to OUTLIVE the device, because deleting
     # a Pi is exactly when its credential must be destroyed and an unreachable
-    # broker means that destruction is retried later (D121).
+    # broker means that destruction is retried later (D133).
     "broker_credential",
 }
 

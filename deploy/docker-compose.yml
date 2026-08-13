@@ -118,7 +118,7 @@ services:
     # IMAGES), not the floating `:2` tag. Docker Hub moved `:2` to 2.1.x, and
     # the two lines read dynamic-security.json passwords differently — a
     # developer whose dev broker is a different version from the deployment
-    # broker debugs the wrong system (D132).
+    # broker debugs the wrong system (D144).
     image: eclipse-mosquitto:2.0.20
     ports:
       - "18883:8883"

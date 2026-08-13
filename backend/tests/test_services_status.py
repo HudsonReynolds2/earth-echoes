@@ -70,7 +70,7 @@ class FakeRow:
     service_key: str
     status: str = "untested"
     consecutive_failures: int = 0
-    #: D117: whether this service counts toward the deployment's rollup is a
+    #: D129: whether this service counts toward the deployment's rollup is a
     #: property of the ROW, not an argument to `roll_up`. A required-set that
     #: only a live test run could reconstruct would leave
     #: `deployment.services_status` irreproducible from the rows by a save or
@@ -209,7 +209,7 @@ def test_only_object_storage_is_conditionally_required():
     assert required_keys(rows(every_key)) == frozenset(SERVICE_KEYS)
     assert set(SERVICE_KEYS) - set(ALWAYS_REQUIRED) == {"s3"}
 
-    # D117: the flag is a property of the row, so a tester's `not_required`
+    # D129: the flag is a property of the row, so a tester's `not_required`
     # survives into every later recompute. Only s3 can ever use it - the other
     # four are read from ALWAYS_REQUIRED, so no verdict can excuse them.
     assert required_keys(rows(every_key, not_required=["s3"])) == frozenset(ALWAYS_REQUIRED)
@@ -462,7 +462,7 @@ def test_a_single_success_resets_the_counter(app, factory, dep_id):
 
 
 def test_not_required_and_not_configured_write_nothing(app, factory, dep_id):
-    """Neither is a verdict about a connection (D111), and writing `failed`
+    """Neither is a verdict about a connection (D123), and writing `failed`
     for either is what teaches an operator to ignore red."""
     configure_all(factory, dep_id, status="verified")
     with factory() as db:
@@ -624,7 +624,7 @@ def test_saving_a_service_unverifies_it(app, factory, dep_id, owner):
 
 
 def test_a_save_leaves_the_other_services_verdicts_alone(app, factory, dep_id, owner):
-    """PUT is a partial collection of wholesale members (D110); unverifying is
+    """PUT is a partial collection of wholesale members (D122); unverifying is
     per-service for the same reason writing is."""
     configure_all(factory, dep_id, status="verified")
     owner.put(

@@ -16,7 +16,7 @@ referenced planning document; an entry with no addendum is incomplete.
   and no `COPY` can reach it; the download endpoint raised `FileNotFoundError` on
   `/srv/deploy/stack-templates/README.md` in every containerized deployment. The whole suite was
   green because tests run from the repo tree where the path exists — every README assertion was
-  true of the developer's filesystem and false of the artifact that ships. Details in D146.
+  true of the developer's filesystem and false of the artifact that ships. Details in D158.
 - **How it was found:** the first hand-run of `guide/e5-verification.md` against a real
   container, minutes after the C5 gate went green.
 - **Why not keep the location and copy it in:** the only way to `COPY` a sibling of `backend/`
@@ -26,7 +26,7 @@ referenced planning document; an entry with no addendum is incomplete.
   construction rather than by anyone remembering.
 - **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.8b's "Static prose
   lives in `deploy/stack-templates/`", addendum **PHASE5-4-07**) and section 6 (the handoff
-  artifact list, addendum **PHASE5-6-01**); docs/DECISIONS.md **D146**;
+  artifact list, addendum **PHASE5-6-01**); docs/DECISIONS.md **D158**;
   backend/app/services/stack.py; backend/tests/test_repo_layout.py;
   backend/tests/test_stack_generator.py.
 - **Addendum:** PHASE5-4-07
@@ -40,14 +40,14 @@ referenced planning document; an entry with no addendum is incomplete.
   running `_misc_loop` that nothing owned and nothing could close — a per-reconnect leak of
   sockets and tasks in a process meant to run for months. Found by E3's own
   `test_shutdown_leaves_no_running_tasks` under a loaded gate, and reproduced deterministically
-  before the fix was written. Details in D138.
+  before the fix was written. Details in D150.
 - **Whose scope this crosses:** the phase document authorizes **two** discretionary E3-owned
   edits, both in E5.7b, and says a third is a stop-and-ask. It was asked and answered:
   **taken on the owner's explicit authorization**, 2026-08-13, over the declined alternative of
   recording the defect and deferring it to an E3 batch — which would have left a known flake
   able to redden any later gate, E5.12's included.
 - **Affects:** project_planning/phase-5-deployment-services.md section 2 ("The E3-owned edits
-  this phase is authorized to make"); docs/DECISIONS.md D138, extending D94
+  this phase is authorized to make"); docs/DECISIONS.md D150, extending D94
 - **Addendum:** PHASE5-4-06
 
 ## #33 (2026-08-12): The API process gets a root log handler, and an E0-owned docstring that
@@ -62,10 +62,10 @@ was wrong is corrected
   outcomes. Found by C3's manual walkthrough, which tried to prove `refresh()` had connected by
   grepping the log and got nothing. The wrong docstring is why it survived three epics.
 - **Whose scope this crosses:** `app/middleware.py` is E0-owned. **Taken on the owner's
-  explicit authorization**, 2026-08-12, as an E0-owned fix made by E5; it closes D127, which
+  explicit authorization**, 2026-08-12, as an E0-owned fix made by E5; it closes D139, which
   had been carried as a stop-and-ask.
 - **Affects:** project_planning/phase-5-deployment-services.md section 5 (definition of done);
-  docs/DECISIONS.md D136, closing D127
+  docs/DECISIONS.md D148, closing D139
 - **Addendum:** PHASE5-4-05
 
 ## #32 (2026-08-12): A thirteenth device-facing config key, so a rotation is visible to devices
@@ -75,7 +75,7 @@ was wrong is corrected
   `services_credentials_generation` column (migration `d5f28c60a419`). E5's projection, which
   the phase document describes as "the twelve device-facing keys", now writes thirteen.
 - **Why:** a desired snapshot carries secret MARKERS and never plaintext (spec 5.4, 8; D51,
-  D126), and a marker is a SecretStore name — identical before and after a rotation. Measured:
+  D138), and a marker is a SecretStore name — identical before and after a rotation. Measured:
   rotating every credential minted ZERO revisions, while rotating to a different hostname minted
   one per Aggregator and none per Listener. So E5.11's acceptance ("one new revision per
   Aggregator") and spec 16.3's "rotation is a config revision, not a manual redistribution"
@@ -88,11 +88,11 @@ was wrong is corrected
   5.3's table and the suite asserts them key for key, so a thirteenth restricted key is a spec
   change and not only a phase-document one: `echoes-of-earth-platform-spec-v1.1.md` gains a
   thirty-eighth row and addendum **SPEC-5-01**. The frozen wire checksum in the merge-engine
-  suite moves with it — recorded separately in D137, because re-freezing a golden digest is
+  suite moves with it — recorded separately in D149, because re-freezing a golden digest is
   never routine.
 - **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.7a, E5.11);
   project_planning/echoes-of-earth-platform-spec-v1.1.md section 5.3;
-  docs/DECISIONS.md D134, D137
+  docs/DECISIONS.md D146, D149
 - **Addendum:** PHASE5-4-02
 
 ## #31 (2026-08-12): Spec 16.5's periodic service re-checks are closed as deliberately not built
@@ -116,7 +116,7 @@ was wrong is corrected
   floating `eclipse-mosquitto:2` tag. The fixture reads `app.services.stack.IMAGES` so there is
   one pin; the dev compose stack names the same version.
 - **Why:** Docker Hub moved `:2` to 2.1.x, and 2.0 and 2.1 read `dynamic-security.json`
-  passwords differently (D132). Every dynsec test in the suite passed against 2.1.2 while the
+  passwords differently (D144). Every dynsec test in the suite passed against 2.1.2 while the
   2.0.20 the platform pins refused every login — a pinned artifact tested against a floating tag
   proves nothing about what ships. Found by E5.10's keystone.
 - **Whose scope this crosses:** `conftest.py` is E0-owned test infrastructure and
@@ -131,7 +131,7 @@ was wrong is corrected
 - **What changed:** a batch with no task number — **INFRA.1** — lands at the head of
   `e5-batch-1` before C4 begins. It replaces the per-module Postgres container with a
   machine-wide warm server handing out template clones, and moves every test container's
-  writable state to tmpfs. DECISIONS D128 and D129 carry the design and its costs.
+  writable state to tmpfs. DECISIONS D140 and D141 carry the design and its costs.
 - **Why it is not part of C4:** it is E0-owned test infrastructure, not E5 scope, and folding it
   into a numbered E5 unit would make that unit's diff unreviewable and its gate measurement
   meaningless.
@@ -159,13 +159,13 @@ question is closed without a catalog toggle
   "three signatures". It is four: `apply_change_plan` calls `put_overrides`, so without the flag
   reaching it the plan a caller was handed could not be executed. Same default, same meaning.
   The flag also carries the "regenerated wholesale, never merged" behaviour the same fixed
-  choice requires, which the document implies but does not state. DECISIONS D122.
+  choice requires, which the document implies but does not state. DECISIONS D134.
 - **What changed, part two.** The E5 ledger's "OPEN QUESTION for the owner" -- what makes object
   storage `not_required` when spec 16.2 names a raw-audio toggle that does not exist -- is
   **answered and closed**: E5.4e's reading (both credentials absent) stands, the platform
   supports raw audio only for now, and **no `upload.raw_audio_enabled` catalog key is added**.
   That would have been an E2-owned catalog change plus a migration, out of E5's scope under rule
-  R2. DECISIONS D123.
+  R2. DECISIONS D135.
 - **Why:** the first is a document undercounting a signature, recorded because a document that
   says "exactly three" while the tree has four is worse than no document. The second is a spec
   gap the owner resolved by declining to widen the catalog for a flag with one consumer.
@@ -193,14 +193,14 @@ blocks a device delete
 - **The consequence for the E3-owned surface, stated rather than buried:** the retry needs a
   loop, so E5.7b registers a second sweep (`broker-credential`) beside the authorized
   `service_config_sweep`. Both have E5-owned bodies; the E3-owned diff is registrations.
-  DECISIONS D125 states the whole surface taken, including what was NOT taken.
+  DECISIONS D137 states the whole surface taken, including what was NOT taken.
 - **Who approved:** the owner, on 2026-08-12, choosing the retry over a 503 that refuses the
   delete.
 - **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.6), section 2
   ("The E3-owned edits this phase is authorized to make")
 - **Addendum:** PHASE5-4-01
 
-## #26 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4
+## #38 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4
 
 - **What changed:** `project_planning/phase-4-provisioning.md` §2 fixed choice 1 has E4.6
   shipping the `BrokerCredentialProvider` seam, with "E5.6's entire job is to add a dynsec
@@ -227,7 +227,7 @@ blocks a device delete
 - **Affects:** project_planning/phase-4-provisioning.md §2 (fixed choice 1)
 - **Addendum:** PHASE4-2-01
 
-## #25 (2026-08-11): dynsec is required for v1, closing spec 17 item 14
+## #37 (2026-08-11): dynsec is required for v1, closing spec 17 item 14
 
 - **What changed:** spec 17 item 14 asked whether v1 should require Mosquitto's dynamic
   security plugin for platform-managed brokers instead of supporting spec 16.4's
@@ -252,12 +252,12 @@ blocks a device delete
 - **Affects:** project_planning/echoes-of-earth-platform-spec-v1.1.md §17 (item 14)
 - **Addendum:** SPEC-17-01
 
-## #24 (2026-08-11): The E5 phase document, and the units and permissions it adds
+## #36 (2026-08-11): The E5 phase document, and the units and permissions it adds
 
 - **What changed:** epic E5 gains its phase document,
   `project_planning/phase-5-deployment-services.md`, written to the project plan §5 structure
   and now the binding scope for the epic. Two further changes it makes are recorded separately
-  as #25 (dynsec required) and #26 (the `BrokerCredentialProvider` reversal); this entry covers
+  as #37 (dynsec required) and #38 (the `BrokerCredentialProvider` reversal); this entry covers
   the rest.
 - **A thirteenth unit, E5.0.** The project plan lists twelve E5 tasks and no phase-document
   task. E5.0 is the document, `project_planning/e5-progress-ledger.md`, and these records.
@@ -272,11 +272,11 @@ blocks a device delete
   sweep runner), both confined to task E5.7b so the whole discretionary surface is one diff;
   one E2-owned (`DevicePlan.changed_keys` computed from stripped snapshots, which stops one
   services save minting a revision per Listener); and one E3-owned but forced rather than
-  chosen, in E5.1 (see D109). Any further cross-epic edit is a stop-and-ask.
+  chosen, in E5.1 (see D121). Any further cross-epic edit is a stop-and-ask.
 - **Process, for this epic only:** one branch (`e5-batch-1`) and one PR rather than phase 4's
   per-batch shape, and the full gate at five checkpoints rather than after every numbered
   unit — with the compensating rule that nothing reaches the remote without a full green gate.
-  Recorded as a deviation in `DECISIONS.md` (D107).
+  Recorded as a deviation in `DECISIONS.md` (D119).
 - **What did NOT change:** the twelve tasks, their order, or the epic's definition of done.
   Spec 16's two paths, five testers, and status lifecycle are implemented as written.
 - **Who approved:** the owner, on 2026-08-11, at plan approval, choosing the new permissions,

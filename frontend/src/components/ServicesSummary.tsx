@@ -74,7 +74,7 @@ export function ServicesSummary({ status }: { status: ServicesStatus | undefined
         <p className="services-summary-note">
           {/* NOT "re-checks run every five minutes", which is what the S5 mock
               says: periodic re-checks are closed as deliberately not built
-              (D133). Timed polling reports a fact that was true minutes ago.
+              (D145). Timed polling reports a fact that was true minutes ago.
               Degradation comes from observed events only, and this sentence
               says which ones. */}
           Nothing re-checks these on a timer, by design. A service degrades on what is actually

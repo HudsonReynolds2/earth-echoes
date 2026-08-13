@@ -4,12 +4,12 @@ Revision ID: d5f28c60a419
 Revises: c4e9b21f83da
 Create Date: 2026-08-12
 
-Task E5.11 (spec 16.3, 16.4; DECISIONS D134). One column and one catalog key:
+Task E5.11 (spec 16.3, 16.4; DECISIONS D146). One column and one catalog key:
 the count of how many times a deployment's service credentials have been
 generated.
 
 **Why a rotation needs a counter at all.** A device's desired config snapshot
-carries secret MARKERS and never plaintext (spec 5.4 and 8; D51, D126), and a
+carries secret MARKERS and never plaintext (spec 5.4 and 8; D51, D138), and a
 marker is a SecretStore NAME -- `{"$secret": "config:deployment:<id>:
 telemetry.influx_token"}` -- which is the identical string before and after a
 rotation. So rotating every credential a deployment has changes nothing in any

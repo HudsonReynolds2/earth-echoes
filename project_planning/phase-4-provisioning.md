@@ -133,7 +133,7 @@ need one reopened is a stop-and-ask.
    exists for this deployment"**, 422 otherwise, at one call site carrying an explicit
    `# E5.5 replaces this predicate` marker.
 
-   > **Addendum PHASE4-2-01 (2026-08-11, ref project-changes #26):** This choice assumed E4
+   > **Addendum PHASE4-2-01 (2026-08-11, ref project-changes #38):** This choice assumed E4
    > would land before E5. It did not — E5 was built first, so **the direction of this
    > dependency has reversed and three sentences above are now stale.** `BrokerCredentialProvider`
    > is **defined by E5.6**, in `backend/app/services/credentials.py`, together with
@@ -142,11 +142,11 @@ need one reopened is a stop-and-ask.
    > `DevBrokerCredentialProvider` is exactly the one this task described. E4.6's remaining work
    > is what this choice always said it would leave E5: choose a provider and flip
    > `EOE_BOOTSTRAP_CREDENTIALS`. Two further consequences: **dynsec is required for v1** (spec
-   > 17 item 14, closed — DECISIONS D104), so there is no manual-install path and no held-bundle
+   > 17 item 14, closed — DECISIONS D116), so there is no manual-install path and no held-bundle
    > state for E4 to consult; and the degraded verified-broker predicate above is **no longer
    > needed**, because E5.5 shipped `deployment.services_status` — E4.6 gates on
    > `services_status == 'verified'` directly and the `# E5.5 replaces this predicate` marker
-   > should never be written. See DECISIONS D105.
+   > should never be written. See DECISIONS D117.
 
 2. **E4.2 authors `device_config` v1 as YAML** (spec 17 item 1). No firmware-agreed schema
    exists, so this phase writes the draft: a versioned template carrying `schema_version: 1`,

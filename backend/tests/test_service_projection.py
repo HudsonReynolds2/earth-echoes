@@ -75,7 +75,7 @@ TWELVE = {
     "telemetry.grafana_url",
 }
 
-#: The twelve above plus E5.11's generation counter (D134). **The two sets are
+#: The twelve above plus E5.11's generation counter (D146). **The two sets are
 #: not interchangeable and the difference is the point:** `TWELVE` is what a
 #: projection of the SERVICE ROWS produces, and `THIRTEEN` is what the catalog
 #: marks write-restricted. The counter comes from the deployment rather than

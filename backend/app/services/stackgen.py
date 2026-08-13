@@ -115,7 +115,7 @@ def bcrypt_hash(password: str) -> str:
     """Prometheus's `web_config.yml` accepts bcrypt and nothing else.
 
     Salted once here, at generation time, for the same reason the broker's
-    dynsec hash is (D130): re-hashing at render time would re-salt and break
+    dynsec hash is (D142): re-hashing at render time would re-salt and break
     the byte-identical download that fixed choice 7 rests on.
     """
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
@@ -291,7 +291,7 @@ def generate_stack(
             row.last_tested_at = None
 
         _drop_object_storage_if_absent(db, secret_store, deployment_id, include_object_storage)
-        # **The one non-secret thing a rotation changes** (D134). Bumped in the
+        # **The one non-secret thing a rotation changes** (D146). Bumped in the
         # SAME transaction as the credentials it describes, so a generation the
         # devices were told about is always a generation that was stored — the
         # projection reads this column, and a counter that could run ahead of

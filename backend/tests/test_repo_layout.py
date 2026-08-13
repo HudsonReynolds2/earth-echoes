@@ -251,7 +251,7 @@ def test_enforce_fails_closed_and_passes_clean_runs_through():
     assert enforce({"skipped": 0, "xfailed": 0, "deselected": 0}, 5) == 5
 
 
-# --- E5.12b (D146): runtime data files must be inside the image -------------
+# --- E5.12b (D158): runtime data files must be inside the image -------------
 
 
 def test_runtime_data_files_are_inside_the_image():

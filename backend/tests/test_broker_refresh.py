@@ -503,7 +503,7 @@ async def test_the_sweep_is_a_no_op_the_second_time(
 async def test_the_sweep_does_not_reset_the_credentials_generation(
     factory, store, hierarchy
 ) -> None:
-    """D139: the sweep must DELIVER the rotation counter, never overwrite it.
+    """D151: the sweep must DELIVER the rotation counter, never overwrite it.
 
     `service_settings` omits `services.credentials_generation` when no
     generation is passed, so the projection stops asserting a value and the
@@ -512,7 +512,7 @@ async def test_the_sweep_does_not_reset_the_credentials_generation(
     did not merely fail to help, it actively reset every rotated deployment's
     counter from N back to 0 and minted a revision to publish the reset,
     destroying within a minute the one signal a rotation gives a device
-    (D134).
+    (D146).
 
     Found by hand against a live stack, not by the suite: the device-visible
     counter went 2 -> 0 after a regeneration while the platform's own column

@@ -318,8 +318,8 @@ def test_golden_checksums_are_frozen():
 
     **Digest A was re-frozen once, at E5.11, and that is the only time.** Spec
     5.3 gained a thirty-eighth row (`services.credentials_generation`, addendum
-    SPEC-5-01, D134), so the defaults-only snapshot legitimately gained a key
-    and this digest had to move with it — see D137. It is re-frozen only
+    SPEC-5-01, D146), so the defaults-only snapshot legitimately gained a key
+    and this digest had to move with it — see D149. It is re-frozen only
     because the change was proven to be exactly that and nothing more: the
     assertion below removes the new key and reproduces the ORIGINAL digest
     byte for byte, so a merge-semantics regression hiding inside the re-freeze

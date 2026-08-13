@@ -9,7 +9,7 @@ from and where they are destroyed.
 
 `phase-4-provisioning.md` originally had E4.6 declare `BrokerCredentialProvider`
 and E5.6 add an implementation. E4 was never built, so the dependency reversed
-(addendum PHASE4-2-01, DECISIONS D105): **this module DEFINES the protocol and
+(addendum PHASE4-2-01, DECISIONS D117): **this module DEFINES the protocol and
 ships both implementations**, and E4.6's remaining work is to import it, pick
 one, and flip `EOE_BOOTSTRAP_CREDENTIALS`.
 
@@ -47,7 +47,7 @@ Deleting an Aggregator while its broker is unreachable must not stop the
 operator, and must not leave a decommissioned Pi holding a working login. So
 the row goes to `revoke_pending`, the delete proceeds, and
 `drain_pending_revocations` retries on the worker's sweep until the broker
-confirms. Owner's decision, 2026-08-12 (DECISIONS D121, project-changes #27);
+confirms. Owner's decision, 2026-08-12 (DECISIONS D133, project-changes #27);
 the alternative on the table was a 503 that refused the delete.
 """
 
@@ -374,7 +374,7 @@ def coordinates_for(
     """This deployment's broker coordinates, or a `CredentialError` saying why not.
 
     Filters `load_broker_coordinates` rather than writing a second query,
-    deliberately: that function carries D64's and D109's skip rules — an
+    deliberately: that function carries D64's and D121's skip rules — an
     unreadable secret, a row missing its connection columns — and a second
     loader would be a second, quietly different answer to "is this row usable".
     """

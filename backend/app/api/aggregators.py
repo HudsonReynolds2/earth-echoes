@@ -216,7 +216,7 @@ async def delete_aggregator(
     **An unreachable broker does not block the delete.** The row lands in
     `revoke_pending`, this endpoint still returns 204, and
     `credentials.drain_pending_revocations` retries on the worker's sweep until
-    the broker confirms. Owner's decision, 2026-08-12 (D121): refusing the
+    the broker confirms. Owner's decision, 2026-08-12 (D133): refusing the
     delete would let one deployment's outage block inventory work, and letting
     it pass silently would strand a live credential forever.
     """

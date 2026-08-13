@@ -40,7 +40,7 @@ def _ms(started: float) -> int:
 
 def client_for(credentials: ServiceCredentials) -> InfluxClient:
     """`ServiceCredentials` -> a dialable client. On the tester's side of the
-    boundary for D116's reason: a client that imported the tester framework
+    boundary for D128's reason: a client that imported the tester framework
     would close an import cycle through `testers/__init__`."""
     settings = credentials.settings
     return InfluxClient(

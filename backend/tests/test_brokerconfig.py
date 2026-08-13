@@ -192,7 +192,7 @@ def test_the_generated_config_never_carries_a_plaintext_password():
 def test_the_client_entry_uses_the_three_password_fields_mosquitto_2_0_reads():
     """**Mosquitto 2.0 ignores `encoded_password` and leaves the account with
     no password**, so every login is refused with CONNACK 135 and nothing in
-    the broker's log mentions the field it skipped (D132).
+    the broker's log mentions the field it skipped (D144).
 
     Pinned as its own test because the combined form is what 2.1 writes and
     therefore what anyone reading a modern `dynamic-security.json` will copy;
@@ -218,7 +218,7 @@ def test_the_split_password_fields_round_trip_the_hash_they_came_from():
 
 
 def test_a_hash_that_is_not_a_mosquitto_field_group_is_refused():
-    """A silently-wrong password field is exactly the failure D132 cost a
+    """A silently-wrong password field is exactly the failure D144 cost a
     session, so the parse refuses rather than rendering something plausible."""
     with pytest.raises(ValueError):
         dynsec_password_fields("$6$1000$c2FsdA==$aGFzaA==")
@@ -267,7 +267,7 @@ def test_a_minted_device_role_renders_from_the_same_grant_list():
 
 
 def test_read_grants_become_two_acltypes_not_one():
-    """D120, re-asserted at the generated broker. `subscribePattern` alone
+    """D132, re-asserted at the generated broker. `subscribePattern` alone
     produces a device that subscribes successfully and then receives nothing —
     indistinguishable, from the device's side, from a platform that never
     published."""

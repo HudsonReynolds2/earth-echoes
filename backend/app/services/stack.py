@@ -549,7 +549,7 @@ def published_ports(compose: Mapping[str, Any]) -> set[int]:
 #: Where the static prose lives. Phase-5 E5.8b: prose belongs in a file a
 #: person can edit and review, not in a Python string constant nobody reads.
 #:
-#: **It lives INSIDE the package, and that is not a style choice (D146).** It
+#: **It lives INSIDE the package, and that is not a style choice (D158).** It
 #: was `deploy/stack-templates/` — the location the phase document named — and
 #: the download endpoint 500'd in every containerized deployment, because the
 #: API image's build context is `backend/` and nothing outside it is in the

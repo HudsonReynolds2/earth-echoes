@@ -969,7 +969,7 @@ class Broker:
         )
 
 
-#: **Read from the shipped constant, not written here** (D132).
+#: **Read from the shipped constant, not written here** (D144).
 #:
 #: Every broker in the gate runs the image a generated stack ships, because a
 #: fixture on a different version proves nothing about what an operator gets.
@@ -1206,7 +1206,7 @@ def dynsec_config(deployment_slug: str) -> dict:
         # Split into `password`/`salt`/`iterations` through the SAME helper the
         # generated stack renders with, because Mosquitto 2.0 ignores a
         # combined `encoded_password` and leaves the account with no password
-        # at all (D132). This fixture used to write the combined form and
+        # at all (D144). This fixture used to write the combined form and
         # passed only because it ran a floating `:2` tag that had moved to
         # 2.1.x; both now run `MOSQUITTO_IMAGE`.
         return {

@@ -513,7 +513,7 @@ class ReconciliationWorker:
                 ),
                 name="reconcile-service-config-sweep",
             ),
-            # E5.6, D121: a credential whose revocation could not reach the
+            # E5.6, D133: a credential whose revocation could not reach the
             # broker is retried here until it does. `revoke_pending` is a
             # promise the platform made when it let an operator delete a device
             # during a broker outage, and this loop is what keeps it.
@@ -776,7 +776,7 @@ def main() -> None:
 
     **This docstring used to claim the API did not need the same treatment
     ("under uvicorn the server installs the handlers"), and that was wrong**
-    (D127): uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves
+    (D139): uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves
     the ROOT logger bare, so the API dropped every `app.*` INFO line for as long
     as that sentence stood. `create_app` now calls the same helper, which is why
     it lives in `app.middleware` rather than here — one process configuring

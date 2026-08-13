@@ -320,7 +320,7 @@ describe("the rolled-up status display", () => {
     actAs("owner");
     renderAt(CONFIGURED);
     const summary = await screen.findByTestId("services-summary");
-    // D133 closed periodic re-checks as deliberately not built. The S5 mock's
+    // D145 closed periodic re-checks as deliberately not built. The S5 mock's
     // "re-checks run every 5 minutes" would be a promise the platform does not
     // keep, so the page must not make it.
     expect(summary).toHaveTextContent(/Nothing re-checks these on a timer/);

@@ -667,7 +667,7 @@ def test_every_spec_service_has_a_tester_and_no_others_are_registered():
     Added by E5.4e, and it is the assertion `testers/__init__.py`'s docstring
     claims exists. Two directions, both of which have bitten this epic before
     in other forms: a sixth `service_key` reaching `models.SERVICE_KEYS`
-    without a tester would silently report nothing for it (D118's shape), and
+    without a tester would silently report nothing for it (D130's shape), and
     a tester registered under a key the database does not accept would never
     run at all.
     """

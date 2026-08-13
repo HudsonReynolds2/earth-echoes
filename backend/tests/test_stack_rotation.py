@@ -299,10 +299,10 @@ def test_a_failed_reverification_still_publishes_and_reports_degraded(owner, app
 
 
 def test_a_secret_only_rotation_still_reaches_every_aggregator(owner, app, dep_id):
-    """**The claim that needed a catalog key to be true** (D134).
+    """**The claim that needed a catalog key to be true** (D146).
 
     A device's desired snapshot carries secret MARKERS and never plaintext
-    (spec 5.4, 8; D51, D126), and a marker is a SecretStore NAME — the same
+    (spec 5.4, 8; D51, D138), and a marker is a SecretStore NAME — the same
     string before and after a rotation. So rotating every credential while
     leaving the hostname alone changes nothing a device can see: measured, it
     minted ZERO revisions, and rotating to a different hostname minted two. The

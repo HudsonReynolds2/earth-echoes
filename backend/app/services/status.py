@@ -10,7 +10,7 @@ Two vocabularies, and keeping them apart is most of this module's job:
 
 They are not aliases and neither is derivable from the other one row at a time
 - "this deployment is degraded" is not a statement any single service can make.
-E5.3's `TesterOutcome` is a **third** vocabulary (D111), because "I did not
+E5.3's `TesterOutcome` is a **third** vocabulary (D123), because "I did not
 run" and "I ran and it failed" are different facts; `apply_test_results` is the
 only place all three meet.
 
@@ -75,7 +75,7 @@ def required_keys(rows: Sequence[DeploymentService]) -> frozenset[str]:
     use them, and a bucket that rejects the platform is worth a red dot - until
     E5.4e's tester answers `not_required` and `apply_test_results` records it.
 
-    **The flag is read from the row and never passed in** (D117). Spec 16.2's
+    **The flag is read from the row and never passed in** (D129). Spec 16.2's
     conditional requirement is discovered during a test run, but the rollup is
     recomputed on paths that have no test results in hand - a save, or the
     suite-wide invariant walking every deployment. A required-set that only a
@@ -216,7 +216,7 @@ def apply_test_results(
       conditional requirement). The one thing it DOES write is
       `row.required = False`, so a deployment with object storage switched off
       can reach `verified` - and can still be recomputed to `verified` later by
-      a save or a sweep that never ran a test (D117).
+      a save or a sweep that never ran a test (D129).
     * **`not_configured`** -> the row is not touched at all. There was nothing
       to dial. Writing `failed` for either of these is what teaches an operator
       to ignore red.
@@ -248,7 +248,7 @@ def apply_test_results(
         if result.outcome == "not_required":
             # The only thing this writes. Persisted rather than returned so
             # every later recompute reaches the same answer without a test
-            # (D117, and this migration's docstring).
+            # (D129, and this migration's docstring).
             row.required = False
             continue
 

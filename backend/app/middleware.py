@@ -51,7 +51,7 @@ _factory_installed = False
 
 
 def install_root_handler() -> None:
-    """Give the ROOT logger a handler, so `app.*` INFO lines are visible (D127).
+    """Give the ROOT logger a handler, so `app.*` INFO lines are visible (D139).
 
     **Uvicorn does not do this for us, and the codebase used to say it did.**
     Uvicorn's default config attaches handlers to its own `uvicorn.*` loggers

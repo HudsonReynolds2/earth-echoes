@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     drift_sweep_seconds: int = Field(default=300, validation_alias="EOE_DRIFT_SWEEP_SECONDS")
     # E5.7b, spec 16.4: how often the worker delivers a deployment's service
     # settings to devices that do not have them yet, and retries any broker
-    # credential whose revocation could not reach its broker (D121). Its whole
+    # credential whose revocation could not reach its broker (D133). Its whole
     # job is the Aggregator created AFTER the operator saved their services, so
     # the cadence is "how long a newly registered Pi waits", not a correctness
     # bound - the services save itself already reached every device that

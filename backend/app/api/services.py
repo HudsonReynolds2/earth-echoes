@@ -405,7 +405,7 @@ def _project_to_config(
     projection = service_settings(
         rows,
         store.get,
-        # D134: without this a rotation changes nothing any device can see, and
+        # D146: without this a rotation changes nothing any device can see, and
         # `services_credentials_generation` is the only key in the projection
         # that does not come from a service row.
         generation=deployment.services_credentials_generation if deployment else 0,
@@ -619,7 +619,7 @@ class StackGenerateBody(BaseModel):
     #: a certificate for the wrong name fails verification everywhere.
     hostname: str = Field(default="localhost", min_length=1, max_length=255)
     ip: str | None = Field(default=None, max_length=45)
-    #: D123: object storage is conditionally required. An operator not
+    #: D135: object storage is conditionally required. An operator not
     #: uploading raw audio leaves it off and the deployment can still verify.
     include_object_storage: bool = False
 
@@ -796,7 +796,7 @@ async def rotate_stack_credentials(
     a genuine pass moves it on.
 
     **No sweep is registered here, deliberately.** Spec 16.5's "periodic
-    re-checks" are closed as not built (D133): timed polling reports a fact
+    re-checks" are closed as not built (D145): timed polling reports a fact
     that was true minutes ago, and degradation comes from observed events
     instead — an operator-run test, this re-verification, and for MQTT the
     control plane's own connection and LWT.
@@ -877,7 +877,7 @@ async def rotate_stack_credentials(
     }
     results = await run_testers(testers, credentials)
     # Every result here is about STORED credentials, so every one is a verdict
-    # of record (E5.5, D117) — there is no candidate in a rotation.
+    # of record (E5.5, D129) — there is no candidate in a rotation.
     applied = apply_test_results(db, deployment_id, results)
     status = recompute(db, deployment_id)
     record_audit(

@@ -17,7 +17,7 @@ platform's only record of a login that is still live on somebody's broker. Spec
 the one the broker knows it by, so this column is the join that matters here.
 
 **Three states, where the phase document pencilled two** (project-changes #27,
-DECISIONS D121). `minted` and `revoked` are the steady ones. `revoke_pending`
+DECISIONS D133). `minted` and `revoked` are the steady ones. `revoke_pending`
 is the owner's answer, taken on 2026-08-12, to a question the document left
 implicit: what happens when an operator deletes an Aggregator whose broker is
 down. Refusing the delete would let one deployment's outage block inventory

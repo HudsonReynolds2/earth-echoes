@@ -64,7 +64,7 @@ SERVICES_STATUS_VOCAB: tuple[str, ...] = (
 #: an Aggregator while its broker is unreachable must neither block the
 #: operator nor leave a decommissioned Pi holding live credentials, so the
 #: delete proceeds and the revocation is retried. Owner's call, 2026-08-12;
-#: DECISIONS D121, project-changes #27.
+#: DECISIONS D133, project-changes #27.
 BROKER_CREDENTIAL_STATES: tuple[str, ...] = ("minted", "revoke_pending", "revoked")
 
 
@@ -278,14 +278,14 @@ class Deployment(Base):
     #: desired config.
     #:
     #: Without it a rotation is invisible to devices: a desired snapshot
-    #: carries secret MARKERS and never plaintext (spec 5.4, 8; D51, D126), and
+    #: carries secret MARKERS and never plaintext (spec 5.4, 8; D51, D138), and
     #: a marker is a SecretStore NAME — the identical string before and after a
     #: rotation. Every snapshot would be unchanged, every plan entry a no-op,
     #: and nothing minted, so "rotation is a config revision and not a manual
     #: redistribution" (spec 16.3) would not be true of any device. This is the
     #: counter that makes it true, and it is deliberately a COUNT rather than a
     #: timestamp: two renders of one generation have to be identical, and a
-    #: clock is not (D134).
+    #: clock is not (D146).
     services_credentials_generation: Mapped[int] = mapped_column(
         default=0, server_default=text("0")
     )
@@ -671,7 +671,7 @@ class DeploymentService(Base):
     #: alone.** It was a parameter first, and the suite-wide invariant
     #: assertion caught it on the first run: a rollup depending on a fact known
     #: only during a test run cannot be recomputed afterwards, which is exactly
-    #: the divergence denormalizing the column risks (D117).
+    #: the divergence denormalizing the column risks (D129).
     required: Mapped[bool] = mapped_column(default=True, server_default=true())
     status_reason: Mapped[str | None] = mapped_column(Text, default=None)
     last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

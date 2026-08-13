@@ -81,7 +81,7 @@ PROJECTION: tuple[tuple[str, str, str, bool], ...] = (
 )
 
 #: The one projected key that comes from the DEPLOYMENT rather than from a
-#: service row (E5.11, D134).
+#: service row (E5.11, D146).
 #:
 #: A rotation changes only secret values, and a device's desired snapshot
 #: carries secret MARKERS — SecretStore names, identical before and after. So

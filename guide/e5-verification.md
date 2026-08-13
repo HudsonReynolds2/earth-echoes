@@ -83,7 +83,7 @@ curl -s -b cookies.txt -X PUT http://localhost:18000/api/v1/deployments/$DEP/ser
       `deployment:<id>:influx_token`, and `config` holds the URL and database. No value.
 - [ ] **Neither do the logs.** `docker compose -f deploy/docker-compose.yml -p eoe-qa logs
       api | grep walkthrough-token` returns nothing. (If it returns nothing because the API
-      logs nothing at all, that was D127 and it is fixed — you should see `app.*` INFO lines
+      logs nothing at all, that was D139 and it is fixed — you should see `app.*` INFO lines
       in there.)
 - [ ] The sentinel round-trips. PUT the exact body a GET returned, sentinel and all: it
       succeeds and the stored token is unchanged. This is what lets an operator edit a URL
@@ -133,7 +133,7 @@ easiest way to get all four. The broker steps here work immediately.
 - [ ] **The probe's discriminator is the SUBACK, not the publish.** This is worth knowing
       when reading the result: an `acl_file` broker grants the subscribe and then silently
       refuses the publish, so the intuitive test would report `denied` where `absent` is
-      correct (D114).
+      correct (D126).
 - [ ] Break it on purpose: Replace the Mosquitto password with garbage, Save, Test. The
       verdict is `failed`, the failing check names what happened, and — the property that
       matters — **the failing check carries a remedy telling you what to do**. Every failing
@@ -161,7 +161,7 @@ easiest way to get all four. The broker steps here work immediately.
       `optional`. The `required` flag comes from the API, not from a rule the frontend
       invented.
 - [ ] **Nothing re-checks on a timer, and the UI says so.** Spec 16.5's periodic re-checks
-      are closed as *deliberately not built* (D133): a timer reports a fact that was true
+      are closed as *deliberately not built* (D145): a timer reports a fact that was true
       minutes ago. Degradation comes from observed events — a test you run, a rotation's
       re-verification, and for the broker the control plane's own connection and last-will.
       The panel's wording says exactly this. If you ever see "re-checks run every N minutes"
@@ -176,14 +176,14 @@ easiest way to get all four. The broker steps here work immediately.
       section 1 mosquitto_sub/pub commands work verbatim against it.
 - [ ] **A device gets messages, not a silent subscription.** The grant list renders to two
       dynsec acltypes for `read`, because `subscribePattern` alone grants the subscribe and
-      delivers nothing (D120).
+      delivers nothing (D132).
 - [ ] Delete an aggregator while the broker is stopped. The delete **succeeds** and leaves
-      the credential `revoke_pending`; the sweep finishes it when the broker is back (D121).
+      the credential `revoke_pending`; the sweep finishes it when the broker is back (D133).
       An unreachable broker never blocks a device delete.
 - [ ] **Service settings reach devices as configuration.** After saving services, look at the
       deployment's `entity_override` row: the twelve service keys are there as a regenerated
       projection, secrets as markers. Then watch a desired-config message: it carries secret
-      MARKERS and never plaintext (D126).
+      MARKERS and never plaintext (D138).
 - [ ] Clear an optional service field and save. The projection is regenerated **wholesale**,
       so the cleared key leaves the projection rather than surviving forever.
 
@@ -238,7 +238,7 @@ Path B.
       regenerates every credential, re-renders, re-verifies and republishes.
 - [ ] The result names **how many Aggregators were told**, and it is not zero for a
       deployment with Aggregators. Listeners get none — they have no service credentials.
-      (If it reports zero for everything, that was the bug D134 exists for: a desired snapshot
+      (If it reports zero for everything, that was the bug D146 exists for: a desired snapshot
       carries secret NAMES, which do not change when a value rotates, so rotation was
       invisible until a non-secret counter was added.)
 - [ ] The old credentials are **gone** from SecretStore. Try the pre-rotation Influx token
@@ -255,7 +255,7 @@ Path B.
 - [ ] Wait a minute — literally — and re-read `services.credentials_generation` in the
       deployment's config. It must still be the post-rotation value. It used to be reset to 0
       by the once-a-minute sweep, which threw away a rotation's entire signal to its devices
-      inside sixty seconds (D139).
+      inside sixty seconds (D151).
 
 ## 9. The spec 16.5 gate, and who can do any of this (E5.12b)
 
