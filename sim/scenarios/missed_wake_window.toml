@@ -1,0 +1,24 @@
+# Scenario: a Listener that declares an off-window and never comes back
+# (task SIM.3; spec 6.5).
+#
+# The Listener promises its Aggregator a wake time over the local link and
+# then goes quiet for good. The Aggregator holds the promise, adds its own
+# `listener.wake_grace_seconds`, and raises `listener_missed_wake_window`
+# before reporting the Listener offline. The platform records that
+# announcement; it never computes a wake window itself, so nothing happens
+# here until the Aggregator says so.
+name = "missed_wake_window"
+description = "A sleeping Listener misses the wake time it declared, and its Aggregator notices."
+expects = "the Listener reads offline and the `listener_missed_wake_window` event lands on the timeline"
+
+[[behaviour]]
+name = "missed_wake_window"
+# Which Listener. Omitted means the first one the Aggregator was given, so
+# this file works against any fleet; name a MAC to single one out.
+# mac = "02:EE:0E:01:01:01"
+#
+# How far out the declared wake time is. The event follows this plus the grace
+# period the device is CONFIGURED with (30s by spec 5.3's default), so publish
+# a shorter `listener.wake_grace_seconds` to the Aggregator if a run needs the
+# outcome sooner — the setting genuinely drives the device.
+sleep_seconds = 2.0

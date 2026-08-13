@@ -20,8 +20,8 @@ root="$(cd "$(dirname "$0")" && pwd)"
 # migrations-check needs a caller-supplied DATABASE_URL and containers-build
 # duplicates what the backend-tests integration suite already builds, so both
 # are CI-first stages that stay individually invocable here.
-STAGES="backend-quality backend-tests migrations-check frontend-quality frontend-tests frontend-e2e containers-build"
-LOCAL_STAGES="backend-quality backend-tests frontend-quality frontend-tests frontend-e2e"
+STAGES="backend-quality backend-tests migrations-check frontend-quality frontend-tests frontend-e2e sim-quality sim-protocol containers-build"
+LOCAL_STAGES="backend-quality backend-tests frontend-quality frontend-tests frontend-e2e sim-quality sim-protocol"
 
 stage_backend_quality() {
     cd "$root/backend" || return 1
@@ -64,6 +64,24 @@ stage_frontend_e2e() {
     npm run --silent test:e2e
 }
 
+stage_sim_quality() {
+    # `/sim` is its own uv project with its own venv (D100), so every command
+    # here runs from that directory. mypy is configured through `files` in
+    # sim/pyproject.toml, which is why the invocation is bare.
+    cd "$root/sim" || return 1
+    uv run ruff check . || return 1
+    uv run ruff format --check . || return 1
+    uv run mypy
+}
+
+stage_sim_protocol() {
+    # The harness suite against a real Mosquitto and a real platform. Its runner
+    # is sim/tests/gate_runner.py, which imports GateGuard/enforce from the
+    # backend's — one implementation of R0, launched from two projects.
+    cd "$root/sim" || return 1
+    uv run python tests/gate_runner.py
+}
+
 stage_containers_build() {
     docker build --build-arg BUILD_SHA="${BUILD_SHA:-dev}" "$root/backend" || return 1
     docker build --target dev "$root/frontend" || return 1
@@ -75,6 +93,7 @@ is_stage_applicable() {
         backend-*|migrations-*) [ -f "$root/backend/pyproject.toml" ] ;;
         frontend-e2e) [ -f "$root/frontend/playwright.config.ts" ] ;;
         frontend-*) [ -f "$root/frontend/package.json" ] ;;
+        sim-*) [ -f "$root/sim/pyproject.toml" ] ;;
         *) true ;;
     esac
 }

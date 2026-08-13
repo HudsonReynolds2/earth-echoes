@@ -5,6 +5,108 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #26 (2026-08-12): SIM.4 and SIM.5 share one gate
+
+- **What changed:** SIM.4 and SIM.5 are gated together at one gate (58) rather than at two.
+  Gate 57 went to the concurrent E5 batch on another branch, so the numbers the SIM ledger
+  reserved (57 and 58) shifted by one; R3 forbids moving a tagged gate commit. Addendum PHASESIM-4-01 had said the two "gate individually as written"; they do not.
+- **Why:** SIM.5 is the task that puts `/sim`'s suite INTO `gate.sh`. A per-task gate for SIM.4
+  could therefore only have been `make gate` (backend and frontend) plus `/sim` run by hand
+  beside it — the same shape SIM.1 to SIM.3 used — while the folded gate runs the harness suite
+  as a registry stage under the R0 runner, which is strictly stronger. Splitting the two would
+  have paid for a second full backend suite to assert something weaker.
+- **The cost, recorded honestly:** the intermediate checkpoint is gone. Both SIM.4 defects found
+  in this batch (DECISIONS D114, D115) were found by the manual 20 × 30 load run rather than by
+  a gate, and a SIM.4 gate would not have caught either — they need a deployed stack and a
+  second run of the same command, neither of which a suite performs. The load run is now written
+  down as a procedure (`guide/sim-verification.md` section 6) precisely so it stops depending on
+  somebody deciding to try it.
+- **Affects:** project_planning/phase-sim-simulation-harness.md section 4
+- **Addendum:** PHASESIM-4-02
+
+## #25 (2026-08-11): The gate suite becomes safe to run concurrently, on the SIM branch
+
+- **What changed:** `backend/tests/conftest.py` gains cross-process coordination — a machine-wide
+  lock, a port-claim registry, and host-side reachability probes — so several gate runs can share
+  one machine without corrupting each other. DECISIONS D110.
+- **Why it is here and not in an E0 or E3 batch.** It is E0/E3-owned test infrastructure and
+  nothing in epic SIM needs it; under rule R2 it would ordinarily be a stop-and-ask. The owner
+  asked for it directly on 2026-08-11, after the gate-55 batch lost two gate runs to a concurrent
+  suite in the `e5-batch-1` worktree, and chose to land it on `sim-batch-1` rather than a separate
+  branch.
+- **No test's meaning changes.** No assertion is weakened, no test is skipped, no timeout is
+  loosened to paper over a race. The four test-critical suites (spec 14.5) are untouched. What
+  changes is that fixtures now assert the port forward they actually depend on, and that two runs
+  take turns over the resources that are singular per machine.
+- **Scope deliberately NOT taken:** parameterising the compose file's published host ports. That
+  would let the two fixed-port tests run concurrently too, but it changes a documented operator
+  contract and `test_repo_layout`'s `FIXED_PORTS` pin. Recorded in D110 as the option to take if
+  the ~45s of queueing ever matters.
+- **Who approved:** the owner, on 2026-08-11, choosing the lock over dynamic ports and
+  `sim-batch-1` over a new branch.
+- **Affects:** project_planning/phase-0-foundations.md §4 (E0.1 compose stack checks)
+- **Addendum:** PHASE0-4-07
+
+## #24 (2026-08-11): SIM.1, SIM.2 and SIM.3 share one gate
+
+- **What changed:** the three tasks are gated together, once, after SIM.3, rather than each
+  ending in its own gate as rule R0 reads and as the SIM progress ledger's reserved gate numbers
+  (54, 55, 56) anticipated. SIM.4 and SIM.5 are unaffected and gate individually.
+- **Why:** `/sim`'s suite is not in `gate.sh` until SIM.5, so a per-task gate for SIM.1-3 buys
+  nothing the folded gate does not — the accumulated suite being asserted is the same backend,
+  frontend and container suite in all three cases, plus a `/sim` suite run by hand beside it in
+  all three cases. What the three tasks share is one contiguous body of work against one
+  contract; splitting the gate would have paid for three full runs of an unchanged suite. The
+  gate itself is NOT weakened: one unfiltered `make gate` over the entire accumulated suite, 0
+  failed / 0 skipped / 0 xfailed / 0 deselected, plus `/sim`'s own quality and protocol runs,
+  all three green before anything is committed or tagged.
+- **What this cost, and it is worth recording.** SIM.3's work was written before SIM.2 had been
+  gated, which is the sequencing R0 exists to prevent. The first full run of the combined suite
+  found a real defect in the harness that a per-task gate would have caught a task earlier
+  (DECISIONS D108: an in-process kill closed a socket the event loop still held watchers on, and
+  took the loop down rather than the device). It was found before anything was committed, which
+  is the outcome R0 is after, but it was found later than R0 would have found it.
+- **The folded gate landed as gate 55, not 54.** The ledger had reserved 54 for SIM.1 while this
+  epic was the only work in flight; gate 54 was taken in the meantime by the concurrent
+  `e5-batch-1` checkpoint (tag `gate-54`, commit 050cd4b, "Records for gate-54: C1 green"), which
+  is on a separate line of work and already pushed. Gate numbers are global to the repository and
+  tags are never moved (rule R3), so SIM.1-3 take the next free number and SIM.4/SIM.5 shift to 56
+  and 57 in the ledger.
+- **Who approved:** the owner, on 2026-08-11 — the folded gate at SIM.1 (recorded in that
+  task's commit message), and again on 2026-08-11 when this session confirmed the plan before
+  gating.
+- **Affects:** project_planning/phase-sim-simulation-harness.md §4 (SIM.1-SIM.3),
+  project_planning/sim-progress-ledger.md
+- **Addendum:** PHASESIM-4-01
+
+## #23 (2026-08-11): The SIM phase document, and the simulation scale it fixes
+
+- **What changed:** epic SIM gains its phase document,
+  `project_planning/phase-sim-simulation-harness.md`, written to the project plan §5 structure
+  and now the binding scope for the epic. Three things in it are choices the planning documents
+  left open or contradictory, and are fixed here rather than per session.
+- **The scale target, which was ambiguous.** Spec 14.2 says "around 30 listeners across at least
+  a few concurrent aggregators, plus up to around 20 or more mock aggregators"; the project plan
+  §3 reads the same target as "20 or more mock aggregators, around 30 listeners each". Those are
+  600 Listeners and roughly 30. **The project plan's reading is binding: 20 × 30 = 600.** It is
+  the demanding reading, spec 14.2 says the target MUST run comfortably on one host, and a
+  harness built for the smaller number could not be stretched to the larger one later without a
+  redesign. CI runs 2 × 3; every count is a parameter.
+- **Two additions the plan's task list does not name.** SIM.4 ships a `sim` compose service
+  behind an optional profile (off by default), which extends the `COMPOSE_SERVICES` pin in
+  `test_repo_layout.py` — deliberately and with its INTERFACES entry, exactly as E3.7 did for
+  `worker`. SIM.5 adds **two** gate stages rather than one, `sim-quality` and `sim-protocol`,
+  mirroring the backend's quality/tests split; `sim-protocol` is the name INTERFACES.md already
+  reserved for this epic.
+- **What did NOT change:** the five tasks, their order, or the epic's definition of done. SIM
+  remains a client of the platform with no privileged access, and E8.6 still owns the full-scale
+  run against the complete platform — this epic ships the runner and the written procedure.
+- **Who approved:** the owner, on 2026-08-11, at plan approval, choosing the 20 × 30 reading,
+  the standalone `/sim` uv project over a workspace, REST-based provisioning over direct
+  database seeding, TOML scenario files, both CI stages, and the compose profile.
+- **Affects:** project_planning/echoes-of-earth-project-plan.md §3 (epic SIM)
+- **Addendum:** PLAN-3-02
+
 ## #22 (2026-08-10): E3.7 ships the operator publish route and the worker container
 
 - **What changed:** three additions inside task E3.7 that the phase document's task text

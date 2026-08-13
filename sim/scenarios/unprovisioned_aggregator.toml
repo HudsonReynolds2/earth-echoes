@@ -1,0 +1,21 @@
+# Scenario: hardware the platform has never heard of, talking anyway
+# (task SIM.3; spec 4.3 item 3).
+#
+# A device that was decommissioned, re-flashed, or shipped before anyone
+# entered it in inventory. What it DOES is entirely ordinary — it reports, and
+# raises an event — so this scenario belongs on a device whose
+# `aggregator_uuid` matches no inventory row. The platform's membership check
+# is what makes it interesting: every channel the device reaches answers with
+# a `provisioning_required` alert, and no state is stored for a reporter
+# nobody has vouched for.
+name = "unprovisioned_aggregator"
+description = "A device with an aggregator_uuid the platform cannot find in inventory reports anyway."
+expects = "a `provisioning_required` alert opens for the reporting aggregator_uuid, and no device state is stored"
+
+[[behaviour]]
+name = "unprovisioned_aggregator"
+# Also raise an event, so the scenario exercises the event channel's copy of
+# the membership check as well as the reported channel's. The code is shaped
+# like any firmware event code; the platform has no vocabulary to match it
+# against, deliberately (the contract's `EventCode` is open).
+event_code = "sim_unprovisioned_hello"

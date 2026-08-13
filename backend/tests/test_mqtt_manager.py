@@ -14,6 +14,7 @@ password or the certificate.
 """
 
 import asyncio
+import contextlib
 import os
 import ssl
 import subprocess
@@ -513,6 +514,107 @@ async def test_a_broker_that_never_answers_is_retried_rather_than_abandoned(live
             await manager.publish(deployment_id, f"{deployment_root(RC)}/x", b"{}")
 
 
+async def _tasks_outliving(before: set[asyncio.Task], settle: float = 10.0) -> set[asyncio.Task]:
+    """Tasks still alive after `stop()`, allowing cancellation already in
+    flight to land (D97, widened by D109, made decisive by D111).
+
+    **Nothing is excused, and nothing waits longer than it has to.** The two
+    goals are the same goal: classify the survivor instead of timing it out.
+
+    * A survivor still holding a LIVE socket is returned IMMEDIATELY. It is the
+      leak D94 was written for — a connection the process keeps servicing — and
+      `loop_misc()` will return success under it forever, so every second spent
+      waiting reaches the identical verdict later. The old code sat out its
+      whole deadline to do this, which is why a failure used to cost 30s.
+    * A survivor with no socket is given `settle` to disappear, because
+      `loop_misc()` returns `MQTT_ERR_NO_CONN` as soon as `_sock is None` and
+      the loop ends within one of its own 1-second iterations. If it is STILL
+      here at the deadline, that is a contradiction of the mechanism and it
+      fails — the wait proves the exit, it does not excuse the absence of one.
+    * A survivor whose shape we cannot read is not assumed to be either. It
+      waits with the rest, and fails at the deadline if it is still there.
+
+    Any wait at all is needed because aiomqtt cancels its own `_misc_loop` with
+    `call_soon_threadsafe(self._misc_task.cancel)` (client.py) — paho calls back
+    on its own thread, so the cancel is SCHEDULED on the event loop, and
+    `__aexit__` never awaits that task. No amount of correctness in `stop()` can
+    make a third party's `call_soon_threadsafe` synchronous, short of reaching
+    into private attributes of the library.
+
+    Nothing here excuses a task by NAME. D94's leak was an anonymous
+    `Client._misc_loop`, not the manager's own `mqtt-{slug}` connection task, so
+    filtering to platform-named tasks would delete the detector that found a
+    real per-reconnect leak of tasks and sockets in a process meant to run for
+    months. The discriminator is the socket, which is the thing the leak
+    actually costs.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + settle
+    while True:
+        leaked = {t for t in asyncio.all_tasks() if not t.done()} - before
+        if not leaked:
+            return set()
+        # A survivor still holding a socket is the real leak, and no amount of
+        # waiting will retire it: `loop_misc()` goes on returning success for
+        # as long as there is a connection under it. Return NOW rather than
+        # sitting out the deadline to reach the same answer more slowly.
+        holding = {task for task in leaked if _paho_socket_is_live(task)}
+        if holding:
+            return holding
+        if loop.time() > deadline:
+            return leaked
+        await asyncio.sleep(0.05)
+
+
+def _paho_client(task: asyncio.Task):
+    """The aiomqtt client a task belongs to, or None if it is not one.
+
+    Read out of the coroutine's own frame because aiomqtt exposes no accessor.
+    """
+    frame = task.get_coro().cr_frame  # type: ignore[union-attr]
+    return getattr(frame.f_locals.get("self"), "_client", None) if frame else None
+
+
+def _paho_socket_is_live(task: asyncio.Task) -> bool:
+    """Whether this survivor is provably holding a broker connection.
+
+    Only used to decide whether to fail NOW or to keep waiting — never to
+    excuse anything. A task this cannot read is therefore False rather than
+    True: "unreadable" is not evidence of a leak, and an unrelated task passing
+    through the loop for a moment would otherwise fail the test on shape alone,
+    where simply watching it disappear is both stricter and fairer. Whatever it
+    is, if it is still there at the deadline it fails anyway.
+    """
+    with contextlib.suppress(Exception):
+        paho = _paho_client(task)
+        return paho is not None and paho.socket() is not None
+    return False
+
+
+def describe_leaked_task(task: asyncio.Task) -> str:
+    """Name a survivor AND say whether it still holds a socket.
+
+    The distinction decides what a failure here means, and the bare task name
+    cannot express it. `_misc_loop` ends itself once paho's `_sock` is None, so
+    a survivor with no socket is a teardown that has not finished landing —
+    while a survivor WITH a live socket is the real leak D94 was written for: a
+    connection the process will hold, and keep servicing, forever.
+
+    Read out of the coroutine's own frame because aiomqtt exposes no accessor,
+    and defensively: this runs only on the failure path, and a diagnostic that
+    raises would replace the real assertion message with its own traceback.
+    """
+    name = task.get_name()
+    try:
+        paho = _paho_client(task)
+        if paho is None:
+            return f"{name} (not an aiomqtt client task, and therefore unexplained)"
+        socket_state = "LIVE" if paho.socket() is not None else "gone"
+        return f"{name} socket={socket_state} state={paho._state!r}"
+    except Exception as exc:  # pragma: no cover - diagnostics must never mask
+        return f"{name} (could not inspect: {exc!r})"
+
+
 @pytest.mark.integration
 async def test_shutdown_leaves_no_running_tasks(live_broker):
     """Clean shutdown, asserted rather than assumed: a leaked connection task
@@ -527,8 +629,8 @@ async def test_shutdown_leaves_no_running_tasks(live_broker):
     await manager.wait_connected(_rc_deployment_id(coords))
     await manager.stop()
 
-    leaked = {t for t in asyncio.all_tasks() if not t.done()} - before
-    assert not leaked, f"tasks outlived stop(): {[t.get_name() for t in leaked]}"
+    leaked = await _tasks_outliving(before)
+    assert not leaked, f"tasks outlived stop(): {[describe_leaked_task(t) for t in leaked]}"
     assert manager.deployment_ids == ()
     assert not manager.is_connected(_rc_deployment_id(coords))
 

@@ -129,6 +129,56 @@ services:
       timeout: 3s
       retries: 10
 
+  # The simulation harness (SIM.4), behind an OPTIONAL PROFILE and therefore
+  # off by default: `docker compose up` never starts a fleet, and
+  # `docker compose --profile sim up` runs one against this stack.
+  #
+  # It connects devices and nothing else. Provisioning is a HOST step, not
+  # because it would be hard to call the API from here but because the other
+  # half of it cannot be done from a container at all: broker accounts are
+  # minted from inventory into `deploy/dev-certs/`, and Mosquitto only reads a
+  # new `passwd`/`acl` when it is restarted. A container that restarted a
+  # sibling service to make its own credentials work would be reaching into the
+  # platform, which is the one thing this harness may not do. So the sequence is
+  #
+  #   cd sim && uv run python provision.py --aggregators 2 --listeners-per-aggregator 3
+  #   docker compose restart mosquitto
+  #   docker compose --profile sim up sim
+  #
+  # and `guide/sim-verification.md` walks it through. The fleet then applies
+  # whatever desired config is retained, so an operator publishing from the UI
+  # watches 20 Aggregators converge.
+  sim:
+    profiles: ["sim"]
+    build:
+      context: ..
+      dockerfile: sim/Dockerfile
+    environment:
+      # Every knob the fleet runner reads, so the service is configured by
+      # environment rather than by editing a command line in two places. Scale
+      # is a parameter everywhere (phase SIM section 2), and these are its
+      # defaults for a stack somebody is watching rather than load-testing.
+      EOE_SIM_AGGREGATORS: ${EOE_SIM_AGGREGATORS:-20}
+      EOE_SIM_LISTENERS: ${EOE_SIM_LISTENERS:-30}
+      EOE_SIM_DEPLOYMENT: ${EOE_SIM_DEPLOYMENT:-sim-fleet}
+      # `mosquitto:8883` and not localhost:18883: inside the network the broker
+      # is a service name on its own port, and the published host port does not
+      # exist here.
+      EOE_SIM_BROKER: ${EOE_SIM_BROKER:-mosquitto:8883}
+      EOE_SIM_CERTS: /srv/dev-certs
+      EOE_SIM_SCENARIO: ${EOE_SIM_SCENARIO:-}
+      EOE_SIM_SCENARIO_DEVICES: ${EOE_SIM_SCENARIO_DEVICES:-0}
+      EOE_SIM_STAGGER: ${EOE_SIM_STAGGER:-0.05}
+      EOE_SIM_LOG_LEVEL: ${EOE_SIM_LOG_LEVEL:-INFO}
+    volumes:
+      # Read-only, and the same generated material the broker itself mounts:
+      # the CA a device verifies the broker against, and `accounts.json`, which
+      # E3.1 made the one place dev broker passwords live.
+      - ./dev-certs:/srv/dev-certs:ro
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   mosquitto_data:

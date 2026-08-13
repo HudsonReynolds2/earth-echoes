@@ -4,6 +4,512 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D115 (2026-08-12): A fleet-wide apply is 620 sequential retained publishes, and that — not
+the fleet — is what a full-scale run measures (finding, NOT fixed here)
+
+- **What was measured.** A 20 × 30 fleet against the complete dev stack. Provisioning 20 pods,
+  20 Aggregators and 600 Listeners over the REST API takes ~3s. Connecting 20 TLS sessions on
+  per-device credentials takes ~2s. Time-to-all-applied is dominated entirely by the platform's
+  publish path: `POST /config/apply` cuts one revision per affected device and
+  `_publish_applied` publishes them one at a time, awaiting each PUBACK, so an
+  Aggregator-level change over this fleet is **620 sequential retained publishes** — 20
+  Aggregators plus their 600 Listeners, because `listener.wake_grace_seconds` is inherited into
+  every Listener's effective config rather than filtered out of it.
+- **The ~10s-per-publish figure the SIM ledger recorded is NOT a platform cost.** It was an
+  artefact of driving the apply through `fastapi.testclient` while the outbound manager lived in
+  another event loop. Over real HTTP against a real uvicorn, the 2 × 3 acceptance converges 8
+  revisions in under a second. The ledger note is superseded by this entry.
+- **Not fixed here, and not a defect to fix in `/sim` in any case** (rule R2). The publish loop
+  belongs to E3.4/E3.13. If it is ever worth batching, that is a platform decision with a
+  platform test; a harness that worked around it would hide exactly the cost E8.6 needs to see.
+- **What the harness does about it:** `--apply-timeout` defaults to 1800s so a full-scale run is
+  not cut off by the runner's patience, and `Fleet.wait_for_applies` reports how many devices are
+  still waiting rather than a bare timeout. `guide/sim-verification.md` records the measurement
+  and says publishing dominates.
+
+## D114 (2026-08-12): The harness names the stale-image failure instead of raising a KeyError
+(found during the load run)
+
+- **What happened.** The 20 × 30 run failed with `KeyError: 'published'` inside
+  `apply_fleet_config`. The cause was a dev stack whose `api` image had been built before E3.13
+  added `published` and per-revision `state` to the apply response; `docker compose up -d` had
+  happily reused it.
+- **Fixed by saying so:** a missing `published` is now a `ProvisionError` reading "this API
+  predates E3.13 and will not publish anything a device could apply. Rebuild the stack:
+  `docker compose up -d --build`." The harness talks to a DEPLOYED platform, so "the platform is
+  older than the harness" is a permanent failure mode of this tool and not a one-off; a KeyError
+  from inside a provisioning helper is the worst possible way to learn it.
+- **Kept as a hard failure rather than a degrade.** A fleet whose revisions were never published
+  waits forever, and reporting that as success would make every later load run meaningless.
+
+## D113 (2026-08-12): `duplicate_mac` and `unprovisioned_aggregator` stay suite-only, refused by
+the fleet runner at startup (answers the SIM.3 hand-off question)
+
+- **The question the SIM.3 notes left open** was whether the fleet CLI exposes the two identity
+  scenarios at all. It does not, and it says why at startup rather than failing obscurely later.
+- **Because a provisioned fleet structurally cannot host them.** `unprovisioned_aggregator` needs
+  a device whose `aggregator_uuid` is in no inventory row — but a fleet provisions every device it
+  runs and each one's broker credential is minted FROM that row, so no fleet member can be unknown
+  to the platform. `duplicate_mac` needs an Aggregator claiming a MAC filed under a different
+  parent — but every MAC a fleet holds was imported under the Aggregator that reports it.
+  Offering either would bring twenty Aggregators up and prove nothing.
+- **Mechanism:** `Behaviour.fleet_safe`, a ClassVar defaulting True and False on those two;
+  `Scenario.fleet_safe` is the conjunction, so one unsafe behaviour makes a whole file unsafe
+  (a file that ran four behaviours and skipped the fifth would report success for a scenario that
+  did not happen). `fleet.py --list-scenarios` marks them `[suite only: …]` and `--scenario`
+  refuses them before a socket opens, naming `sim/tests/test_scenario_outcomes.py`, which stages
+  exactly those conditions and asserts the platform's reaction.
+
+## D112 (2026-08-12): SIM reads `accounts.json` as a file and matches accounts on
+`aggregator_uuid`, rather than importing `app.devbroker`
+
+- **The phase document's section 2 suggests `device_username(aggregator_uuid)` and
+  `load_manifest(out_dir)`** as how the harness learns credentials. Both are in `app.devbroker`,
+  and importing them would break the SIM.1 boundary rule that every module in `/sim` imports
+  `app.contracts.mqtt` and nothing else from the platform — a rule `test_harness_boundaries.py`
+  asserts over the whole tree.
+- **The rule wins, and it is worth the small cost.** A harness one import from a session factory
+  is a harness that will eventually reach into a database to make a scenario work, and the value
+  of every SIM finding rests on it not being able to.
+- **So:** `provision.py` runs `app.devbroker` as a SUBPROCESS (the command the README gives an
+  operator), reads `accounts.json` with `json.loads` — a documented file interface, INTERFACES.md
+  "The development broker" — and finds a device account by matching its `aggregator_uuid` field.
+  Matching on the identity rather than on the username means the `dev-{uuid}` recipe is never
+  reproduced here, so a rename of it is invisible to the harness instead of silently wrong.
+- **The CA path comes from the caller's certificate DIRECTORY, not the manifest's `ca_cert`**,
+  which is absolute on the machine that generated it — the sim container reads the same files from
+  a different mount point.
+
+## D111 (2026-08-11): The shutdown assertion classifies the survivor instead of timing it out —
+and the underlying cause is NOT yet known (owner request)
+
+- **What is actually established, and what is not.** `test_shutdown_leaves_no_running_tasks` fails
+  intermittently — twice in about ten full-suite runs — with an aiomqtt `Client._misc_loop()`
+  outliving `stop()`. It has done so since gate 49 (D94), was addressed twice (D97's settle
+  window, D109's widening of it) and **still fails**: a gate on an IDLE host sat the full 30.10s
+  and went red. **Whether that survivor was holding a live socket is unknown**, because nothing
+  ever recorded it. D109 asserted the widening was the fix; it was not, and that entry is marked
+  superseded rather than rewritten. This entry does not claim a fix either.
+- **Decision, and it is about the assertion rather than the cause.** The check now classifies what
+  survived instead of waiting out a fixed deadline:
+  * a survivor **holding a live socket** fails IMMEDIATELY — it is D94's leak, `loop_misc()` will
+    return success under it forever, and every second waited reaches the same verdict later. A
+    failure used to cost 30s to say this;
+  * a survivor **with no socket** gets a short window, because `loop_misc()` returns
+    `MQTT_ERR_NO_CONN` as soon as `_sock is None` and the loop ends within one of its own
+    1-second iterations — and it **still fails** at the deadline. The wait proves the exit; it
+    does not excuse the absence of one;
+  * a survivor whose shape cannot be read is assumed to be NEITHER, and waits with the rest.
+- **That last clause is a correction to this session's own first attempt**, which treated an
+  unreadable task as a leak and failed at once "because strictness is the point". It is not
+  strictness, it is a false positive: an unrelated task passing through the event loop for a
+  moment would fail the test on shape alone, where watching it disappear is both stricter and
+  fairer. The first version of this change produced exactly one such failure before it was caught.
+- **Nothing is excused.** Not by name (D109's rejected filter), not by category, not by shape. The
+  only thing that changed is how quickly the answer is reached, and that the failure message now
+  reports `socket=LIVE` or `socket=gone` and paho's connection state — so the NEXT occurrence
+  identifies the cause instead of restarting this investigation.
+- **The settle window comes back down, 30s → 10s,** because the case it was widened for now fails
+  fast on its own merits. If a socketless loop ever does need longer, the message will say
+  `socket=gone` and that is real information about the mechanism rather than another guess.
+- **Still open for E3:** why a `_misc_loop` outlives `stop()` at all. `_connection_loop` builds a
+  fresh client per attempt and its `finally` closes the stack, so the obvious orphaned-task race
+  in aiomqtt's `_on_socket_open`/`_on_socket_close` pair does not explain it. It did not reproduce
+  in roughly 30 targeted attempts (standalone, whole-module, under CPU saturation, and full
+  parallel stages), which is why this entry ships a diagnosis-ready assertion rather than a fix.
+- **Reference:** D94, D97, D109; backend/tests/test_mqtt_manager.py (`_tasks_outliving`,
+  `_paho_socket_is_live`, `describe_leaked_task`).
+
+## D110 (2026-08-11): The suite is safe to run from several processes at once, arbitrated by the
+OS rather than by pytest (owner request, after the gate-55 contention)
+
+- **The problem, measured rather than assumed.** Two gate runs on one machine — two agents, two
+  terminals, two worktrees — corrupt each other in five distinct ways, and `xdist_group` cannot
+  help with any of them: it serialises tests inside ONE pytest session and knows nothing about a
+  second. The gate-55 batch hit two of the five for real (a red gate with seven `test_audit`
+  errors, and a shutdown flake), which is what prompted this.
+- **Decision, in four parts.**
+  1. **Host reachability is asserted where it is used.** Every readiness probe in the suite ran
+     through `docker exec` — `pg_isready`, `nc -z` — proving the SERVER was up and proving nothing
+     about the port forward the test client dials. Docker's forwarder drops publishes under
+     concurrent load (D99); when it does, the container is healthy, `docker port` reports a
+     mapping, and the connection is refused. `wait_for_host_port()` now does a real TCP connect
+     from the host, and `ephemeral_postgres` retries the WHOLE container when the forward never
+     appears — there is nothing to retry at the command level, because the command succeeded.
+  2. **`free_port()` claims are registered machine-wide.** Binding port 0 and closing the socket
+     is not an allocation: callers write the number into a `deployment_service` row and only later
+     ask Docker to publish it, and in that window the kernel may hand the same port to another
+     run's `bind(0)`. **Measured: four concurrent processes taking 150 ports each were handed 18
+     duplicate ports out of 600 (3%). With a lock-protected registry and a TTL, 0 out of 600.**
+     Re-picking inside `ephemeral_broker` could not have fixed this — by then the port is already
+     committed to the seeded row.
+  3. **A machine-wide lock serialises the fixed-port modules.** `test_compose_stack` and
+     `test_verify_tool` publish 18000/15173/15432/16379/18883 and share the generated
+     `deploy/dev-certs` that mosquitto bind-mounts. Two runs overlapping there do not merely
+     collide on a port: one regenerates the CA and passwd files while the other's broker is
+     serving from them. An autouse fixture keyed on the existing `FIXED_PORT_MODULES` holds
+     `gate_lock("compose-stack")` around the whole test, setup and teardown included, because the
+     fixtures that publish those ports run outside the body.
+  4. **The lock is an exclusive-create file, not `fcntl.flock`,** because the gate runs on Windows
+     too (`gate.ps1`) and `O_CREAT | O_EXCL` is atomic on every filesystem the gate supports. The
+     holder's PID and timestamp go in it: a lock whose owner has died is broken immediately, one
+     whose owner is wedged after `LOCK_STALE_AFTER`, so a crashed machine cannot block every
+     future run forever. State lives in one directory per MACHINE (system temp), not per checkout
+     — two worktrees have to see each other's claims, and a `git clean` must not desynchronise
+     two runs mid-flight.
+- **Why a lock rather than dynamic compose ports.** Parameterising the published ports would give
+  true parallelism for those two tests as well, but it changes an E0-owned documented port
+  contract, moves `test_repo_layout`'s `FIXED_PORTS` pin, needs a per-run `dev-certs` directory
+  too, and puts twelve stack containers and two image builds on one laptop at once. The two tests
+  cost ~45s; 764 of 766 go fully parallel either way. Owner chose the lock; the port
+  parameterisation is written down here as the option if queueing ever hurts.
+- **Deliberately NOT changed:** the fixed project names `eoe-gate-test` / `eoe-verify-test`. Under
+  the lock they are exclusive, and keeping them means a run that died mid-stack leaves containers
+  the NEXT run's `compose up` adopts and cleans, which unique per-run names would strand as
+  orphans.
+- **Reference:** D12, D13, D99; backend/tests/conftest.py (`gate_lock`, `free_port`,
+  `wait_for_host_port`, `_start_ephemeral_postgres`, `_serialise_fixed_port_modules`).
+
+## D109 (2026-08-11): The shutdown settle window goes to 30 seconds, and stays name-blind
+(SIM.2/SIM.3 gate, fixing the same E3.2 test as D97)
+
+> **SUPERSEDED IN PART, 2026-08-11 (same day, same batch):** the widened window did NOT fix this.
+> A later gate on an idle host failed again after sitting the full 30.10 seconds. By this entry's
+> own structural argument that can only mean the socket was still live, which makes it a real
+> leak rather than a slow teardown — so the premise below ("D97's flake again, at a wider load")
+> is wrong. The window stays at 30s because nothing about it is harmful and the reasoning about
+> what a deadline can and cannot buy still holds, but it is not the fix. See D111 for the
+> evidence and the actual cause. Recorded rather than rewritten, because a wrong diagnosis that
+> looked convincing is worth leaving visible.
+
+- **The failure.** The folded SIM.1-3 gate went red on
+  `test_mqtt_manager.py::test_shutdown_leaves_no_running_tasks` —
+  `tasks outlived stop(): ['Task-125']`, an aiomqtt `Client._misc_loop()` parked in
+  `await asyncio.sleep(1)`. The same test passed 5 runs out of 5 standalone. This is D97's flake
+  again, at a wider load: D97's 5-second settle window was simply not long enough.
+- **Nothing in `/sim` can have caused it.** The harness is a separate uv project and touches no
+  backend module; the failing test exercises `MqttClientManager`, which this epic does not import.
+  Recorded here rather than in an E3 document because this gate is where it surfaced and this
+  session is what repaired it, exactly as SIM.0 did for D97.
+- **Decision:** the window widens from 5s to 30s. It is NOT a retry-until-green loop, and the
+  reason is structural rather than statistical. `_misc_loop` is
+  `while client.loop_misc() == MQTT_ERR_SUCCESS: await sleep(1)`, and `loop_misc` returns
+  `MQTT_ERR_NO_CONN` as soon as `client._sock is None` — so a misc loop whose socket has gone
+  ends itself within one iteration, and a cancelled one ends on the next loop turn. Both are
+  bounded by the library's own one-second sleep plus scheduling latency, which five seconds does
+  not reliably cover: the run that went red was sharing one Docker daemon and one WSL2 host with
+  a SECOND full suite, running concurrently from the `e5-batch-1` worktree. Shared CI runners
+  impose the same kind of contention, so the window is sized for a loaded host rather than an
+  idle one. **The leak D94 was
+  written for is the opposite case by construction:** a `_misc_loop` left running over a LIVE
+  socket, where `loop_misc()` returns success forever. It is still there at 30 seconds exactly as
+  it was at 5. The discriminator is the socket, not the clock, which is what makes a longer
+  deadline honest here and would not make it honest for a different failure.
+- **Rejected: excusing the task by name.** The first proposal at this gate was to assert only on
+  the manager's own `mqtt-{slug}` tasks and let anonymous library tasks through — on the reading,
+  taken from D97's own summary, that D94's leak had been a `_connection_loop`. **D97 is wrong on
+  that point.** D94 records the leaked task as `Client._misc_loop`, anonymous, and calls it "a
+  slow leak of tasks and sockets in a process designed to run for months — the flake was the
+  symptom, not the disease". A name filter would have deleted the detector that found a real
+  platform bug while leaving the test green, which is the worst of the available outcomes. D97's
+  characterisation should be read as corrected by this entry.
+- **Also rejected: reaching into `_misc_task`** from `_close_client` to cancel and await it
+  deterministically. That is a private attribute of a third-party client, and D97 already weighed
+  it as a worse defect than the flake; nothing has changed that.
+- **Reference:** D94, D97; backend/tests/test_mqtt_manager.py `_tasks_outliving`;
+  app/controlplane/broker.py `_close_client`.
+
+## D108 (2026-08-11): An in-process kill SHUTS DOWN the socket; closing it takes the event loop
+with it (SIM.3)
+
+- **Decision:** `MockAggregator.kill()` calls `socket.shutdown(SHUT_RDWR)` on the paho socket
+  and leaves the descriptor for the ordinary teardown to close, rather than closing it outright.
+  The broker cannot tell the two apart — either way the transport ends without a DISCONNECT
+  packet, so the will is owed and published, which is the entire point of the method — but
+  asyncio can: a closed socket's `fileno()` is -1 while the loop still holds a reader and a
+  writer against it, and the next callback paho registers raises `ValueError: Invalid file
+  descriptor: -1` **inside the event loop**, not inside the device. anyio surfaces that as a
+  failure of whatever test happened to be running.
+- **How it was found, and why that matters.** The `disconnect` scenario failed on its first real
+  run with a traceback that named `selectors.py` and nothing in this repository. The bug is not
+  in the scenario, the platform or the contract; it is in the harness's idea of what "the power
+  went out" means at the transport layer. SIM.1's LWT acceptance never hit it because D103
+  SIGKILLs a whole subprocess, where the operating system closes the descriptor after the
+  process holding the event loop is already gone. The in-process path is the one SIM.3's
+  catalogue and SIM.4's fleet use, so it is the one that had to be made to work.
+- **`disconnect()` now also suppresses `MqttError` when awaiting its cancelled tasks.** After a
+  kill the reader task is already dead of the connection it was reading, and awaiting a task
+  that failed re-raises what failed it — so a device that could not be shut down *because it had
+  crashed* would be the one state this harness exists to produce.
+- **Reference:** D103; spec 9.3; phase-SIM SIM.3; sim/device.py `kill`, `disconnect`.
+
+## D107 (2026-08-11): A scenario file is fully validated at load, and its name must match its
+filename (SIM.3)
+
+- **Decision:** `load_scenario` raises `ScenarioError` — one exception type, because a TOML
+  syntax error and an out-of-range parameter are the same problem to whoever has to fix them —
+  and every message names the file, and every message about a value names the key. Behaviour
+  parameters are Pydantic models with `extra="forbid"`, so a misspelled key is an error rather
+  than a silent fall back to the default; field constraints (`gt=0`, `le=MAX_WAIT_SECONDS`) turn
+  an impossible value into an error naming the bound it broke; and `mac` and `event_code` are
+  typed as the contract's own `MacAddress` and `EventCode`, so a malformed one is refused at load
+  by the same rules the wire enforces.
+- **Why the whole directory loads eagerly.** `load_scenarios` stops on the first bad file rather
+  than skipping it. A loader that skipped what it could not parse would let a fleet run start
+  with the scenario the operator actually asked for silently missing, and report success.
+- **`name` must equal the file stem.** A scenario whose name disagrees with its filename is a
+  rename somebody stopped halfway through, and every later reference then picks one of the two.
+  Enforcing the agreement costs one line and removes a class of "the catalogue says it ran" that
+  cannot otherwise be distinguished from the truth.
+- **`expects` is prose and is not asserted against anything.** It records what the file says the
+  PLATFORM should end up doing, kept beside the behaviours because a scenario nobody can read the
+  expected outcome of gets run once and interpreted differently every time after. The assertion
+  lives in `tests/test_scenario_outcomes.py`, where it can name the table it reads.
+- **Reference:** D5; phase-SIM SIM.3 acceptance; sim/scenarios.py, sim/scenarios/*.toml.
+
+## D106 (2026-08-11): The apply hook lives on the device, not in the scenario module (SIM.3)
+
+- **Decision:** `MockAggregator.apply_hook` is an attribute of the device — `None`, meaning
+  "apply it verbatim", by default — and the `apply_error` behaviour installs one. The device
+  therefore has exactly ONE apply path and no `if scenario:` branches accumulate inside it; a
+  scenario changes what the device holds, never what the device's code does.
+- **Which keeps every misbehaviour producible the way a real device produces it.** An apply error
+  is a device reporting a config that is not the revision's, with the checksum of what it
+  genuinely now holds, while that revision is pending — spec 6.2's "device reports an error
+  applying", a definite negative answer, so the revision fails at once rather than waiting out
+  the pending window and blaming a timeout on a device that answered immediately. Drift is the
+  same mechanism after an apply. Neither writes to a database and neither changes platform
+  behaviour, which is phase-SIM section 1's rule stated as code rather than as a promise.
+- **Deliberately not an event.** A device that only complained on the event topic while reporting
+  the right config would leave the platform correct to mark the revision applied. The scenario is
+  about reported state, so it is produced in reported state.
+- **Reference:** spec 6.2; phase-SIM section 1, SIM.3; sim/device.py `_apply`, sim/scenarios.py.
+
+## D105 (2026-08-11): The harness carries its own copy of the spec 5.3 defaults, and sweeps its
+own clock (SIM.2)
+
+- **Decision:** `DEFAULT_WAKE_GRACE_SECONDS` and `DEFAULT_CAPTURE_MODE` are written out in
+  `sim/device.py` rather than imported from `app.config.catalog`, for D101's reason one level up:
+  firmware ships with its own defaults and only learns the platform's when a revision arrives, so
+  a harness that read the catalogue would hide the day the two disagree — and that day is the day
+  every un-provisioned device in the field behaves differently from every document about it.
+  `wake_grace_seconds` is read off the device's OWN applied config, so an operator who publishes
+  a longer grace changes device behaviour rather than only a database row, which is the whole
+  claim the setting makes. A value the platform could not have sent logs and falls back rather
+  than killing the sweep: a device whose liveness detection had stopped would look like a fleet
+  that never sleeps, and the cause would be invisible.
+- **The sweep runs in the device, every 0.5s, not in the test.** A device that noticed missed wake
+  windows only when a test asked it to would make spec 6.5 a property of the suite rather than of
+  the fleet, and a SIM.3 scenario could not produce one at all. Spec 6.5 makes this the only
+  liveness work in the system — nothing to send, nothing to poll — so it is cheap enough to run
+  often, and often is what lands `listener_missed_wake_window` near the grace expiry rather than
+  up to a sweep later. The sweep is idempotent: a Listener already `offline` is not overdue
+  again.
+- **Reference:** D101; spec 5.3, 6.5; phase-SIM SIM.2; sim/device.py.
+
+## D104 (2026-08-11): The local link is a method call that REFUSES contradictions (SIM.2)
+
+- **Decision:** `MockListener` holds no MQTT session and no credential, and that is structural
+  rather than decorative — there is no client on the object to publish with, so every method ends
+  in a call to the parent. Spec 17 item 2 still owns the framing of the real HaLow link, so the
+  harness models it as an in-process call and invents no wire format for it (phase-SIM section 3
+  makes that binding).
+- **The link raises `LocalLinkError` on two things a Listener cannot mean.** A Listener under
+  `capture.mode=continuous` cannot declare an off-window, because spec 6.5 says no wake window
+  applies at all under that mode; and a sleeping Listener cannot report a `listener_stream_gap`,
+  because a gap during a declared off-window IS the off-window. Both are refused at the source
+  rather than published, since the platform's entire ability to tell expected silence from
+  failure rests on the two never being confused before they reach it — and a mock that could
+  manufacture a healthy-looking silence no correctly configured Listener can produce would prove
+  the platform right about a fleet that cannot exist. This is what makes the fourth SIM.2
+  acceptance claim ("distinguishable from an expected off-window") assertable at all.
+- **`expected_wake_at` is cleared on every exit from `sleeping`** — waking, and missing the
+  window. A spent promise left lying around is a time something downstream eventually compares a
+  clock against. The contract model already requires the field present exactly while sleeping, so
+  a transition that got this wrong fails validation at the DEVICE rather than at the platform.
+- **A newly attached Listener is `streaming`.** `sleeping` would claim a wake time nobody
+  declared and `offline` would accuse a device that has done nothing wrong.
+- **Reference:** spec 6.4, 6.5, 7.3, 17 item 2; phase-SIM section 3, SIM.2; sim/device.py
+  `MockListener`.
+
+## D103 (2026-08-11): A mock Aggregator announces `offline` when it leaves politely, and the
+LWT acceptance kills a real process (SIM.1)
+
+- **Decision:** `MockAggregator.disconnect()` publishes a retained `offline` `StatusMessage`
+  before closing, and `__aexit__` calls it. MQTT discards the will on a clean DISCONNECT, so a
+  harness that merely closed its socket would leave `online` retained on the status topic
+  forever and the platform would go on painting a machine that is not there — for the rest of
+  the deployment's life, since the value is retained. SIM.4's "shutdown is clean, publishing an
+  explicit offline" is therefore already true of the device rather than bolted onto the runner.
+- **Which makes the crash test possible, and that is the point.** A harness whose only exit
+  looks like a crash cannot be used to test a crash. So the LWT acceptance runs a whole
+  `MockAggregator` in a subprocess and SIGKILLs it: no DISCONNECT packet ever reaches the
+  broker, the BROKER composes and publishes the will, and the platform's own consumer picks it
+  up off the subscription it already had. Nothing in the test simulates the will, which is the
+  same discipline `backend/tests/test_lwt_status.py` applies to `mosquitto_sub`.
+- **The subprocess is driven entirely through the environment** (`SIM_HOST`, `SIM_USERNAME`,
+  `SIM_PASSWORD`, ...) and prints one line when it is up, so the test waits on the device
+  having connected rather than on a sleep. The kill happens in a `finally`: it is the test's
+  action and its cleanup at once, and a device left running would outlive the fixture that
+  provisioned it and go on publishing into a torn-down broker.
+- **Reference:** spec 7.2, 9.3; phase-SIM SIM.1; sim/device.py; sim/tests/test_mock_aggregator.py.
+
+## D102 (2026-08-11): `/sim`'s conftest loads the backend's by path, under a name of its own
+(SIM.1)
+
+- **Decision:** `sim/tests/conftest.py` loads `backend/tests/conftest.py` through
+  `importlib.util.spec_from_file_location` under the alias `eoe_backend_conftest` and
+  re-exports `ephemeral_broker`, `ephemeral_postgres`, `free_port`, `make_kek` and
+  `docker_retry`. There is one Mosquitto fixture in this repository and it stays that way
+  (phase-SIM section 2); a second one would drift from the first the day one of them learned
+  something about Docker Desktop the other did not.
+- **Why not `import conftest`.** pytest names a conftest module after its basename, so by the
+  time sim's conftest runs, `sys.modules["conftest"]` is *sim's own* — a plain import would
+  hand back this half-built module and fail on the first name taken out of it. The explicit
+  alias sidesteps the collision instead of depending on `sys.path` order between two
+  directories that both contain a file called `conftest.py`.
+- **Loading it also loads the derandomized hypothesis profile** the backend registers in that
+  module's body, which is what keeps the checksum cross-check green or red for a reason rather
+  than by luck. The D99 parallel conventions are copied rather than inherited — the module is
+  loaded as a plain module, so its hooks do not run — including the `tryfirst`
+  `pytest_collection_modifyitems` that assigns an `xdist_group` per module, for the same reason
+  it exists in the backend: every live test here starts its own Postgres and Mosquitto, and a
+  module split across workers would start them once per worker.
+- **Reference:** D99; phase-SIM section 2; sim/tests/conftest.py.
+
+## D101 (2026-08-11): SIM's checksum is reimplemented from D52's prose, and the harness/suite
+import boundary is enforced by tests rather than promised (SIM.1)
+
+- **Decision:** `sim/checksum.py` implements the D52 recipe from its written description and
+  never imports `app.config.canonical`. It goes further than the platform's one-line spelling
+  on purpose: "keys sorted at every depth" is implemented as a recursive rebuild of every
+  mapping in sorted key order rather than as `json.dumps(sort_keys=True)`, so the cross-check
+  is comparing two readings of the sentence and not one implementation with itself.
+  `tests/test_checksum_agreement.py` asserts byte-for-byte agreement over generated snapshots
+  and over a table chosen for where encoders diverge — nested key order, non-ASCII, floats
+  versus ints, empty containers, nulls inside `config`, secret markers.
+- **Why it matters that this is a reimplementation:** real firmware is given the recipe, not
+  the function. A simulator that called the platform's own code would prove only that the code
+  is self-consistent, and would stay green on the day the written recipe and the code stopped
+  agreeing — which is the day every device in the field starts reporting a checksum that can
+  never match and the whole fleet reads as drifted for a reason no operator can see.
+- **The boundary is a test, not a convention.** `tests/test_harness_boundaries.py` fails if any
+  file under `/sim` spells the topic namespace out by hand (the forbidden prefix is taken from
+  the contract's own `ROOT`, so the test cannot pass by agreeing with itself), and if any
+  harness module imports anything from the platform other than `app.contracts.mqtt`. The SUITE
+  is deliberately exempt from the second rule and only the second: an acceptance test that says
+  "against a real platform" has to drive one.
+- **Reference:** D52; spec 6.2, 7.3; phase-SIM section 2 and SIM.1; sim/checksum.py.
+
+## D100 (2026-08-11): `/sim` is its own uv project that reaches the platform by path, and its
+test group carries the platform's runtime dependencies (SIM.1)
+
+- **Decision:** `sim/pyproject.toml` is a separate uv project. Its RUNTIME dependencies are a
+  device's and nothing more — `aiomqtt` and `pydantic` — because the harness stands in for
+  firmware, and a runtime dependency here that a real Aggregator would not carry is the first
+  step towards a mock that can only be satisfied by a mock. The platform is reached by PATH
+  (`pythonpath = [".", "../backend"]` for pytest, a `sys.path` insert in `device.py` for a
+  plain `python fleet.py`, `mypy_path = "../backend"` for the type checker), never installed:
+  E0 owns the packaging decision and nothing here needs it changed.
+- **The dev group carries the backend's whole runtime set, verbatim.** SIM.1's acceptance runs
+  a REAL platform in the test process — its API, its publisher, its reconciliation worker, its
+  consumer — because "a published revision reaches `applied`" is a claim about the platform and
+  cannot be made against a stub. That needs SQLAlchemy, psycopg, alembic, FastAPI and the rest
+  importable from sim's venv. `tests/test_harness_boundaries.py` fails if the two lists drift,
+  because the alternative is discovering a missing package weeks later as an ImportError naming
+  something nobody remembers deciding to need.
+- **mypy covers the harness modules, not the suite** (`files = ["checksum.py", "device.py"]`,
+  so a bare `uv run mypy` is the whole check). The backend excludes its own tests for the same
+  reason: the shared fixtures they call are deliberately untyped, and strict mode would report
+  every call to them as an error about the fixture rather than about the test. Type-checking
+  the harness against the real `app.contracts.mqtt` is the part that earns its keep — a payload
+  field renamed on the platform side now fails at the contract's first outside caller.
+- **Ruff and mypy settings are the backend's, asserted equal rather than copied by hand**, so a
+  `/sim` on different rules cannot fail CI for formatting nobody chose (rule R2).
+- **Reference:** phase-SIM section 2 "Fixed choices", SIM.1; sim/pyproject.toml.
+
+## D99 (2026-08-11): The backend suite runs in parallel, grouped by module (SIM.0)
+
+- **Decision:** `-n 6 --dist loadgroup` with a `tryfirst` `pytest_collection_modifyitems` hook
+  in `tests/conftest.py` that marks every test with an `xdist_group` named after its module.
+  **Backend gate time: 541s → 260s.** On the owner's instruction, after a run of gates where
+  the waiting was the dominant cost of doing the work.
+- **Grouped by MODULE, and it has to be.** Nearly every suite here hangs a module-scoped
+  Postgres or Mosquitto off a fixture, and many are deliberately order-dependent within their
+  file — `test_uniqueness` creates `sensor`, then asserts the next create becomes `sensor-2`.
+  Per-test distribution scatters those across six workers, each paying for its own container
+  and each seeing none of the others' state. Observed exactly that: six tests, six workers,
+  four failures.
+- **`tryfirst` is not decoration.** xdist reads the `xdist_group` mark inside its OWN
+  `pytest_collection_modifyitems` and bakes the group into the nodeid there. A mark added after
+  that hook runs is never seen, and everything scatters as if unmarked — silently, since the
+  suite still runs. That cost a red gate to find, which is why the hook says so in its
+  docstring.
+- **The fixed-port modules share one group.** `test_compose_stack` and `test_verify_tool` both
+  bring the real deploy stack up on the `FIXED_PORTS` pins, and there is exactly one host port
+  15173. A shared group is xdist's own guarantee of "same worker", therefore never concurrent.
+- **`docker_retry` for the forwarder, and only the forwarder.** Docker Desktop returns
+  `/forwards/expose returned unexpected status: 500` when several containers publish ports at
+  once; it also did so serially, twice, during this task. The helper retries exactly three
+  known-transient strings and passes anything else straight back on the first attempt, because
+  a blanket retry would turn a genuinely broken image into a slow silent timeout. `docker run
+  --name` retries remove the half-created container first, or the retry reports "name already
+  in use" and hides the real fault.
+- **R0 is untouched.** The whole suite still runs, unfiltered, in one invocation; the gate
+  guard's counts are unaffected. Parallelism changes how long the truth takes to arrive, not
+  what counts as true.
+
+## D98 (2026-08-11): The suite carries a 300-second per-test deadman switch (SIM.0)
+
+- **Decision:** `addopts` gains `--timeout=300 --durations=10` (pytest-timeout, a dev
+  dependency). Any single test still running after five minutes is killed and NAMED. The five
+  tests that legitimately build container images carry `@pytest.mark.timeout(1200)`, because a
+  cold `docker build` of three images is honest work, not a hang.
+- **Why, on the owner's instruction:** a wedged Docker socket, a broker container that never
+  accepts, or a lost port forward used to hold the entire gate hostage with no output — you
+  learn nothing for ten minutes and then learn nothing at all. A timeout converts that into a
+  named failure at a bounded cost, which is the difference between a slow gate and an
+  unusable one.
+- **What this does NOT do, stated plainly:** it does not make the gate faster. The backend
+  suite takes ~8.5 minutes because it is 766 tests, most of the wall clock being real
+  Postgres and Mosquitto containers starting for integration tests — not because anything
+  hangs. A cap below that would fail the gate by construction rather than speed it up.
+  `--durations=10` prints the ten slowest tests every run, so the cost is visible and
+  attackable with evidence rather than guesswork.
+- **R0 is untouched.** A timeout kill is a FAILURE, not a skip, so the gate guard's
+  skipped/xfailed/deselected counts are unaffected and no test can quietly opt out by being
+  slow.
+
+## D97 (2026-08-11): "No tasks outlived stop()" is asserted with a settle window, not an
+instantaneous snapshot (SIM.0, fixing an E3.2 test)
+
+- **The failure.** SIM.0's gate went red on
+  `test_mqtt_manager.py::test_shutdown_leaves_no_running_tasks` —
+  `tasks outlived stop(): ['Task-1395']`, the task being aiomqtt's own
+  `Client._misc_loop()`. The same test passed in a standalone `sh gate.sh backend-tests` run
+  twenty minutes earlier. A test that passes and fails on identical code is a flake, and a
+  flake in a gate is worse than a red: it makes rule R0 a coin toss.
+- **The cause, at the library boundary.** aiomqtt cancels `_misc_loop` from paho's socket-close
+  callback with `self._loop.call_soon_threadsafe(self._misc_task.cancel)` (client.py:716-717),
+  and its `__aexit__` (client.py:798) never awaits that task. The cancel is therefore SCHEDULED
+  on the event loop, not performed, by the time `stack.aclose()` returns. A task cancelled but
+  not yet reaped reads as `not done()`. Under full-gate load — other stages' containers
+  competing for the host — that window widens, which is precisely why it was invisible in the
+  quiet standalone run.
+- **The test was wrong, not the manager.** `stop()` cannot make a third party's
+  `call_soon_threadsafe` synchronous without reaching into private attributes of aiomqtt, which
+  would be a worse defect than the flake. What `stop()` can honestly promise is that nothing
+  survives it — and that is what is now asserted, by `_tasks_outliving()` polling for up to 5
+  seconds.
+- **The assertion keeps its teeth.** The leak D94 was written for — a `_connection_loop` task
+  that survived cancellation with a live socket under it — is still running when the deadline
+  expires, and still fails. Only cancellation already in flight is tolerated, and only for as
+  long as it takes the loop to run one scheduled callback. This is not a retry-until-green
+  loop: the failure mode it was built to catch is permanent by nature.
+- **Fixed under R0 rather than re-rolled.** The rule's escape hatch for a wrong test is to fix
+  it and record why, not to run the gate again and take the green. `_close_client` and D94's
+  shielded-teardown machinery are unchanged; the production path was already correct.
+
 ## D96 (2026-08-11): Apply publishes AFTER it commits, and one broker's outage does not
 fail the rest (E3.13)
 

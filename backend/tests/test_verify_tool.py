@@ -32,6 +32,7 @@ def _compose(*args: str, env: dict[str, str]) -> subprocess.CompletedProcess:
     )
 
 
+@pytest.mark.timeout(1200)
 def test_verifier_walks_the_whole_platform_and_cleans_up():
     env = compose_env()
     # The verifier reaches the stack's Postgres via the published host port,
