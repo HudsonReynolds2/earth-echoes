@@ -1,0 +1,19 @@
+# Scenario: a device that applied a revision and now holds something else
+# (task SIM.3).
+#
+# Drift the way the field produces it — a local change, or firmware retuning
+# itself — never by editing the platform. The device keeps naming the revision
+# it applied and reports the config it actually has now, with that config's
+# checksum. Spec 6.2's `applied -> drifted`.
+name = "drift"
+description = "A device quietly holding a setting other than the one it was given."
+expects = "the revision the device applied moves to `drifted`, naming the differing key"
+
+[[behaviour]]
+name = "drift"
+key = "logging.verbosity"
+value = "trace"
+# How long to wait for the device to have applied something first: `applied ->
+# drifted` is the only edge spec 6.2 offers here, so a device that has never
+# converged has nothing to diverge from.
+wait_seconds = 60.0

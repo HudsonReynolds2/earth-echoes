@@ -1,0 +1,16 @@
+# Scenario: a device that dies without saying goodbye (task SIM.3).
+#
+# The socket goes and no DISCONNECT packet is sent, so the broker publishes
+# the will the device registered in its CONNECT — spec 7.2's retained status
+# topic, which is the signal spec 9.3 makes authoritative for an Aggregator.
+# A polite shutdown would prove the opposite property, which is why the fleet
+# runner's own exit is polite and this is not.
+name = "disconnect"
+description = "The Aggregator's connection dies uncleanly, leaving the broker to publish its will."
+expects = "the platform records the Aggregator offline, from the LWT rather than from anything it said"
+
+[[behaviour]]
+name = "disconnect"
+# Immediately. Give this a value when a run needs the device up for a while
+# first — long enough to apply a revision, say — before it disappears.
+after_seconds = 0.0

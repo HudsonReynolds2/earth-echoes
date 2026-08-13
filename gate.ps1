@@ -42,6 +42,21 @@ if (Test-Path (Join-Path $root "backend\pyproject.toml")) {
     finally { Pop-Location }
 }
 
+if (Test-Path (Join-Path $root "sim\pyproject.toml")) {
+    # The simulation harness (SIM.5). Its own uv project with its own venv
+    # (D100), mirroring gate.sh's sim-quality and sim-protocol stages. mypy is
+    # configured through `files` in sim/pyproject.toml, so the call is bare.
+    $uv = Find-Uv
+    Push-Location (Join-Path $root "sim")
+    try {
+        Invoke-Stage "sim: ruff check" { & $uv run ruff check . }
+        Invoke-Stage "sim: ruff format check" { & $uv run ruff format --check . }
+        Invoke-Stage "sim: mypy" { & $uv run mypy }
+        Invoke-Stage "sim: pytest (entire suite)" { & $uv run python tests/gate_runner.py }
+    }
+    finally { Pop-Location }
+}
+
 if (Test-Path (Join-Path $root "frontend\package.json")) {
     Push-Location (Join-Path $root "frontend")
     try {

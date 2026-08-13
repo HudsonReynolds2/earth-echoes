@@ -33,8 +33,16 @@ FIXED_PORTS = {
 # Extended by each epic that adds a service, deliberately and with its
 # INTERFACES.md entry — the same discipline as E0_ROUTES/E0_TABLES. E3.7
 # added `worker`: the reconciliation loop as its own process (spec 3.1, D59).
-# It publishes no ports, which is why FIXED_PORTS does not name it.
-COMPOSE_SERVICES = {"api", "frontend", "postgres", "redis", "mosquitto", "worker"}
+# It publishes no ports, which is why FIXED_PORTS does not name it. SIM.4
+# added `sim`: the mock fleet, behind an optional profile so it is off unless
+# asked for, and publishing no ports because a fleet dials out.
+COMPOSE_SERVICES = {"api", "frontend", "postgres", "redis", "mosquitto", "worker", "sim"}
+
+# Services that must NOT start on a plain `docker compose up`. A profile is the
+# only thing that keeps them out, and a profile deleted by accident is invisible
+# — the stack simply grows a fleet nobody asked for, and the compose-lifecycle
+# suite's `up --wait` starts waiting on it.
+PROFILED_SERVICES = {"sim": "sim"}
 
 SECRET_PATTERNS = (
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -79,6 +87,19 @@ def compose_env() -> dict[str, str]:
         "BUILD_SHA": "dev",
         "EOE_CORS_ORIGINS": "http://localhost:15173",
         "EOE_FRONTEND_API_URL": "http://localhost:18000",
+        # SIM.4's fleet knobs, pinned to the compose file's own defaults. The
+        # `sim` service is profiled off, so these do not change what `up` starts
+        # — but `compose config` still interpolates them, and D87's rule is that
+        # every interpolated variable is pinned here rather than read from
+        # whatever a developer's deploy/.env happens to say.
+        "EOE_SIM_AGGREGATORS": "20",
+        "EOE_SIM_LISTENERS": "30",
+        "EOE_SIM_DEPLOYMENT": "sim-fleet",
+        "EOE_SIM_BROKER": "mosquitto:8883",
+        "EOE_SIM_SCENARIO": "",
+        "EOE_SIM_SCENARIO_DEVICES": "0",
+        "EOE_SIM_STAGGER": "0.05",
+        "EOE_SIM_LOG_LEVEL": "INFO",
     }
 
 
@@ -184,6 +205,28 @@ def test_no_compose_service_disables_its_healthcheck():
         if (service.get("healthcheck") or {}).get("disable")
     ]
     assert not disabled, f"`compose up --wait` fails in CI for these: {disabled}"
+
+
+def test_the_optional_services_stay_behind_their_profiles():
+    """SIM.4's fleet must not start on a plain `docker compose up`.
+
+    The phase document's fixed choice is explicit — `docker compose up` does not
+    run a fleet, `docker compose --profile sim up` does — and the only mechanism
+    enforcing it is one `profiles:` key. Deleting it breaks nothing loudly: the
+    stack just grows twenty mock Aggregators, and `test_compose_stack`'s
+    `up --wait` starts waiting on a service that dials a broker it has no
+    credentials for.
+    """
+    compose = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))
+    for service, profile in PROFILED_SERVICES.items():
+        profiles = compose["services"][service].get("profiles", [])
+        assert profile in profiles, f"{service} must sit behind the {profile!r} profile: {profiles}"
+    unexpected = {
+        name
+        for name, service in compose["services"].items()
+        if service.get("profiles") and name not in PROFILED_SERVICES
+    }
+    assert not unexpected, f"these services are profiled off without being declared: {unexpected}"
 
 
 def test_compose_publishes_the_fixed_ports():

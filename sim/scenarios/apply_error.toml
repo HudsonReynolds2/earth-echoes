@@ -1,0 +1,18 @@
+# Scenario: a device that cannot honour the config it was sent (task SIM.3).
+#
+# Spec 6.2's `pending -> failed` on an apply error. The device applies the
+# next revision it receives with one key forced to something else and reports
+# that config with its own checksum over it, which is a coherent report of the
+# wrong thing: a definite negative answer, so the platform fails the revision
+# at once rather than waiting out the pending window and blaming a timeout.
+name = "apply_error"
+description = "The device applies everything except one setting, and says so in its reported config."
+expects = "the revision the device was sent reaches `failed`, with the differing key recorded"
+
+[[behaviour]]
+name = "apply_error"
+# `logging.verbosity` is a catalogue key with a closed enum, so the value below
+# is one no revision can legitimately carry — the divergence cannot be an
+# accident of formatting.
+key = "logging.verbosity"
+value = "sim-could-not-apply"

@@ -773,3 +773,15 @@ failure. Plus:
 > image's build context, so a template there is not in the image at all and the download endpoint
 > 500s in any containerized deployment — see addendum PHASE5-4-07 and DECISIONS D158. The rest of
 > the line is unchanged.
+
+> **Addendum PHASE5-6-02 (2026-08-13, ref project-changes #39):** the same line names the two
+> environment variables by the wrong names, and this addendum records what shipped. The
+> `INTERFACES.md` **Owned by E0** table gains `EOE_BROKER_REFRESH_SECONDS` (default 30) and
+> `EOE_SERVICE_CONFIG_SWEEP_SECONDS` (default 60), not `EOE_COORDINATES_REFRESH_SECONDS` — that
+> name was written before E5.7b built the thing, and the setting reloads broker COORDINATES for
+> both hosts, which is what D137 called it. **There is no "services re-check interval" and there
+> is not going to be one:** D145 closed spec 16.5's periodic re-checks as *deliberately not
+> built*, so the second row is the config sweep, which delivers projected settings to late
+> devices and is not a re-test of anything. Both were already in `deploy/.env.example` and in the
+> **Owned by E5** section from E5.7b; the additive E0 rows were the part that never landed, and
+> the E0 table is where an operator looks for the list. Names only, no values, as the line says.

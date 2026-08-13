@@ -127,6 +127,32 @@ jobs:
       - run: cd frontend && npx playwright install --with-deps chromium
       - run: sh gate.sh frontend-e2e
 
+  # --------------------------------------------------------------- sim ----
+  sim-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: sh gate.sh sim-quality
+
+  sim-protocol:
+    # The mock fleet against a real Mosquitto and a real platform (SIM.5).
+    # A SMALL fleet, 2 x 3, fixed in the suite rather than configured here: the
+    # 20 x 30 load check is a documented manual procedure
+    # (guide/sim-verification.md), not something every push pays for, and a gate
+    # whose scale came from the environment would run one size locally and
+    # another in CI. Ubuntu runners ship Docker, so nothing here self-skips
+    # (rule R0).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: sh gate.sh sim-protocol
+
   # -------------------------------------------------------- containers ----
   containers:
     runs-on: ubuntu-latest
@@ -150,6 +176,8 @@ jobs:
       - frontend-quality
       - frontend-tests
       - frontend-e2e
+      - sim-quality
+      - sim-protocol
       - containers
     if: always()
     steps:

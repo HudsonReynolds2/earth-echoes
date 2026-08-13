@@ -41,6 +41,8 @@ only the published host side moved, so the stack coexists with other local servi
 | `EOE_WORKER_IN_API` | no | run the reconciliation worker inside the API process instead of the `worker` container (E3.7, D59); default off |
 | `EOE_TIMEOUT_SWEEP_SECONDS` | no | pending-timeout sweep cadence, default 30 (E3.7) |
 | `EOE_DRIFT_SWEEP_SECONDS` | no | drift re-comparison cadence, default 300 (E3.7) |
+| `EOE_BROKER_REFRESH_SECONDS` | no | how often both hosts reload broker coordinates, default 30 (E5.7b, D137) |
+| `EOE_SERVICE_CONFIG_SWEEP_SECONDS` | no | deployment-service config sweep cadence, default 60 (E5.7b, D137) |
 
 No secret defaults are committed; `deploy/.env.example` documents names only, never values.
 Settings precedence: environment variable over TOML config file over default (D5).
@@ -1845,3 +1847,167 @@ reimplement their logic.** Signatures, verbatim:
   no "a stack exists here" flag, so a missing stack is reported as a clear 404 message rather
   than guessed at (D156). A later epic wanting a real signal should add a cheap existence
   check, not call `load_generated_stack` on a read every role hits.
+## Owned by SIM
+
+### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform
+
+- **Location:** `/sim`, reserved by E0.1 and pinned by `test_repo_layout.py`. Its **own uv
+  project** (`sim/pyproject.toml`, `package = false`) with its **own venv**: every command is
+  `cd sim && uv run …`, and it does not share the backend's environment.
+- **It reaches the platform BY PATH, never by packaging** — `../backend` on `sys.path`
+  (`pythonpath` for pytest, an explicit insert in `device.py`/`provision.py`/`scenarios.py` for a
+  plain `python fleet.py`), exactly as `backend/alembic/env.py` does. E0 owns the packaging
+  decision and nothing here needs it changed.
+- **The wire surface is `app.contracts.mqtt`, exclusively.** No topic string and no
+  control-plane JSON body is built or parsed by hand anywhere in `/sim`;
+  `tests/test_harness_boundaries.py` asserts both halves over the whole tree — no hand-rolled
+  `eoe/…`, and no harness module importing anything else from the platform. `provision.py`
+  therefore invokes `app.devbroker` as a **subprocess** and reads `accounts.json` as a file
+  rather than importing `load_manifest`/`device_username` (D112).
+- **Runtime dependencies are a DEVICE's** — aiomqtt and pydantic, nothing else. The REST client
+  in `provision.py` is standard-library `urllib` for that reason. The `dev` group additionally
+  carries the backend's whole runtime set (the suite runs a real platform in-process);
+  `test_harness_boundaries.py` fails if the two lists drift apart.
+- **Checksums are reimplemented, not imported** (`sim/checksum.py`, D101): the D52 recipe from
+  its written description, with a generative cross-check against `app.config.canonical`.
+
+### `MockAggregator` / `MockListener` (SIM.1, SIM.2; D103-D105) — the surface later epics drive
+
+`sim/device.py`. One asyncio client per Aggregator; a fleet is concurrency, not processes.
+
+- **`MockAggregator(deployment_slug=, aggregator_uuid=, login=BrokerLogin(...))`**, an async
+  context manager. Lifecycle: `connect()` (will registered in CONNECT, subscribe before
+  announcing, `online` retained) · `disconnect()` (polite — publishes `offline`, so the broker
+  discards the will) · `kill()` (ungraceful, socket shut down, the broker owes the will; D108).
+- **Listeners hold no MQTT session** (spec 6.4). `add_listener(mac)` attaches one to a RUNNING
+  device and subscribes to its desired subtopic; `listener(mac)` / `first_listener()` fetch them;
+  the parent reports on their behalf. The local link is an in-process call that REFUSES what a
+  Listener cannot mean (`LocalLinkError`, D104).
+- **Spec 6.5 liveness runs IN THE DEVICE**: `declare_sleep`, `resume_streaming`,
+  `report_stream_gap`, and a per-device sweep every `wake_sweep_interval` (0.5s) that raises
+  `listener_missed_wake_window` on the device's own `listener.wake_grace_seconds` (D105).
+- **Counters, read by SIM.4's runner and never duplicated by it:** `published_messages` (every
+  publish, of any kind), `published_reports` (on the Aggregator and on each Listener),
+  `applied_revision_ids` (the whole history), `commands_executed`, and `connected`.
+- **Waiters:** `wait_for_apply`, `wait_for_command`, `wait_for_liveness`, `wait_until` — one
+  progress event per device, so callers block instead of sleeping.
+
+### Scenarios (SIM.3; D106, D107, D113) — the interface E6 and E8 drive rather than rebuild
+
+- **`sim/scenarios.py` is the registry, `sim/scenarios/*.toml` is the interface.** One
+  `[[behaviour]]` table per behaviour, each named from `BEHAVIOURS`; parameters are the
+  behaviour's Pydantic fields with `extra="forbid"`. The file's `name` must equal its stem.
+- **A bad file fails at LOAD**, naming the file and the key (D107). `load_scenarios()` is called
+  at STARTUP by `fleet.py`, before a socket is opened.
+- **The shipped catalogue:** `apply_error`, `drift`, `disconnect`, `missed_wake_window`,
+  `duplicate_mac`, `unprovisioned_aggregator`. Each has a test asserting the PLATFORM's reaction
+  (`failed`, `drifted`, LWT offline, Listener offline, `duplicate_identity` quarantine with
+  inventory provably unchanged, `provisioning_required`).
+- **`Behaviour.fleet_safe` (ClassVar, default True)** marks whether SIM.4's runner may point a
+  behaviour at a fleet member. False for `duplicate_mac` and `unprovisioned_aggregator`: a fleet
+  provisions every device it runs, so neither is producible there, and `fleet.py` refuses them at
+  startup with the reason (D113). `Scenario.fleet_safe` / `Scenario.unsafe_behaviours()` expose it.
+- **Running one:** `Scenario.run(ScenarioContext(aggregator=...))`. `ScenarioContext` is a frozen
+  dataclass with one field precisely so more of the fleet can be handed to behaviours later
+  without changing every signature.
+
+### Provisioning a fleet (SIM.4; D112) — over the platform's own API
+
+`sim/provision.py`, importable and a CLI (`uv run python provision.py`).
+
+- **`FleetPlan(aggregators=20, listeners_per_aggregator=30, deployment_slug="sim-fleet",
+  mac_prefix=None)`** — every identity is a pure function of the slug and two indices, which is
+  what makes provisioning idempotent and a fleet re-attachable across two commands:
+  `aggregator_uuid(i)` = `{slug}-sim-{i:03d}`, `pod_name(i)` = `SIM Pod {i:03d}`,
+  `listener_name(i, j)` = `sim-{i:03d}-{j:03d}`, `listener_mac(i, j)` = `{mac_head}:{i:02X}:{j:02X}`.
+  **`mac_head` is derived from the deployment slug** (`02:` + three bytes of its SHA-256) because
+  `listener.mac` is a GLOBAL primary key — two fleets of the same shape in two deployments would
+  otherwise claim the same addresses. E1.9's demo prefix `02:EE:0E` is reserved and refused.
+- **`Operator(base_url)`** — a session over real HTTP: `login`, `get`, `post`, `delete`, `page`
+  (D7's `limit` caps at 500, so 600 Listeners is a paged read). Cookies in a real jar,
+  `X-CSRF-Token` on every mutation.
+- **`provision_hierarchy(operator, plan) -> ProvisionedFleet`** — organization (uses the one that
+  exists; v1 is single-org), deployment by SLUG, one `POST /pods` per Aggregator with E1.3's
+  inline aggregator block, then `POST /listeners/import` for the MISSING MACs only, all-or-nothing.
+  Idempotent by asking, never by swallowing conflicts. Listeners are tagged `sim`.
+- **`apply_fleet_config(operator, aggregator_ids, value)`** — one Aggregator-level revision of
+  `listener.wake_grace_seconds`, a real setting the devices genuinely act on. Refuses if the
+  response's `published` count is short of the revisions cut.
+- **`mint_credentials(out_dir, database_url=, kek=, host=, port=, keep_tls=True, command=, cwd=)`**
+  — runs `app.devbroker` as a subprocess (default `uv run --directory backend …`) and returns the
+  manifest. `keep_tls` defaults to True, unlike the generator's own default, because re-running
+  against a LIVE stack is the normal case here. `load_accounts(dir)` reads `accounts.json`;
+  `device_login(manifest, aggregator_uuid, host=, port=, ca_cert=)` matches a device account on
+  its `aggregator_uuid` and takes the CA from the caller's directory, not the manifest's absolute
+  path.
+- **Order is not negotiable, and it is the operator's too:** inventory → credentials → reload
+  Mosquitto → **restart the API and worker**. Re-running the generator rotates every password
+  including the platform's own, and `MqttClientManager.start()` reads its coordinates once (E3.2).
+  Skip the restart and the fleet converges nothing while every revision stays `draft`.
+
+### The fleet runner (SIM.4) — `sim/fleet.py`
+
+- **CLI:** `--aggregators` (20) · `--listeners-per-aggregator` (30) · `--deployment` (`sim-fleet`)
+  · `--broker HOST:PORT` (`localhost:18883`, what the DEVICES dial) · `--api`
+  (`http://localhost:18000`) · `--operator EMAIL` · `--certs DIR` (`deploy/dev-certs`) ·
+  `--scenario NAME` · `--scenario-devices N` (0 = all) · `--stagger` (0.05s) · `--wake-grace`
+  (45, the value published) · `--apply-timeout` (1800s) ·
+  `--no-provision` (makes no REST calls; implies `--no-apply`) · `--no-apply` · `--stay` ·
+  `--list-scenarios` · `--log-level`. Every default is overridable by `EOE_SIM_*` environment
+  variable. **The operator password comes from `EOE_SIM_PASSWORD` only, never a flag** (rule R2).
+- **`Fleet`**: `connect()` (staggered, sequential, aborts on the first refusal) ·
+  `wait_for_applies(timeout, only=None) -> seconds` (every DEVICE, Listeners included; `only`
+  narrows it to the device keys a revision was actually published to — `device_keys(revisions,
+  fleet)` computes them, and an apply that changed nothing waits for nobody, D115) ·
+  `expecting(only)` · `run_scenario` ·
+  `shutdown()` (concurrent, polite, never leaves one up) · `counters() -> FleetCounters`.
+  `build_fleet(provisioned, manifest, host=, port=, ca_cert=, stagger=)` constructs one.
+- **`FleetCounters`** — devices, connected, listeners, publishes, aggregator/listener applies,
+  reports, commands; all read off the devices, so no counter can drift from behaviour.
+- **`Converging`** is the protocol a waited-for device satisfies. A Listener converges no less
+  than its parent: a runner that waited only for session-holders would exit with half the fleet's
+  revisions in flight.
+
+### The `sim` compose service (SIM.4) — behind an OPTIONAL PROFILE
+
+- **`docker compose --profile sim up sim` runs a fleet; `docker compose up` does not.** Built from
+  `sim/Dockerfile` with the repo root as context. `COMPOSE_SERVICES` and the new
+  `PROFILED_SERVICES` in `backend/tests/test_repo_layout.py` are the gate-locked sets, extended
+  here as E3.7 extended them for `worker`; `test_compose_stack.py` asserts the default `up` starts
+  everything EXCEPT the profiled services.
+- **The image carries only the published contract** — `backend/app/contracts` and the package
+  marker, nothing else from the platform — so the harness boundary is a property of the filesystem
+  and not only of a test. `uv sync --no-dev` installs a device's dependency set.
+- **It connects devices and nothing else**: `--no-provision --no-apply --stay`. Provisioning is a
+  host step because its other half cannot be done from a container — accounts are minted into
+  `deploy/dev-certs` and Mosquitto reads them only on restart, and a container restarting a
+  sibling service to fix its own credentials would be reaching into the platform. Configured by
+  `EOE_SIM_AGGREGATORS`, `EOE_SIM_LISTENERS`, `EOE_SIM_DEPLOYMENT`, `EOE_SIM_BROKER`
+  (`mosquitto:8883`), `EOE_SIM_SCENARIO`, `EOE_SIM_SCENARIO_DEVICES`, `EOE_SIM_STAGGER`,
+  `EOE_SIM_LOG_LEVEL` — every one of them pinned in `compose_env()` (D87).
+
+### The two gate stages (SIM.5)
+
+- **`sim-quality`** — `ruff check`, `ruff format --check`, `mypy` (configured through `files` in
+  `sim/pyproject.toml`, so the invocation is bare) from `sim/`.
+- **`sim-protocol`** — `uv run python tests/gate_runner.py` from `sim/`: the whole harness suite
+  against a real Mosquitto and a real platform, at a **fixed 2 × 3 fleet**. Fixed rather than
+  read from `EOE_SIM_*`, because a gate whose scale came from the environment would run one size
+  locally and another in CI.
+- **R0 for this suite:** `sim/tests/gate_runner.py` imports `GateGuard` and `enforce` from
+  `backend/tests/gate_runner.py` — one implementation, launched from two projects — and
+  `sim/tests/conftest.py` carries the loud `pytest_sessionfinish` line under `EOE_GATE=1`.
+- Both stages are in `STAGES` and `LOCAL_STAGES` in `gate.sh`, in `gate.ps1`, and each has a CI
+  job whose id is in the `ci-green` needs list; `backend/tests/test_ci_pipeline.py` enforces that
+  parity in both directions.
+
+### Test fixtures SIM added (SIM.4) — shared, in the one place they live
+
+- **`Broker.refresh()`** (`backend/tests/conftest.py`): re-ships `dev_dir` into the container with
+  `docker cp` and then SIGHUPs. Needed because the material arrives by copy and not a bind mount,
+  so re-running `app.devbroker` mid-test otherwise leaves Mosquitto re-reading the OLD accounts.
+- **`platform_stack(out, port, **settings)`** (`sim/tests/conftest.py`): the shared body behind the
+  `platform` fixture (in-process) and `live_stack` (worker in the API, no server started).
+  `uvicorn_server(app)` serves an app on a real socket for the life of a block.
+- **`Platform` gained `database_url`, `kek` and `certs`**, because a fleet is provisioned into
+  inventory first and credentialled second and a test has to be able to re-run the generator.

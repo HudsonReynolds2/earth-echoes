@@ -5,6 +5,30 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #39 (2026-08-13): E5's handoff list named two environment variables that never existed
+
+- **What changed:** the `INTERFACES.md` **Owned by E0** environment-variable table gains
+  `EOE_BROKER_REFRESH_SECONDS` (default 30) and `EOE_SERVICE_CONFIG_SWEEP_SECONDS` (default 60)
+  as additive rows, and phase 5's section 6 gains addendum **PHASE5-6-02** recording that its own
+  handoff line named them wrongly.
+- **Why:** the line required "the environment-variable table in `INTERFACES.md`'s **Owned by E0**
+  section gaining `EOE_COORDINATES_REFRESH_SECONDS` and the services re-check interval". Neither
+  name is real. E5.7b shipped `EOE_BROKER_REFRESH_SECONDS`, and **there is no services re-check
+  interval at all** — D145 closed spec 16.5's periodic re-checks as *deliberately not built*, so
+  the second setting is the config sweep that delivers projected settings to late devices, which
+  is not a re-test of anything. The rows were never added to the E0 table under either name.
+- **Why it is worth a change entry rather than a silent edit:** both settings were already
+  documented in `deploy/.env.example` and in the **Owned by E5** section, so nothing was
+  undocumented — but the E0 table is the one place an operator reads for "what environment
+  variables exist", and a handoff artifact the epic listed and did not deliver is a gap in the
+  definition of done, not a formatting preference.
+- **How it was found:** auditing E5's section 6 against the tree after the epic had already gone
+  green and been tagged `gate-62`. A green gate asserts nothing about a documentation artifact
+  that no test names.
+- **Affects:** project_planning/phase-5-deployment-services.md section 6 (the handoff artifact
+  list, addendum **PHASE5-6-02**); docs/INTERFACES.md **Owned by E0**
+- **Addendum:** PHASE5-6-02
+
 ## #35 (2026-08-13): The bundle README template moves out of `deploy/` and into the package
 
 - **What changed:** `deploy/stack-templates/README.md` becomes
@@ -200,6 +224,25 @@ blocks a device delete
   ("The E3-owned edits this phase is authorized to make")
 - **Addendum:** PHASE5-4-01
 
+## #26 (2026-08-12): SIM.4 and SIM.5 share one gate
+
+- **What changed:** SIM.4 and SIM.5 are gated together at one gate (58) rather than at two.
+  Gate 57 went to the concurrent E5 batch on another branch, so the numbers the SIM ledger
+  reserved (57 and 58) shifted by one; R3 forbids moving a tagged gate commit. Addendum PHASESIM-4-01 had said the two "gate individually as written"; they do not.
+- **Why:** SIM.5 is the task that puts `/sim`'s suite INTO `gate.sh`. A per-task gate for SIM.4
+  could therefore only have been `make gate` (backend and frontend) plus `/sim` run by hand
+  beside it — the same shape SIM.1 to SIM.3 used — while the folded gate runs the harness suite
+  as a registry stage under the R0 runner, which is strictly stronger. Splitting the two would
+  have paid for a second full backend suite to assert something weaker.
+- **The cost, recorded honestly:** the intermediate checkpoint is gone. Both SIM.4 defects found
+  in this batch (DECISIONS D114, D115) were found by the manual 20 × 30 load run rather than by
+  a gate, and a SIM.4 gate would not have caught either — they need a deployed stack and a
+  second run of the same command, neither of which a suite performs. The load run is now written
+  down as a procedure (`guide/sim-verification.md` section 6) precisely so it stops depending on
+  somebody deciding to try it.
+- **Affects:** project_planning/phase-sim-simulation-harness.md section 4
+- **Addendum:** PHASESIM-4-02
+
 ## #38 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4
 
 - **What changed:** `project_planning/phase-4-provisioning.md` §2 fixed choice 1 has E4.6
@@ -283,6 +326,61 @@ blocks a device delete
   the hybrid container/fake test strategy, the single branch, and the checkpoint gate cadence.
 - **Affects:** project_planning/echoes-of-earth-project-plan.md §3 (epic E5)
 - **Addendum:** PLAN-3-03
+
+## #25 (2026-08-11): The gate suite becomes safe to run concurrently, on the SIM branch
+
+- **What changed:** `backend/tests/conftest.py` gains cross-process coordination — a machine-wide
+  lock, a port-claim registry, and host-side reachability probes — so several gate runs can share
+  one machine without corrupting each other. DECISIONS D110.
+- **Why it is here and not in an E0 or E3 batch.** It is E0/E3-owned test infrastructure and
+  nothing in epic SIM needs it; under rule R2 it would ordinarily be a stop-and-ask. The owner
+  asked for it directly on 2026-08-11, after the gate-55 batch lost two gate runs to a concurrent
+  suite in the `e5-batch-1` worktree, and chose to land it on `sim-batch-1` rather than a separate
+  branch.
+- **No test's meaning changes.** No assertion is weakened, no test is skipped, no timeout is
+  loosened to paper over a race. The four test-critical suites (spec 14.5) are untouched. What
+  changes is that fixtures now assert the port forward they actually depend on, and that two runs
+  take turns over the resources that are singular per machine.
+- **Scope deliberately NOT taken:** parameterising the compose file's published host ports. That
+  would let the two fixed-port tests run concurrently too, but it changes a documented operator
+  contract and `test_repo_layout`'s `FIXED_PORTS` pin. Recorded in D110 as the option to take if
+  the ~45s of queueing ever matters.
+- **Who approved:** the owner, on 2026-08-11, choosing the lock over dynamic ports and
+  `sim-batch-1` over a new branch.
+- **Affects:** project_planning/phase-0-foundations.md §4 (E0.1 compose stack checks)
+- **Addendum:** PHASE0-4-07
+
+## #24 (2026-08-11): SIM.1, SIM.2 and SIM.3 share one gate
+
+- **What changed:** the three tasks are gated together, once, after SIM.3, rather than each
+  ending in its own gate as rule R0 reads and as the SIM progress ledger's reserved gate numbers
+  (54, 55, 56) anticipated. SIM.4 and SIM.5 are unaffected and gate individually.
+- **Why:** `/sim`'s suite is not in `gate.sh` until SIM.5, so a per-task gate for SIM.1-3 buys
+  nothing the folded gate does not — the accumulated suite being asserted is the same backend,
+  frontend and container suite in all three cases, plus a `/sim` suite run by hand beside it in
+  all three cases. What the three tasks share is one contiguous body of work against one
+  contract; splitting the gate would have paid for three full runs of an unchanged suite. The
+  gate itself is NOT weakened: one unfiltered `make gate` over the entire accumulated suite, 0
+  failed / 0 skipped / 0 xfailed / 0 deselected, plus `/sim`'s own quality and protocol runs,
+  all three green before anything is committed or tagged.
+- **What this cost, and it is worth recording.** SIM.3's work was written before SIM.2 had been
+  gated, which is the sequencing R0 exists to prevent. The first full run of the combined suite
+  found a real defect in the harness that a per-task gate would have caught a task earlier
+  (DECISIONS D108: an in-process kill closed a socket the event loop still held watchers on, and
+  took the loop down rather than the device). It was found before anything was committed, which
+  is the outcome R0 is after, but it was found later than R0 would have found it.
+- **The folded gate landed as gate 55, not 54.** The ledger had reserved 54 for SIM.1 while this
+  epic was the only work in flight; gate 54 was taken in the meantime by the concurrent
+  `e5-batch-1` checkpoint (tag `gate-54`, commit 050cd4b, "Records for gate-54: C1 green"), which
+  is on a separate line of work and already pushed. Gate numbers are global to the repository and
+  tags are never moved (rule R3), so SIM.1-3 take the next free number and SIM.4/SIM.5 shift to 56
+  and 57 in the ledger.
+- **Who approved:** the owner, on 2026-08-11 — the folded gate at SIM.1 (recorded in that
+  task's commit message), and again on 2026-08-11 when this session confirmed the plan before
+  gating.
+- **Affects:** project_planning/phase-sim-simulation-harness.md §4 (SIM.1-SIM.3),
+  project_planning/sim-progress-ledger.md
+- **Addendum:** PHASESIM-4-01
 
 ## #23 (2026-08-11): The SIM phase document, and the simulation scale it fixes
 

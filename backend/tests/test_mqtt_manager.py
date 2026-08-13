@@ -518,7 +518,7 @@ async def test_a_broker_that_never_answers_is_retried_rather_than_abandoned(live
 
 async def _tasks_outliving(before: set[asyncio.Task], settle: float = 10.0) -> set[asyncio.Task]:
     """Tasks still alive after `stop()`, allowing cancellation already in
-    flight to land (D97, widened by D121, made decisive by D123).
+    flight to land (D97, widened by D109, made decisive by D111).
 
     **Nothing is excused, and nothing waits longer than it has to.** The two
     goals are the same goal: classify the survivor instead of timing it out.

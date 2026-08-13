@@ -200,12 +200,25 @@ SIM sessions keep the primary tree.
   notes and the INTERFACES entry that once said E5.7b would register it on a timer were
   already corrected (D137). **Do not "finish" this by adding a scheduler.**
 
-- **Cross-branch record collision, for whoever merges.** `docs/project-changes.md` numbers
-  **#24, #25 and #26 twice** — once on `e5-batch-1` (E5 topics) and once on `sim-batch-1` (SIM
-  topics). Both branches were appending independently and both are pushed. C3's entries take
-  **#27 and #28** as the next free numbers ON THIS BRANCH. Whoever merges the two lines has to
-  renumber one side and fix the `ref project-changes #N` citations in its addenda; nothing in
-  this epic can fix it from here.
+- **Cross-branch record collision — RESOLVED at the merge, and it was bigger than this note
+  first said.** The warning here named `docs/project-changes.md` #24/#25/#26. The real collision
+  was **`docs/DECISIONS.md` as well**: both branches shared D97-D103 from the common ancestor
+  (`2875063`, SIM.1) and then allocated independently, so **D104-D115 named different decisions
+  on each side** — D104 was "dynsec is required for v1" here and "the local link refuses
+  contradictions" there. **SIM merged to `main` first (PR #19), so its numbering is canonical**
+  and this branch moved: **D104-D146 → D116-D158** across 412 citations in 54 files, and
+  **#24/#25/#26 → #36/#37/#38**. Verified by count, not by eye: 0 survivors in D104-D115, the 58
+  citations of the shared D97-D103 unchanged, every cited number backed by a real heading, and
+  D1-D158 present exactly once each.
+- **The renumbering had one genuine trap in it.** `backend/tests/test_mqtt_manager.py` was
+  adopted verbatim from SIM's `959ff23` (D125), so the `D109`/`D111` in it are **SIM's** numbers.
+  A blanket shift moved them and both targets happened to exist, so nothing would have failed.
+  Found by diffing the citation sets of the two branches' copies of every adopted file —
+  `conftest.py` came back clean, `test_mqtt_manager.py` did not. **An adopted file carries the
+  source branch's numbering and says so nowhere.**
+- **The log's integers are identifiers, not a sort key.** `project-changes.md` stays sorted by
+  DATE, so #36-#38 (2026-08-11) now sit below #27-#35 (2026-08-11 to 08-13). With two branches
+  numbering independently that is unavoidable whichever side moves.
 
 - **On 2026-08-11/12 an agent session died mid-refactor in this worktree, and the recovery is
   worth knowing about.** It had committed E5.4a (`09b5271`) and the harness adoption

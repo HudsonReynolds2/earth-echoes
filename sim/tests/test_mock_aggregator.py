@@ -16,247 +16,46 @@ API, reconciliation worker, consumer — because every claim above is a claim
 about the PLATFORM's reaction, and a stub would only prove the harness agrees
 with itself. That is also why the suite imports platform internals while the
 harness modules import nothing but the wire contract: `test_harness_boundaries`
-enforces exactly that split.
+enforces exactly that split. The fixture that assembles all of it, and the
+helpers that read its mind, moved to `conftest.py` when SIM.2 became the second
+module to need them.
 """
 
-import asyncio
 import os
 import subprocess
 import sys
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import pytest
-from app.auth.passwords import hash_password
 from app.contracts.mqtt import Command, command_topic, encode
 from app.controlplane.broker import MqttClientManager, load_broker_coordinates
 from app.controlplane.consumer import ReportedConsumer
 from app.controlplane.revision_state import RevisionState
-from app.controlplane.runner import ReconciliationWorker
-from app.db import create_session_factory
-from app.devbroker import device_username, load_manifest
-from app.main import API_PREFIX, create_app
-from app.models import (
-    Aggregator,
-    AggregatorStatus,
-    ConfigRevision,
-    Deployment,
-    DeploymentService,
-    RoleAssignment,
-    User,
-)
 from app.models import DeviceEvent as DeviceEventRow
-from app.secrets import SecretStore
-from app.seed import seed_demo_hierarchy
-from app.settings import Settings
 from conftest import (
-    BACKEND,
-    ephemeral_broker,
-    ephemeral_postgres,
-    free_port,
-    make_kek,
+    AGG,
+    DEP,
+    Platform,
+    aggregator_id_of,
+    apply_change,
+    deployment_id_of,
+    device_login,
+    eventually,
+    operator,
+    revision,
+    status_row,
+    wait_for_state,
+    wait_for_verdict,
+    worker_for,
 )
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import select
 
-from device import BrokerLogin, MockAggregator
-
-#: The seeded demo hierarchy (app.seed) is the fleet under test here; SIM.4 is
-#: where a harness provisions its own over the REST API.
-DEP = "redwood-coast"
-AGG = "demo-agg-rc-01"
-OWNER = "sim-owner@example.com"
-PASSWORD = f"sim-{uuid.uuid4().hex}"
+from device import MockAggregator
 
 pytestmark = [pytest.mark.anyio, pytest.mark.integration]
-
-
-# --- a whole platform -------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Platform:
-    """Everything a device needs to be talked to, and everything a test needs
-    to check what the platform made of it."""
-
-    app: Any
-    broker: Any
-    factory: Any
-    store: SecretStore
-    manifest: dict[str, Any]
-
-
-def _provision(url: str, kek: str, out_dir: Path) -> None:
-    """Mint TLS material, broker accounts, ACLs and the `deployment_service`
-    row by running the platform's own generator — the same command the README
-    gives an operator. The harness never writes broker credentials itself."""
-    result = subprocess.run(
-        [sys.executable, "-m", "app.devbroker", "--out", str(out_dir)],
-        cwd=BACKEND,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "DATABASE_URL": url, "EOE_KEK": kek, "EOE_SESSION_SECRET": "sim1"},
-        timeout=180,
-    )
-    assert result.returncode == 0, f"devbroker failed: {result.stdout}\n{result.stderr}"
-
-
-@pytest.fixture(scope="module")
-def platform(tmp_path_factory):
-    """A migrated database, a provisioned TLS broker, and an API whose lifespan
-    has actually run, so `app.state.mqtt` is the real outbound manager."""
-    out = tmp_path_factory.mktemp("sim1-certs")
-    port = free_port()
-    with ephemeral_postgres() as url:
-        kek = make_kek()
-        _, factory = create_session_factory(url)
-        with factory() as db:
-            seed_demo_hierarchy(db)
-            db.commit()
-        _provision(url, kek, out)
-        with factory() as db:
-            # The broker row names `mosquitto:8883` for the compose network;
-            # this test reaches the same broker on a host port, and so does the
-            # device — one broker, two clients, no shortcuts.
-            db.execute(update(DeploymentService).values(host="localhost", port=port))
-            db.commit()
-        with ephemeral_broker(out, host_port=port) as broker:
-            app = create_app(
-                Settings(
-                    database_url=url,
-                    # The SAME kek the broker secrets were wrapped with: a fresh
-                    # one reads as "every broker row is unreadable", which the
-                    # manager survives by design and which would make every
-                    # test below quietly prove nothing.
-                    kek=kek,
-                    session_secret="sim1-session-secret",
-                    cors_origins="",
-                )
-            )
-            with app.state.session_factory() as db:
-                user = User(email=OWNER, password_hash=hash_password(PASSWORD))
-                user.role_assignments.append(RoleAssignment(role="owner", deployment_id=None))
-                db.add(user)
-                db.commit()
-            yield Platform(
-                app=app,
-                broker=broker,
-                factory=factory,
-                store=SecretStore(factory, kek),
-                manifest=load_manifest(out),
-            )
-
-
-# --- reading the platform's mind --------------------------------------------
-
-
-def operator(app) -> TestClient:
-    client = TestClient(app, raise_server_exceptions=False)
-    response = client.post(f"{API_PREFIX}/auth/login", json={"email": OWNER, "password": PASSWORD})
-    assert response.status_code == 200, response.text
-    return client
-
-
-def device_login(platform: Platform, aggregator_uuid: str = AGG) -> BrokerLogin:
-    """The device's OWN credential, read from `accounts.json` — the one place
-    dev broker passwords live. Its ACL grants seven topics and no more, so
-    every test below runs against the spec 7.1 isolation as well."""
-    username = device_username(aggregator_uuid)
-    password = next(
-        account["password"]
-        for account in platform.manifest["accounts"]
-        if account["username"] == username
-    )
-    return BrokerLogin(
-        host="localhost",
-        port=platform.broker.port,
-        username=username,
-        password=password,
-        ca_cert=Path(platform.manifest["ca_cert"]),
-    )
-
-
-def deployment_id_of(factory, slug: str = DEP) -> uuid.UUID:
-    with factory() as db:
-        return db.scalars(select(Deployment.id).where(Deployment.slug == slug)).one()
-
-
-def aggregator_id_of(factory, aggregator_uuid: str = AGG) -> uuid.UUID:
-    with factory() as db:
-        return db.scalars(
-            select(Aggregator.id).where(Aggregator.aggregator_uuid == aggregator_uuid)
-        ).one()
-
-
-def revision(factory, revision_id: uuid.UUID) -> tuple[str, str]:
-    with factory() as db:
-        row = db.execute(
-            select(ConfigRevision.state, ConfigRevision.checksum).where(
-                ConfigRevision.id == revision_id
-            )
-        ).one()
-        return row.state, row.checksum
-
-
-def status_row(factory, aggregator_uuid: str = AGG) -> AggregatorStatus | None:
-    with factory() as db:
-        return db.scalars(
-            select(AggregatorStatus).where(
-                AggregatorStatus.aggregator_id == aggregator_id_of(factory, aggregator_uuid)
-            )
-        ).first()
-
-
-async def wait_for_state(factory, revision_id: uuid.UUID, wanted: RevisionState) -> None:
-    for _ in range(300):
-        if revision(factory, revision_id)[0] == wanted.value:
-            return
-        await asyncio.sleep(0.1)
-    raise AssertionError(f"revision stayed {revision(factory, revision_id)[0]}, wanted {wanted}")
-
-
-async def wait_for_verdict(factory, *, online: bool, timeout: float = 30.0) -> AggregatorStatus:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        row = status_row(factory)
-        if row is not None and row.online is online:
-            return row
-        await asyncio.sleep(0.2)
-    raise AssertionError(f"the platform never recorded online={online}: {status_row(factory)}")
-
-
-async def apply_change(client: TestClient, aggregator_id: uuid.UUID, verbosity: str) -> uuid.UUID:
-    """Edit config the way the UI does, and publish. Returns the Aggregator's
-    own revision: an aggregator-level change moves its Listeners' effective
-    config too, so E2 cuts one revision per affected device and all go out."""
-    body = {
-        "selection": {"entity_type": "aggregator", "where": {"ids": [str(aggregator_id)]}},
-        "changes": {"logging.verbosity": verbosity},
-        "level": "target",
-    }
-    response = await asyncio.to_thread(
-        client.post,
-        f"{API_PREFIX}/config/apply",
-        json=body,
-        headers={"X-CSRF-Token": client.cookies["eoe_csrf"]},
-    )
-    assert response.status_code == 200, response.text
-    result = response.json()
-    assert result["published"] == len(result["revisions"]), "apply did not publish"
-    aggregator_revision = next(r for r in result["revisions"] if r["target_type"] == "aggregator")
-    return uuid.UUID(aggregator_revision["revision_id"])
-
-
-def worker_for(platform: Platform) -> ReconciliationWorker:
-    """The real spec 6.4 loop. The sweep intervals are pushed past the life of
-    a test on purpose: a pending revision timing out mid-test would be a
-    failure about patience rather than about the device."""
-    return ReconciliationWorker(
-        platform.factory, platform.store, timeout_interval=3600, drift_interval=3600
-    )
 
 
 # --- ACCEPTANCE -------------------------------------------------------------
@@ -383,15 +182,13 @@ async def test_a_device_event_reaches_the_platform(platform):
         ) as device:
             await device.publish_event(code, level="warn", detail="SIM.1 self-test")
 
-            for _ in range(150):
+            def stored():
                 with platform.factory() as db:
-                    row = db.scalars(
+                    return db.scalars(
                         select(DeviceEventRow).where(DeviceEventRow.code == code)
                     ).first()
-                if row is not None:
-                    break
-                await asyncio.sleep(0.1)
-            assert row is not None, "the event never reached the platform"
+
+            row = await eventually(stored, what=f"stored the {code} event")
             assert row.level == "warn"
             assert row.aggregator_uuid == AGG
 

@@ -335,6 +335,92 @@
     logging configuration for the whole API is E0-owned and a stop-and-ask.
   - No plaintext credential appeared in the uvicorn log.
 
+## 2026-08-12: SIM.4 and SIM.5 — a fleet on one command, and the harness joins the gate (Gate 58 GREEN)
+
+- **Tasks closed:** SIM.4 (fleet runner) and SIM.5 (CI integration). **Epic SIM is complete.**
+  DECISIONS D112-D115, project-changes #26, addendum PHASESIM-4-02 (the two share one gate,
+  superseding PHASESIM-4-01 — SIM.5 is what puts `/sim` into `gate.sh`, so the folded gate
+  strictly contains what a SIM.4-only gate could have asserted).
+- **Gate:** 58, GREEN. (Gate 57 was taken by the concurrent E5 batch on another branch;
+  R3 forbids moving a tagged gate commit, so this batch is 58.)
+- **Tests:** **767 backend / 114 vitest / 4 Playwright / 73 `/sim`**, 0 failed / 0 skipped /
+  0 xfailed / 0 deselected. Stage times: backend-tests 258.2s, **sim-protocol 191.8s**;
+  backend-quality, frontend-quality and sim-quality all clean.
+- **Command:** `make gate` — which now runs `sim-quality` and `sim-protocol` as registry stages.
+  No more running the harness suite by hand beside the gate.
+- **One red run in the middle, recorded rather than summarised away** (rule R0). The full gate was
+  run repeatedly on this batch as the records were finished: green (767 passed), then **RED — 760
+  passed, 7 errors**, then green again (767 passed) on the committed tree. All 7 errors were the
+  same `ephemeral_broker` fixture
+  in `test_mqtt_manager.py`, all with the identical Docker Desktop message
+  `ports are not available: exposing port TCP 127.0.0.1:54475 … /forwards/expose returned
+  unexpected status: 500` — the forwarder-under-load phenomenon D99 and D110 already name, after
+  this session had churned several hundred containers through a load run. No test code was
+  touched between the red run and the green one; clearing stopped containers was enough. Recorded
+  because a flake nobody wrote down is a flake somebody rediscovers as a mystery.
+- **Artifacts:** `sim/provision.py` (a `urllib` REST `Operator`, `FleetPlan` computing every
+  identity from the slug and two indices, `provision_hierarchy`, `apply_fleet_config`,
+  `mint_credentials` invoking `app.devbroker` as a subprocess) · `sim/fleet.py` (the CLI, `Fleet`,
+  `FleetCounters`, staggered start, polite shutdown, `--scenario`/`--scenario-devices`,
+  `--wake-grace`, `--stay`, `--list-scenarios`) · `sim/Dockerfile` and the `sim` compose service
+  behind an optional profile · `sim/tests/test_fleet.py` (19 tests) · `sim/tests/gate_runner.py` ·
+  `sim-quality`/`sim-protocol` in `gate.sh` and `gate.ps1`, a CI job each, both in `ci-green` ·
+  `guide/sim-verification.md` · the INTERFACES "Owned by SIM" section · `Broker.refresh()` and
+  `platform_stack`/`live_stack`/`uvicorn_server` in the shared fixtures ·
+  `COMPOSE_SERVICES` + a new `PROFILED_SERVICES` gate-locked set.
+- **The 20 × 30 load run, measured on one host** (clean stack, demo seeded, full dev compose):
+  **3.0s** to provision 20 pods, 20 Aggregators and 600 Listeners over the REST API; **2.1s** to
+  connect 20 TLS sessions on per-device credentials at a 0.05s stagger; **5.2s** for all 620
+  devices to converge on 620 published revisions; **8.0s** wall for the whole command at 8% CPU
+  and **45 MiB** peak RSS. Afterwards: **620 of 620 revisions `applied`**. Platform peaks —
+  worker 59.3% CPU / 68 MiB, Postgres 20.1% / 56 MiB, API 3.0% / 91 MiB, **Mosquitto 0.03% /
+  5.4 MiB**. The bottleneck is the reconciliation consumer, not the wire. Procedure and numbers
+  in `guide/sim-verification.md` section 6, which is what E8.6 inherits.
+- **The ~10s-per-publish platform cost the SIM.1 notes flagged does not exist** (D115). It was an
+  artefact of driving `POST /config/apply` through `fastapi.testclient` while the outbound manager
+  lived in another event loop. Over real HTTP the 2 × 3 acceptance converges 8 revisions in under
+  a second. Nothing needs raising with the platform owner; the ledger note is superseded.
+- **Two harness defects, both found by the load run rather than by a suite** (D114, D115). A stale
+  pre-E3.13 API image produced `KeyError: 'published'` from inside a provisioning helper; it now
+  says "this API predates E3.13 … rebuild the stack". And re-running the fleet with the same value
+  is a legitimate no-op — E2 cuts a revision only for a device whose effective config CHANGED — so
+  the runner waited 30 minutes for 620 devices nobody had told anything. `wait_for_applies` now
+  waits for exactly the devices a revision reached, and says so when that set is empty. The D108
+  pattern holds: the harness's failures are never in the protocol, they are in what it does when
+  the world is not fresh.
+- **A third defect the acceptance test caught before it shipped:** the runner returned as soon as
+  the Aggregators had converged, leaving Listener applies in flight and their revisions `pending`
+  until the reconciliation timeout. Found because the test asserts on the platform's ROWS rather
+  than on the runner's word.
+- **The SIM.3 open question is answered** (D113): `duplicate_mac` and `unprovisioned_aggregator`
+  stay suite-only. A fleet provisions every device it runs and mints each one a credential from
+  that inventory row, so no member can be unknown to the platform or claim another parent's MAC.
+  `Behaviour.fleet_safe` marks them, `--list-scenarios` prints `[suite only: …]`, and `--scenario`
+  refuses them before a socket opens.
+- **The boundary got stronger, not weaker** (D112). `provision.py` never imports `app.devbroker`:
+  it runs the generator as a subprocess, reads `accounts.json` as the documented file interface it
+  is, and matches a device account on its `aggregator_uuid` rather than re-deriving the
+  `dev-{uuid}` username recipe. And `sim/Dockerfile` copies only `backend/app/contracts` in, so
+  inside the container the boundary is a property of the filesystem rather than of a test.
+- **`listener.mac` is a GLOBAL primary key, so a fleet's MAC prefix is derived from its deployment
+  slug** (`02:` plus three bytes of its SHA-256). Two fleets of the same shape in two deployments
+  would otherwise collide on every address; E1.9's demo prefix `02:EE:0E` is reserved and refused.
+- **Manual verification**, outside the harness, against the real dev compose stack:
+  - The 20 × 30 load run above, end to end on a clean database: `provision.py` created the
+    hierarchy over REST, `app.devbroker` minted 26 device accounts, `docker compose restart
+    mosquitto api worker`, then `fleet.py` brought 20 Aggregators and 600 Listeners up and
+    converged all 620. Verified in the database afterwards: 620 of 620 revisions `applied`, none
+    `pending` or `draft`.
+  - Provisioning re-run at 20 × 30: created nothing, logged `all 600 Listeners already exist`.
+  - `docker build -f sim/Dockerfile .` succeeds, and **the boundary holds inside the container**:
+    `app.contracts.mqtt` imports and builds a topic, while `app.devbroker`, `app.models`, `app.db`
+    and `sqlalchemy` are all `ModuleNotFoundError` — the image simply does not contain them.
+    `docker run eoe-sim --list-scenarios` prints the catalogue from inside it.
+  - The two startup refusals, before any socket opens: `--scenario duplicate_mac` names the
+    behaviour and points at the suite; `--scenario drft` lists the scenarios that exist.
+  - The stale-image path, reproduced deliberately: a pre-E3.13 `api` image made the fleet exit
+    non-zero saying the API predates E3.13 and to rebuild, instead of raising a `KeyError`.
+
 ## 2026-08-12: E5.4a-e and E5.5 — five testers, one container rig, and a rollup that reproduces itself (Gate 57 GREEN)
 
 - **Tasks closed:** E5.4a (verified, not authored, this session), E5.4b, E5.4c, E5.4d, E5.4e,
@@ -386,6 +472,114 @@
   toggle**. The tester keys on both S3 credentials being absent; a half-entered form is tested
   for real and fails. An explicit `upload.raw_audio_enabled` key would be an E2-owned catalog
   change and a stop-and-ask.
+
+## 2026-08-11: Several gate runs can now share one machine (Gate 56 GREEN)
+
+- **Not a SIM task.** Taken on the owner's instruction after the gate-55 batch lost two runs to a
+  concurrent suite in the `e5-batch-1` worktree. DECISIONS D110-D111, project-changes #25,
+  addendum PHASE0-4-07.
+- **Gate 56 GREEN:** `make gate`, 766 backend / 114 vitest / 4 Playwright, 0 failed / 0 skipped /
+  0 xfailed / 0 deselected; backend stage 257.7s. `/sim` by hand: quality clean, 54 passed.
+- **The acceptance test is the thing it was asked for.** Two full backend suites, started
+  simultaneously from one checkout: **766 passed each, both green, 298s wall-clock** against 260s
+  for a single run alone. Before this change that scenario is what produced a red gate with seven
+  `test_audit` errors.
+- **Four faults, none of which pytest could have arbitrated.** `xdist_group` serialises tests
+  inside ONE session and knows nothing about a second one, so everything singular per MACHINE was
+  unprotected. (1) Every readiness probe ran through `docker exec` — proving the server was up and
+  proving nothing about the port forward the client dials; `wait_for_host_port()` now connects
+  from the host, and `ephemeral_postgres` retries the whole container when a forward never
+  appears. (2) `free_port()` bound port 0 and closed the socket, which is not an allocation:
+  **measured, four concurrent processes taking 150 ports each were handed 18 duplicates out of
+  600; with a lock-protected machine-wide registry, 0 out of 600.** (3) The two fixed-port modules
+  publish 18000/15173/15432/16379/18883 and share the generated `deploy/dev-certs` that mosquitto
+  bind-mounts — one run regenerating the CA while another's broker serves from it — now serialised
+  by a machine-wide lock around the whole test, setup and teardown included. (4) The lock is an
+  exclusive-create file rather than `fcntl.flock`, because the gate runs on Windows too; it breaks
+  immediately when its holder has died and after a TTL when its holder is wedged.
+- **A long-standing intermittent failure was made decisive, and is NOT fixed.**
+  `test_shutdown_leaves_no_running_tasks` has failed on and off since gate 49 (D94), was addressed
+  twice (D97, D109) and still fails about twice in ten full-suite runs. It now classifies what
+  survived rather than timing it out: a survivor holding a live socket fails IMMEDIATELY, because
+  waiting reaches the same verdict slower; one with no socket gets a short window and still fails
+  at the end of it; one whose shape cannot be read waits with the rest rather than being assumed
+  guilty. Nothing is excused — not by name, not by category, not by shape. **Why a `_misc_loop`
+  outlives `stop()` at all is still unknown**, and the assertion now reports `socket=LIVE` or
+  `socket=gone` with paho's connection state so the next occurrence identifies the cause instead
+  of restarting the investigation. It did not reproduce in ~30 targeted attempts today.
+- **Two corrections to this session's own work, both recorded rather than quietly patched.** D109
+  claimed the widened settle window fixed that test; a later gate on an idle host sat the full
+  30.10s and went red, so D109 is marked superseded in part. And the first version of the new
+  classifier treated an unreadable task as a leak and failed at once — which is a false positive,
+  not strictness, since an unrelated task passing through the loop would fail the test on shape
+  alone. It produced exactly one such failure before it was caught.
+- **Manual verification** ran outside the suite: four concurrent processes claiming 150 ports each
+  with zero collisions (and the same measurement against the old implementation, which collided 18
+  times); four processes contending for one lock, serialised correctly with no overlap; a lock
+  whose holder had been killed broken in 0.00s; and a recent half-written lock correctly NOT
+  stolen.
+
+## 2026-08-11: SIM.1-SIM.3 — a mock fleet that misbehaves on demand (Gate 55 GREEN)
+
+- **Tasks closed:** SIM.1 (mock Aggregator), SIM.2 (mock Listener behaviour) and SIM.3 (scenario
+  scripting) on branch `sim-batch-1`, under one folded gate (project-changes #24, addendum
+  PHASESIM-4-01). DECISIONS D100-D109.
+- **Gate 55 GREEN:** `make gate`, 766 backend / 114 vitest / 4 Playwright, 0 failed / 0 skipped /
+  0 xfailed / 0 deselected; backend stage 260.8s. Beside it, by hand because `/sim` does not join
+  `gate.sh` until SIM.5: `sim-quality` clean (ruff, ruff format, mypy over three harness modules)
+  and the `/sim` suite at **54 passed**, 191.7s.
+- **Numbered 55 rather than 54.** The ledger had reserved 54 for SIM.1 back when this epic was
+  the only work in flight; the concurrent `e5-batch-1` checkpoint took `gate-54` (commit 050cd4b)
+  first. Gate numbers are global and tags are never moved, so SIM.1-3 take 55 and the ledger's
+  SIM.4/SIM.5 rows shift to 56 and 57.
+- **What shipped.** `MockListener`, which holds no MQTT session of its own (spec 6.4) and reaches
+  the broker only through the Aggregator that owns it; the spec 6.5 liveness machine — `streaming`
+  / `sleeping` with a self-declared `expected_wake_at` / `offline` — with the AGGREGATOR computing
+  grace from its own applied `listener.wake_grace_seconds` and raising
+  `listener_missed_wake_window`, never the platform and never the Listener. Then a typed behaviour
+  registry with Pydantic-validated parameters, six scenario TOMLs (`apply_error`, `drift`,
+  `disconnect`, `missed_wake_window`, `duplicate_mac`, `unprovisioned_aggregator`), and a test per
+  scenario asserting the **platform's** reaction through the E1.5 services E3.5 already wires:
+  `failed`, `drifted`, LWT offline, Listener offline, `duplicate_identity` quarantine with the
+  inventory row provably untouched, and `provisioning_required`.
+- **The local link refuses what a Listener cannot mean (D104).** A `capture.mode=continuous`
+  Listener cannot declare an off-window, and a sleeping one cannot report a `listener_stream_gap`.
+  Refused at the source rather than published, because the platform's whole ability to tell
+  expected silence from failure rests on the two never being confused before they reach it — which
+  is what makes SIM.2's fourth acceptance claim assertable at all.
+- **Two real defects, found by running the code rather than reading it (D108).** The SIM.2/SIM.3
+  work was written in a previous session and had never been executed. Its first run failed:
+  `kill()` closed the paho socket while asyncio still held a reader and a writer on it, so the next
+  callback raised `ValueError: Invalid file descriptor: -1` inside the EVENT LOOP rather than in
+  the device; and `disconnect()` awaited its cancelled reader suppressing only `CancelledError`, so
+  a device that had actually crashed could not be shut down. `kill()` now shuts the socket down and
+  leaves closing to teardown — the broker sees the same will-owed disconnect either way.
+- **Manual verification** ran outside the suite: `load_scenarios()` over the shipped catalogue in a
+  plain interpreter — six scenarios, every behaviour instantiated, the loaded set asserted equal to
+  the registry — and then six deliberate corruptions of a copied scenario file. An unknown
+  behaviour name, a misspelled parameter, `sleep_seconds = 0`, a malformed MAC, a `name` that
+  disagrees with its filename, and syntactically broken TOML: each refused at LOAD, each message
+  naming the file and, where a value was at fault, the key. That is SIM.3's acceptance criterion
+  and the difference between a typo caught in a second and a typo caught at hour two of a load run.
+  (The first probe of the six was written wrongly — its `str.replace` matched nothing, so it tested
+  an unmodified file and appeared to pass the bad case. Rewritten against the behaviour table's own
+  `name`, it refuses as it should. Worth recording because a verification that silently tests
+  nothing is the failure mode this whole exercise exists to catch.)
+- **One E3 test repaired under R0, not re-rolled (D109).** The first gate went red on
+  `test_mqtt_manager.py::test_shutdown_leaves_no_running_tasks` — D97's flake again, at a wider
+  load. The settle window goes 5s → 30s and stays name-blind. A name filter was considered and
+  REJECTED: D94's leak was an anonymous `Client._misc_loop`, so excusing unnamed tasks would have
+  deleted the detector for a real per-reconnect leak while leaving the test permanently green.
+  D97's description of that leak as a `_connection_loop` is corrected by D109.
+- **A second red gate was environmental and is worth recording.** 759 passed / 7 errors, every one
+  of them `test_audit.py` failing to reach its ephemeral Postgres on a published host port. A
+  concurrent full suite was running from the `e5-batch-1` worktree against the same Docker daemon;
+  a container was observed coming up with no host port published at all. The green above was taken
+  on a quiet host. `ephemeral_postgres` probes readiness with `pg_isready` INSIDE the container and
+  never checks the host forward, which is why the failure surfaces as a migration error rather than
+  as a fixture error — worth a look before CI ever runs two suites side by side.
+- **Two containers leaked by an interrupted session** (`eoe-mqtt-961700caf6`, `eoe-pg-23037728f6`,
+  8 hours old, holding host ports) were removed on the owner's instruction.
 
 ## 2026-08-11: E5.1-E5.3 — services onboarding gets a data model, a write-only API, and a test framework (Gate 54 GREEN)
 
