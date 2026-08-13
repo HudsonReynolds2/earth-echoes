@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.aggregators import router as aggregators_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.broker_credentials import router as broker_credentials_router
 from app.api.config import router as config_router
 from app.api.deployments import router as deployments_router
 from app.api.entity_config import router as entity_config_router
@@ -38,6 +39,7 @@ from app.api.organizations import router as organizations_router
 from app.api.pods import router as pods_router
 from app.api.revisions import router as revisions_router
 from app.api.selections import router as selections_router
+from app.api.services import router as services_router
 from app.api.timeline import router as timeline_router
 from app.api.totp import router as totp_router
 from app.api.users import router as users_router
@@ -47,13 +49,50 @@ from app.controlplane.events import Hub, listen
 from app.controlplane.runner import ReconciliationWorker
 from app.db import create_session_factory
 from app.errors import install_error_handlers
-from app.middleware import RequestIdMiddleware, SecurityHeadersMiddleware, configure_logging
+from app.middleware import (
+    RequestIdMiddleware,
+    SecurityHeadersMiddleware,
+    configure_logging,
+    install_root_handler,
+)
 from app.secrets import SecretStore
+from app.services.credentials import default_provider
 from app.settings import Settings
 
 API_PREFIX = "/api/v1"
 
 log = logging.getLogger(__name__)
+
+
+async def _refresh_forever(
+    manager: MqttClientManager, interval: float, stopping: asyncio.Event
+) -> None:
+    """Poll `manager.refresh()` until shutdown (task E5.7b).
+
+    The API's counterpart to `ReconciliationWorker._refresh_loop`. Two loops
+    rather than one shared helper because the two processes stop differently —
+    the worker owns an `_stopping` event its sweeps also watch, and the API has
+    the lifespan's — and a helper taking both would be longer than either.
+
+    **Waits first**, because the manager has just loaded its coordinates, so an
+    immediate refresh would be a guaranteed no-op on every startup.
+
+    A failure is logged and retried. The loader touches the database, and an
+    API whose poll died on one blip would be permanently unable to publish to a
+    deployment configured afterwards — with nothing about it visible from
+    outside except revisions that stay `draft`.
+    """
+    while not stopping.is_set():
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stopping.wait(), interval)
+        if stopping.is_set():
+            return
+        try:
+            await manager.refresh()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("could not refresh broker coordinates; retrying next tick")
 
 
 @contextlib.asynccontextmanager
@@ -76,6 +115,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     app.state.mqtt = None
     app.state.worker = None
+    refresh: asyncio.Task[None] | None = None
     # E3.12: the live-update fan-out. Always on — it needs no configuration
     # beyond the database the API already has (D59), and a websocket surface
     # that silently does nothing would be worse than one that is absent.
@@ -91,6 +131,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         await manager.start_or_retry()
         app.state.mqtt = manager
+        # E5.7b: the API is the SECOND host of a manager, and it needs the
+        # coordinates poll for the same reason the worker does. `POST
+        # /revisions/{id}/publish` and E2's apply both publish through this
+        # manager, so without a refresh a deployment configured after the API
+        # started could never be published to from an HTTP request - the
+        # operator would get `draft` for reasons nothing on screen explains.
+        refresh = asyncio.create_task(
+            _refresh_forever(manager, float(settings.broker_refresh_seconds), bus_stopping),
+            name="mqtt-coordinates-refresh",
+        )
         log.info("outbound publish connections started (EOE_PUBLISH_ENABLED is on)")
     if settings.worker_in_api:
         worker = ReconciliationWorker(
@@ -98,6 +148,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.secret_store,
             timeout_interval=float(settings.timeout_sweep_seconds),
             drift_interval=float(settings.drift_sweep_seconds),
+            service_config_interval=float(settings.service_config_sweep_seconds),
+            broker_refresh_interval=float(settings.broker_refresh_seconds),
         )
         await worker.start()
         app.state.worker = worker
@@ -108,6 +160,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         bus.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await bus
+        if refresh is not None:
+            refresh.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await refresh
         if app.state.worker is not None:
             await app.state.worker.stop()
         if app.state.mqtt is not None:
@@ -118,6 +174,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Settings() resolves its required fields from the environment and the
     # optional TOML file (D5); mypy cannot see those sources.
     resolved = settings if settings is not None else Settings()  # type: ignore[call-arg]
+    # D139: uvicorn handles its own loggers and leaves the root logger bare, so
+    # without this every `app.*` INFO line in the API process is dropped.
+    install_root_handler()
     configure_logging()
 
     app = FastAPI(
@@ -136,6 +195,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db_engine = engine
     app.state.session_factory = session_factory
     app.state.secret_store = SecretStore(session_factory, resolved.kek)
+    # E5.6: how per-device broker credentials are minted and revoked. On
+    # `app.state` rather than imported at each call site so a test can
+    # substitute one without a broker, exactly as `secret_store` and `mqtt`
+    # already work. Fixed choice 4 means there is no setting that selects a
+    # different one in production.
+    app.state.credential_provider = default_provider()
 
     # Order matters: security headers wrap everything, request id inside them,
     # CORS innermost so its headers survive on error responses too.
@@ -163,11 +228,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(deployments_router)
     api_router.include_router(pods_router)
     api_router.include_router(aggregators_router)
+    api_router.include_router(broker_credentials_router)
     api_router.include_router(listeners_router)
     api_router.include_router(imports_router)
     api_router.include_router(config_router)
     api_router.include_router(entity_config_router)
     api_router.include_router(selections_router)
+    api_router.include_router(services_router)
     api_router.include_router(revisions_router)
     api_router.include_router(timeline_router)
     api_router.include_router(ws_router)

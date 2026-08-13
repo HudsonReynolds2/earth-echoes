@@ -34,6 +34,14 @@ Suggested batching, one PR per batch on `e4-batch-N` (rule R3):
 
 ## Notes for whoever picks this up next
 
+- **E5 landed first, and fixed choice 1 has reversed.** See addendum PHASE4-2-01 on the phase
+  document and DECISIONS D116/D117. `BrokerCredentialProvider` already exists, defined by E5.6
+  in `backend/app/services/credentials.py`, with a dynsec and a dev-broker implementation, so
+  E4.6 imports the protocol rather than declaring it and writes no dev provider of its own.
+  dynsec is required for v1 (spec 17 item 14 closed), so there is no manual-install path to
+  accommodate. And the degraded verified-broker predicate the E4.6 row above describes is **not
+  needed** — `deployment.services_status` exists, so E4.6 gates on `services_status ==
+  'verified'` directly.
 - **Four owner decisions were taken at plan approval** and are recorded as fixed choices in
   the phase document section 2: the E4.6 flag-and-provider-seam, the YAML `device_config` v1
   draft, the env-KEK/AES-256-GCM firmware envelope, and the plain-zip archive. They resolve

@@ -7,6 +7,7 @@ Security headers are the spec 14.1 baseline; E8.7 audits them later.
 """
 
 import logging
+import os
 import uuid
 from contextvars import ContextVar
 
@@ -47,6 +48,31 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 _factory_installed = False
+
+
+def install_root_handler() -> None:
+    """Give the ROOT logger a handler, so `app.*` INFO lines are visible (D139).
+
+    **Uvicorn does not do this for us, and the codebase used to say it did.**
+    Uvicorn's default config attaches handlers to its own `uvicorn.*` loggers
+    and leaves the root logger bare, so Python's last-resort handler passes
+    WARNING and above and silently drops everything below it. Every INFO line
+    the API emits — broker connected, coordinates refreshed, publish outcomes —
+    went nowhere, while `runner.py::main`'s docstring asserted the opposite.
+
+    Found by C3's manual walkthrough, which tried to prove the refresh loop had
+    connected by grepping the log and got nothing — including for a deployment
+    that had been connected since startup. A WARNING from the same module was
+    there, which is what made it a logging bug rather than a behaviour bug.
+
+    `basicConfig` is a no-op when the root logger already has handlers, so a
+    host that configured its own logging keeps it and the worker's own
+    `basicConfig` is unaffected.
+    """
+    logging.basicConfig(
+        level=os.environ.get("EOE_LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
 
 def configure_logging() -> None:

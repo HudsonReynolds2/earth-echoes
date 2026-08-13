@@ -17,6 +17,26 @@ dependencies = [
     "pyotp>=2.9",
     "httpx>=0.28",
     "aiomqtt>=2.3",
+    # E5.4e: the object-storage tester. boto3 rather than a hand-rolled SigV4
+    # signer because SigV4 against MinIO, Ceph and real S3 differs in exactly
+    # the details a hand-rolled signer gets wrong (path vs virtual-host
+    # addressing, region resolution, chunked payload signing). It is
+    # synchronous, so every call goes through `asyncio.to_thread`, following
+    # `controlplane/broker.py`'s precedent.
+    "boto3>=1.35",
+    # E5.8b: the stack generator. Promoted out of the dev group because
+    # `app/services/stack.py` serialises the generated compose file and every
+    # service config with `yaml.safe_dump` in PRODUCTION code. Phase-5 E5.8b
+    # forbids string templating: a compose file built from a dict is valid by
+    # construction, and `string.Template`'s `${name}` collides with compose's
+    # own `${VAR}` interpolation.
+    "pyyaml>=6.0",
+    # E5.9: the generated stack's Prometheus password. `web_config.yml` accepts
+    # bcrypt and nothing else, so this is not a choice between hashes — argon2
+    # (already a dependency, for user passwords) is not a format Prometheus can
+    # read. Used only for credentials the platform generates FOR a service; user
+    # authentication stays on argon2.
+    "bcrypt>=5.0.0",
 ]
 
 [dependency-groups]
@@ -24,7 +44,11 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
     "mypy>=1.14",
-    "pyyaml>=6.0",
+    # PyYAML ships no py.typed marker, and `mypy --strict` will not accept an
+    # untyped `safe_dump` in app code. Unlike boto3 (see the override below)
+    # the stubs are small and first-party, so they are a dev dependency rather
+    # than a relaxed strictness rule.
+    "types-pyyaml>=6.0",
     "hypothesis>=6.100",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
@@ -33,6 +57,16 @@ dev = [
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+# boto3 and botocore ship no type information and no py.typed marker (E5.4e).
+# The alternative is `boto3-stubs`, which is generated, very large, and would
+# have to stay version-pinned against boto3 forever; the code that touches it
+# is one small module (app/services/clients/s3.py) whose own signatures are
+# fully typed, so the untyped surface stops at its boundary instead of
+# spreading. `strict = true` is NOT relaxed anywhere else.
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*"]
+ignore_missing_imports = true
 
 [tool.uv]
 package = false

@@ -142,6 +142,47 @@ E0_ROUTES = {
     # not appear in the OpenAPI paths this set is built from, which is why
     # it is absent here rather than forgotten - `test_websockets.py` is its
     # contract.
+    # E5.2: the write-only services surface (spec 16.2, 13). Two routes over
+    # all five services rather than ten per-service ones - the wizard saves a
+    # subset in one call, and a service absent from the body is untouched.
+    # There is deliberately NO delete: removing the `mqtt` row would strand
+    # the deployment's control plane, and `DELETE /deployments/{id}` is what
+    # removes them all.
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services"),
+    ("PUT", f"{API_PREFIX}/deployments/{{deployment_id}}/services"),
+    # E5.3: the connection test endpoint. MANAGE_SERVICES rather than a read
+    # permission, because the body carries candidate credentials - spec 16.2
+    # validates an entry "before accepting it", so the unsaved form is exactly
+    # what this tests. It writes no status: that is E5.5's.
+    ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/test"),
+    # E5.5, spec 16.5: the rolled-up `services_status` and its per-service
+    # evidence. `VIEW_SERVICES` rather than `MANAGE_SERVICES` - status renders
+    # for all four roles and carries no credential. It READS and never
+    # recomputes: `roll_up` runs on the mutation paths, and a GET that wrote
+    # would put a second writer on a column whose whole design is that it has
+    # exactly one (phase-5 fixed choice 2).
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/status"),
+    # E5.10, spec 16.3: generate the deployment's own service stack, and
+    # download it. BOTH are `MANAGE_SERVICES` — the archive carries every
+    # credential the deployment has in directly usable form, so unlike status
+    # it is not a four-role read. Nothing is stored between the two: the POST
+    # commits credentials and rows, and the GET re-renders from them and
+    # streams, which is what makes two downloads byte-identical (fixed
+    # choice 7).
+    ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack"),
+    ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/download"),
+    ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/rotate"),
+    # E5.6, spec 16.4: one Aggregator's own broker login. `MANAGE_SERVICES` to
+    # mint and revoke because a broker credential is a grant on the
+    # deployment's broker rather than a property of the inventory row;
+    # `VIEW_SERVICES` to read, because the response carries no password and
+    # cannot - there is no field for one. Revocation ALSO happens implicitly
+    # under `MANAGE_DEVICES` when the aggregator itself is deleted, which is
+    # deliberate: destroying a credential is safe in a way that creating one
+    # is not.
+    ("POST", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
+    ("DELETE", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
+    ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
 }
 
 E0_TABLES = {
@@ -198,6 +239,12 @@ E0_TABLES = {
     # reference out of it un-FK'd (D33) so history outlives the revision it
     # describes and the device it happened to.
     "reconciliation_event",
+    # E5.6 (C3): the per-device broker logins the platform minted through
+    # Mosquitto's dynamic security plugin. `aggregator_uuid` is deliberately
+    # NOT a foreign key - the row has to OUTLIVE the device, because deleting
+    # a Pi is exactly when its credential must be destroyed and an unreachable
+    # broker means that destruction is retried later (D133).
+    "broker_credential",
 }
 
 

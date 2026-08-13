@@ -17,7 +17,11 @@ export type Permission =
   | "manage_provisioning"
   | "view_provisioning"
   | "view_telemetry"
-  | "view_status";
+  | "view_status"
+  // E5.2 (phase-5 fixed choice 9): manage is owner + operator only, view is
+  // every role - the services API is write-only, so a read holds no secret.
+  | "manage_services"
+  | "view_services";
 
 const ALL_PERMISSIONS: Permission[] = [
   "manage_users",
@@ -28,6 +32,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "view_provisioning",
   "view_telemetry",
   "view_status",
+  "manage_services",
+  "view_services",
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
@@ -39,9 +45,11 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "view_provisioning",
     "view_telemetry",
     "view_status",
+    "manage_services",
+    "view_services",
   ],
-  field_tech: ["manage_provisioning", "view_provisioning", "view_status"],
-  viewer: ["view_provisioning", "view_telemetry", "view_status"],
+  field_tech: ["manage_provisioning", "view_provisioning", "view_status", "view_services"],
+  viewer: ["view_provisioning", "view_telemetry", "view_status", "view_services"],
 };
 
 export interface Assignment {

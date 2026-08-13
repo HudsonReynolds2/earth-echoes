@@ -292,3 +292,53 @@ def test_enforce_fails_closed_and_passes_clean_runs_through():
     assert enforce({"skipped": 0, "xfailed": 1, "deselected": 0}, 0) == 1
     assert enforce({"skipped": 0, "xfailed": 0, "deselected": 3}, 0) == 1
     assert enforce({"skipped": 0, "xfailed": 0, "deselected": 0}, 5) == 5
+
+
+# --- E5.12b (D158): runtime data files must be inside the image -------------
+
+
+def test_runtime_data_files_are_inside_the_image():
+    """Every non-Python file `app/` reads at runtime must ship in the API image.
+
+    **This test exists because a green gate shipped a 500.** `stack.readme()`
+    read `deploy/stack-templates/README.md`, which is exactly where the phase
+    document said to put it — and the API image's Docker build context is
+    `backend/` (see `deploy/docker-compose.yml`), so nothing outside `backend/`
+    is in the image at all. Every test passed, because tests run from the repo
+    working tree where both paths exist; the download endpoint then raised
+    `FileNotFoundError` on a real container the first time a human clicked it.
+
+    The rule this pins: a path `app/` opens at runtime resolves INSIDE
+    `backend/`. `COPY app ./app` then ships it by construction rather than by
+    someone remembering to add a second COPY.
+    """
+    from app.services import stack
+
+    context = REPO_ROOT / "backend"
+    runtime_dirs = {
+        # name -> the directory the module resolves at import time
+        "stack.TEMPLATE_DIR": stack.TEMPLATE_DIR,
+    }
+    for name, path in runtime_dirs.items():
+        resolved = path.resolve()
+        assert resolved.is_dir(), f"{name} does not exist: {resolved}"
+        assert resolved.is_relative_to(context.resolve()), (
+            f"{name} resolves to {resolved}, which is OUTSIDE the API image's build "
+            f"context ({context}). It will not exist in the container and every "
+            f"request that reads it will 500. Move it under backend/app/."
+        )
+        assert any(resolved.iterdir()), f"{name} is an empty directory: {resolved}"
+
+
+def test_the_dockerfile_copies_everything_app_reads():
+    """The other half: `COPY app ./app` is what makes the test above sufficient.
+
+    If the Dockerfile ever stops copying the whole `app` tree — copying only
+    `*.py`, say — then living inside `backend/app` stops being enough and this
+    fails rather than the operator's download.
+    """
+    dockerfile = (REPO_ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY app ./app" in dockerfile, (
+        "the API image no longer copies the whole app tree; non-Python runtime "
+        "data files (app/services/stack_templates/) may not be in the image"
+    )

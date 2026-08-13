@@ -51,12 +51,11 @@ integration test buys nothing but minutes.
 import asyncio
 import contextlib
 import logging
-import os
 import signal
 import time
 import uuid
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -90,6 +89,12 @@ from app.models import (
     utcnow,
 )
 from app.secrets import SecretStore
+from app.services.config_sweep import ServiceConfigSweepReport, service_config_sweep
+from app.services.credentials import (
+    RevocationSweepReport,
+    default_provider,
+    drain_pending_revocations,
+)
 from app.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -448,14 +453,19 @@ class ReconciliationWorker:
         *,
         timeout_interval: float = 30.0,
         drift_interval: float = 300.0,
+        service_config_interval: float = 60.0,
+        broker_refresh_interval: float = 30.0,
         manager: MqttClientManager | None = None,
         consumer: ReportedConsumer | None = None,
         heartbeat_path: Path | None = None,
         heartbeat_interval: float = 5.0,
     ) -> None:
         self._sessions = session_factory
+        self._secrets = secret_store
         self._timeout_interval = timeout_interval
         self._drift_interval = drift_interval
+        self._service_config_interval = service_config_interval
+        self._broker_refresh_interval = broker_refresh_interval
         self._heartbeat_path = heartbeat_path
         self._heartbeat_interval = heartbeat_interval
         self._consumer = consumer if consumer is not None else ReportedConsumer(session_factory)
@@ -491,11 +501,43 @@ class ReconciliationWorker:
                 self._sweep_loop("drift", self._drift_interval, self._drift_sweep),
                 name="reconcile-drift-sweep",
             ),
+            # E5.7b, spec 16.4: an Aggregator created AFTER the operator saved
+            # their services must still receive them. The sweep's body is
+            # E5-owned (`app/services/config_sweep.py`); this file only
+            # registers it, which keeps the authorized E3 diff to a
+            # registration. It is a no-op over an up-to-date fleet by
+            # construction — E5.7a's `changed_keys` fix is what makes that true.
+            asyncio.create_task(
+                self._async_sweep_loop(
+                    "service-config", self._service_config_interval, self._service_config_sweep
+                ),
+                name="reconcile-service-config-sweep",
+            ),
+            # E5.6, D133: a credential whose revocation could not reach the
+            # broker is retried here until it does. `revoke_pending` is a
+            # promise the platform made when it let an operator delete a device
+            # during a broker outage, and this loop is what keeps it.
+            asyncio.create_task(
+                self._async_sweep_loop(
+                    "broker-credential",
+                    self._service_config_interval,
+                    self._broker_credential_sweep,
+                ),
+                name="reconcile-broker-credential-sweep",
+            ),
         ]
         #: The sweeps alone — what the heartbeat vouches for. Kept apart from
         #: `_tasks` so that adding a task here never silently widens or
         #: narrows what "healthy" means.
         self._sweeps = list(self._tasks)
+        # E5.7b: the coordinates poll. NOT a sweep, and deliberately outside
+        # `_sweeps` — the heartbeat vouches for the sweeps, and a worker whose
+        # broker-row poll died is still reconciling every deployment it already
+        # holds. Widening "healthy" to include this would make a new
+        # deployment's absence look like a dead worker.
+        self._tasks.append(
+            asyncio.create_task(self._refresh_loop(), name="mqtt-coordinates-refresh")
+        )
         if self._heartbeat_path is not None:
             self._tasks.append(
                 asyncio.create_task(self._heartbeat_loop(), name="reconcile-heartbeat")
@@ -588,6 +630,79 @@ class ReconciliationWorker:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), interval)
 
+    async def _service_config_sweep(self) -> ServiceConfigSweepReport:
+        return await service_config_sweep(
+            self._sessions,
+            self._secrets,
+            self._manager,
+            # The worker holds real connections, so its publishes are real.
+            # `publish_all` refuses on a None publisher, which is the other
+            # branch — this one is simply "the manager exists".
+            publish_enabled=True,
+        )
+
+    async def _broker_credential_sweep(self) -> RevocationSweepReport:
+        return await drain_pending_revocations(self._sessions, self._secrets, default_provider())
+
+    async def _async_sweep_loop(
+        self,
+        name: str,
+        interval: float,
+        sweep: Callable[[], Awaitable[ServiceConfigSweepReport | RevocationSweepReport]],
+    ) -> None:
+        """`_sweep_loop` for a sweep that is natively async (E5.7b).
+
+        Two loops rather than one that inspects its callable: the sync sweeps go
+        through `asyncio.to_thread` because they are blocking SQLAlchemy, and
+        these do not because they await the broker. A single loop branching on
+        `inspect.iscoroutinefunction` would hide that difference at the one
+        point where it decides whether the event loop blocks.
+
+        Every other rule is `_sweep_loop`'s and is repeated on purpose: run
+        FIRST and wait afterwards, so a worker replacing one that died resolves
+        the gap immediately; a failing sweep is logged and retried on the next
+        tick rather than killing the task, because a worker that still holds
+        its broker connection and has silently stopped sweeping looks exactly
+        like a healthy fleet.
+        """
+        while not self._stopping.is_set():
+            try:
+                report = await sweep()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self.counters.sweep_failures += 1
+                log.exception("the %s sweep failed; the loop continues", name)
+            else:
+                if report.changed:
+                    log.info("%s sweep: %s", name, report)
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), interval)
+
+    async def _refresh_loop(self) -> None:
+        """Re-read the broker rows on a cadence (E5.7b).
+
+        **Waits FIRST**, unlike the sweeps: `start()` has just loaded the
+        coordinates, so an immediate refresh would be a guaranteed no-op and a
+        wasted query on every worker start.
+
+        A failure is logged and retried. The loader touches the database and
+        the database can be briefly unavailable; a poll that died on the first
+        blip would leave the worker permanently unable to notice a new
+        deployment, with nothing about it visible from outside.
+        """
+        while not self._stopping.is_set():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), self._broker_refresh_interval)
+            if self._stopping.is_set():
+                return
+            try:
+                await self._manager.refresh()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("could not refresh broker coordinates; retrying next tick")
+
     async def _heartbeat_loop(self) -> None:
         """Touch the liveness file, but ONLY while the sweeps are still alive.
 
@@ -631,6 +746,8 @@ async def run_worker(settings: Settings | None = None) -> None:
         SecretStore(session_factory, resolved.kek),
         timeout_interval=float(resolved.timeout_sweep_seconds),
         drift_interval=float(resolved.drift_sweep_seconds),
+        service_config_interval=float(resolved.service_config_sweep_seconds),
+        broker_refresh_interval=float(resolved.broker_refresh_seconds),
         # Only the standalone process writes one: it is the container the
         # compose healthcheck probes. Under EOE_WORKER_IN_API the API's own
         # HTTP healthcheck already covers the process.
@@ -650,21 +767,27 @@ async def run_worker(settings: Settings | None = None) -> None:
 def main() -> None:
     """`python -m app.controlplane.runner` — the compose `worker` service.
 
-    Configures logging itself, which the API never has to: under uvicorn the
-    server installs the handlers, and a bare process has none, so Python's
-    last-resort handler passes WARNING and above and silently drops the rest.
-    Everything this worker does that is worth watching — started, connected,
-    which revision timed out, which device drifted — is INFO, and without this
-    the container's whole narrative is invisible while the process looks
-    healthy. `configure_logging` is still called: it installs the request-id
-    record factory, and only that.
-    """
-    from app.middleware import configure_logging
+    Installs a root handler, because a bare process has none and Python's
+    last-resort handler passes WARNING and above while silently dropping the
+    rest. Everything this worker does that is worth watching — started,
+    connected, which revision timed out, which device drifted — is INFO, and
+    without it the container's whole narrative is invisible while the process
+    looks healthy.
 
-    logging.basicConfig(
-        level=os.environ.get("EOE_LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    **This docstring used to claim the API did not need the same treatment
+    ("under uvicorn the server installs the handlers"), and that was wrong**
+    (D139): uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves
+    the ROOT logger bare, so the API dropped every `app.*` INFO line for as long
+    as that sentence stood. `create_app` now calls the same helper, which is why
+    it lives in `app.middleware` rather than here — one process configuring
+    logging correctly and another not was the whole defect.
+
+    `configure_logging` is separate and still called: it installs the
+    request-id record factory, and only that.
+    """
+    from app.middleware import configure_logging, install_root_handler
+
+    install_root_handler()
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(run_worker())

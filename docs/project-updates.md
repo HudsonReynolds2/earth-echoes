@@ -1,5 +1,409 @@
 # Project Updates
 
+## 2026-08-13: SIM merges to main, E5 reconciles onto it, and the merged gate finds what neither branch could (Gate 63 GREEN)
+
+- **What closed:** epic **SIM** merged to `main` (PR #19). Epic **E5** reconciled onto it and is
+  ready to merge (PR #18). Plus the one E5 handoff-artifact gap an audit found after `gate-62`.
+  DECISIONS **D159**, project-changes **#39**, addendum **PHASE5-6-02**.
+- **Gate:** 63, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1142 backend / 163 vitest / 4 Playwright / 73 `/sim`** — 1382 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **240.17s** against C5's 240.10s, and
+  **sim-protocol 188.79s**. This is the first gate in the repository to run both suites: SIM.5
+  put `/sim` into `gate.sh`, and that only reaches this branch through the merge.
+- **The first run was RED, and the way it nearly passed is worth recording.** `sim-protocol` died
+  at COLLECTION, not at a test: `ModuleNotFoundError: No module named 'yaml'`, raised while
+  `/sim`'s conftest imported `app.main`, which reaches `app/services/stack.py`. The gate guard
+  failed closed (rule R0) and the run exited 2. **Every stage before it was green** — 1142
+  backend in 241.71s, 163 vitest, 4 Playwright, `sim-quality` — so the tail of the log looked
+  like a pass, and the process wrapper reported exit 0 because its last command was an `echo`.
+  The real exit code was only visible because it was captured deliberately. **A red gate that
+  reports 0 is worse than one that reports 1.**
+- **The defect was real and neither branch could have caught it (D159).** E5 promoted `pyyaml`,
+  `boto3` and `bcrypt` to backend **runtime** dependencies — the stack generator serialises
+  compose in production code and phase 5 forbids string templating; Prometheus's `web_config.yml`
+  reads bcrypt and nothing else. `/sim` is its own uv project with its own `.venv` that reaches
+  the platform **by path**, so it can only import `app.main` if its own dependency list carries
+  the backend's runtime set. SIM wrote that mirror list before any of the three existed.
+  **SIM gated without the dependencies; E5 gated without `/sim` in `gate.sh`. The first gate that
+  runs both suites is the first that could fail, and it failed on its first attempt.**
+- **SIM had written the test for exactly this, and it could not fire.**
+  `test_sims_dev_group_carries_the_whole_platform_runtime_set` compares the two dependency lists,
+  and its docstring predicts the failure word for word: "adding a dependency to the backend turns
+  the sim suite red weeks later with an ImportError that names a package nobody remembers
+  deciding to need". It never ran — the import is at collection time, so the crash precedes every
+  test in the suite **including the one written to explain it**. It is kept, and D159 says
+  plainly that it prevented nothing; a guard downstream of the import it guards cannot report on
+  it. The fix is what its own assertion message prescribes: the three specifiers added to
+  `/sim`'s dev group, matching the backend's exactly.
+- **The record reconciliation, which was larger than the branches' own notes predicted.** Both
+  had appended independently since the common ancestor (`2875063`, SIM.1), sharing D97-D103 and
+  then colliding from D104 up — D104 was "dynsec is required for v1" on E5 and "the local link
+  refuses contradictions" on SIM. SIM merged first, so its numbering is canonical: E5's
+  **D104-D146 became D116-D158** across 412 citations in 54 files, and **#24-#26 became
+  #36-#38**. Verified by count rather than by eye — 0 survivors in D104-D115, the 58 citations of
+  the shared D97-D103 unchanged, every cited number backed by a real heading, D1-D159 and
+  project-changes #1-#39 each present exactly once.
+- **One citation could not be renumbered mechanically, and nothing would have caught it.**
+  `backend/tests/test_mqtt_manager.py` was adopted verbatim from SIM's `959ff23` (D125), so the
+  `D109`/`D111` in its `_tasks_outliving` docstring are **SIM's** numbers and never were E5's.
+  The blanket shift moved them to D121/D123 — both of which exist and read plausibly, so no test
+  would have failed and no reviewer would have paused. Found by diffing the citation sets of both
+  branches' copies of every adopted file: `conftest.py` came back clean, this one did not.
+  **A file adopted from another branch carries that branch's numbering, and says so nowhere.**
+- **The four record logs are re-interleaved by DATE, not by branch**, so SIM's #26 (08-12) sits
+  above E5's 08-11 entries and its gate-58 entry sits between 59 and 57. The integers are
+  identifiers; chronology is the file's order. `conftest.py` was resolved per conflict region
+  rather than with `--ours`, because SIM's `Broker.refresh()` merged cleanly outside every
+  region and taking the whole file would have silently dropped it.
+- **The E5 handoff gap, found by audit after the epic was already tagged.** Phase 5 section 6
+  required two additive rows in `INTERFACES.md`'s **Owned by E0** environment-variable table and
+  **named both variables wrongly**: `EOE_COORDINATES_REFRESH_SECONDS` does not exist, and there
+  is no "services re-check interval" because D145 closed periodic re-checks as *deliberately not
+  built*. What shipped is `EOE_BROKER_REFRESH_SECONDS` (default 30) and
+  `EOE_SERVICE_CONFIG_SWEEP_SECONDS` (default 60). Both were already in `deploy/.env.example` and
+  the **Owned by E5** section, so nothing was undocumented — but the E0 table is where an
+  operator looks for the list, and **a green gate asserts nothing about a documentation artifact
+  no test names.**
+- **Manual verification:** the `deploy` compose stack was taken down before the run. It had been
+  up two hours from the earlier E5 walkthrough, holding the fixed ports 15432/16379 that the
+  compose suites bind — the same self-inflicted collision recorded at C5, removed as a cause
+  rather than retried as a measurement.
+
+## 2026-08-13: E5.12 closes the epic, and the walkthrough found a 500 the green gate could not (Gate 62 GREEN)
+
+- **Tasks closed:** **E5.12a** (services wizard, Path A) and **E5.12b** (Path B, the rolled-up
+  status, the spec 16.5 gate, and the verification walkthroughs). Checkpoint **C5** — the last
+  one. DECISIONS **D152-D158**, project-changes **#35**, addenda **PHASE5-4-07** and
+  **PHASE5-6-01**. **Epic E5 is complete.**
+- **Gate:** 62, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1141 backend / 163 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage **240.10s** against C4's 242.05s — flat, as a frontend batch
+  should be; the two new backend tests are D158's guards. 48 new vitest tests (115 → 163). ruff,
+  `ruff format`, `mypy app`, tsc, eslint and prettier all clean.
+- **Three gate runs, and the middle one was RED. Recorded rather than smoothed over:**
+  1. The **first** run was green on the code as committed for E5.12a/b — 1139 backend / 163
+     vitest — and it is what freed the manual verification that then found D158.
+  2. The **second**, after D158's fix, was **RED**: `test_governance` correctly refused
+     project-changes #35, which named its addenda in prose but carried no `- **Addendum:**`
+     field — the schema `_change_entries` requires. The record was incomplete and the test said
+     so; the entry was fixed, not the test. The same run also errored
+     `test_command_channel` with `/forwards/expose returned unexpected status: 500`, the D99/D124
+     container-startup fault — an **invalid measurement**, confirmed by the module passing 15/15
+     in isolation, never a red gate to record as a defect.
+  3. The **third** run is gate 62, green above.
+- **The five forms render from one schema, and a test keeps that honest.** There is no endpoint
+  serving the service field schema and adding one was declined (D152): E5.2's GET was
+  deliberately designed to need no discovery. Instead `SERVICE_SCHEMA` in
+  `frontend/src/lib/services.ts` mirrors the five Pydantic models, and
+  `tests/services-schema.test.ts` parses `app/services/schemas.py` and fails on any divergence —
+  field names, their order, which are secrets, which are required. The `lib/rbac.ts` precedent,
+  for the same reason: a mirror nobody checks is a mirror that drifts, silently in both
+  directions. **Proven falsifiable before it was trusted**, and it also asserts its own parse
+  found five models with fields in them, because a parser that matched nothing would make every
+  other assertion in the file vacuously true.
+- **Secrets are write-only in the UI, asserted rather than intended.** A stored credential
+  arrives as the D51 keep sentinel, so there is no value to populate an input with: the field
+  renders its set-ness and has **no input at all** until Replace, which reveals an empty one.
+  The test reads the input's `value` after a load and checks that typed plaintext is carried by
+  exactly one control on the card and never appears as rendered text. A future change that
+  populates a secret input from a response breaks these tests, which is the point.
+- **Three status vocabularies, three renderings, no sharing (D154).** A service connection's
+  status is not a device's and neither is the deployment rollup's; a test asserts no
+  `.status-chip` and none of the six spec 9.3 device words reach this page. The eight new tokens
+  are `var()` aliases of the status palette inside one sheet, so green means good everywhere and
+  the two can never drift — and the night theme is inherited rather than restated.
+- **Two sentences in the S5 mock are now false, and the page says something else (D155).**
+  "Re-checks run every 5 minutes" is a promise the platform does not keep — D145 closed periodic
+  re-checks as deliberately not built — so the panel names the observed events that actually
+  degrade a service, and a regression test forbids `/every \d+ minutes/` on it. The raw-audio
+  toggle does not exist either (D135); object storage is required exactly when it is configured,
+  and the `optional` tag comes from the API rather than from a rule the frontend invented.
+- **A green 1141-test gate still shipped a 500, and the walkthrough caught it on its first
+  hand-run (D158).** `GET .../services/stack/download` raised `FileNotFoundError` inside the API
+  container: the bundle README template lived at `deploy/stack-templates/`, which is where the
+  phase document said to put it — and the API image is built with `context: ../backend`, so
+  `deploy/` is **outside the build context entirely** and no `COPY` can reach it. **Every
+  assertion about that README was true of the developer's filesystem and false of the artifact
+  that ships.** This is D144's shape a second time in one epic, with the filesystem in place of
+  the image tag, and it is the second time running the thing beat inspecting it.
+  - The fix is structural: the template moved inside the package, where `COPY app ./app` ships
+    it **by construction** rather than by anyone remembering a second COPY. Keeping the location
+    and copying it in would have meant moving the build context to the repo root — E0-owned
+    infrastructure — for a file with no reason to live outside the module that reads it.
+  - `test_runtime_data_files_are_inside_the_image` and
+    `test_the_dockerfile_copies_everything_app_reads` are what fail now instead of an operator's
+    download. Both proven falsifiable; restoring the old path fails with *"resolves to
+    …/deploy/stack-templates, which is OUTSIDE the API image's build context"*.
+  - **Verified in the real container after the fix:** 200, two consecutive downloads
+    byte-identical (fixed choice 7's determinism, measured for the first time against the
+    shipped service rather than a harness), and the extracted `echoes-stack/README.md` carrying
+    the generated port table.
+- **Manual verification** ran against a real containerized stack: `app.verify` 31/31, then a
+  temporary-owner probe over real HTTP through the services API — redaction on every path (the
+  token appears in no response, no row, and no audit detail), the keep sentinel round-tripping
+  through PUT without disturbing the stored credential, a misspelled field answering 422, and
+  both status vocabularies coming back distinct. That run is what found D158.
+- **Boundaries recorded rather than blurred.** E5 **reports** spec 16.5's provisioning gate and
+  does not enforce it — the bundle generator is E4.3's and unbuilt, and rule R2 says a
+  cross-phase need gets a documented stub, not an implementation (D157). What E5 owes E4 —
+  `services_status`, the per-service rows, the `required` flag — all ships. And the UI cannot
+  know whether a stack was generated, because fixed choice 7 stores nothing that would say so:
+  Download and Rotate are always offered and a 404 renders as "generate one first", with the
+  declined alternative named rather than hidden (D156).
+- **`guide/e5-verification.md` ships**, ten sections covering both paths end to end, and the two
+  amendments E5 forces on `guide/e3-verification.md` landed **in the same batch** (rule R1): its
+  `deployment_service` query is no longer broker-only and now carries `where service_key =
+  'mqtt'`, and its "no credential material beyond the username" check extends to `config` and
+  `secret_names`.
+
+## 2026-08-13: E5.10 keystone, E5.11 rotation, and three defects a green gate did not catch (Gate 61 GREEN)
+
+- **Tasks closed:** E5.10's keystone (red on arrival, and every failure real), E5.10b (the
+  Grafana service-account bootstrap the keystone forced), and **E5.11** (rotation and
+  regeneration). Checkpoint **C4**. DECISIONS **D144-D151**, project-changes **#30-#34**,
+  addenda **PHASE5-4-02** through **PHASE5-4-06** and **SPEC-5-01**.
+- **Gate:** 61, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1139 backend / 115 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage **242.05s** against INFRA.1's 224.15s baseline (+17.9s for 133
+  new backend tests, 1006 → 1139). ruff, `ruff format`, `mypy app` and the frontend typecheck
+  all clean.
+- **The keystone is green, and all four of its failures were real.** The generated bundle
+  unpacks, comes up under `docker compose` in ~14s, and **all five E5.4 testers pass against
+  it**. None was a test defect and none was fixed by weakening the test. Mosquitto 2.0 ignores
+  the `encoded_password` field group and wants `password`/`salt`/`iterations` separately —
+  which survived because the fixtures ran the floating `eclipse-mosquitto:2` tag (now 2.1.2)
+  while the platform pins 2.0.20, so **a pinned artifact was being tested against a tag no
+  operator would run** (D144). `INFLUXDB3_AUTH_TOKEN` configures the CLI and not the server, so
+  the stack now starts Influx with `--admin-token-file`, the offline form that lets a token be
+  generated and committed before the stack exists (D147). MinIO's bucket and Influx's database
+  are seeded by init containers. Grafana became E5.10b.
+- **E5.11 rotation**, with the acceptance's inverted order intact: a rotation **publishes
+  before re-verification decides anything, and unconditionally**, because the likeliest reason
+  re-verification fails is that the operator has not restarted the stack yet — exactly when the
+  devices most need the new credentials. A failed re-verification leaves `degraded` and still
+  publishes. `verified` is never optimistic. Rotating a deployment with no stack is a 404 and
+  not a silent generate.
+- **D146's counter, and why it had to exist:** a desired snapshot carries secret MARKERS, and a
+  marker is a SecretStore name — the same string before and after. Measured, rotating every
+  credential minted **zero** revisions. `services.credentials_generation` is the non-secret
+  thing that changes; an E2-owned catalog key plus migration `d5f28c60a419`, taken on the
+  owner's explicit decision.
+- **Three defects, none of which a green gate caught, and the middle one matters most:**
+  1. **The first C4 gate failed `test_shutdown_leaves_no_running_tasks` once**, under load,
+     with `socket=LIVE state=MQTT_CS_CONNECTED`, then passed 3/3 in isolation. It was **not a
+     flake**: a cancellation inside aiomqtt's `__aenter__` abandons `enter_async_context`
+     before the client is registered on the stack, while paho's executor thread finishes
+     connecting anyway, stranding a CONNECTED client nothing owns. Treating it as flakiness —
+     or softening the test's fail-on-live-socket rule — would have deleted the detector and
+     kept the bug. Fixed by `_open_client`, D94's shape from the entry side; **the third
+     discretionary E3 edit, on the owner's authorization** (D150).
+  2. **A green 1138-test gate still shipped a broken feature, and manual verification found it
+     in minutes.** The once-a-minute service-config sweep called `service_settings` without a
+     generation, so the key was omitted, the effective config fell back to the catalog default,
+     and the sweep **reset every rotated deployment's counter from N back to 0 and minted a
+     revision to publish the reset** — destroying a rotation's signal within a minute of it.
+     Every existing sweep test used a deployment whose counter was 0, where the bug is
+     invisible (D151).
+  3. **The first fix for (2) was itself wrong** — passing the generation to the projection call
+     makes it never empty, so the sweep's "nothing to deliver" early return becomes unreachable
+     and every `mqtt`-only deployment rebuilds a full change plan every minute. The existing
+     test caught it immediately. The counter is added after the return instead.
+- **A frozen golden checksum moved, for the first time (D149),** because the catalog gained a
+  38th key. Re-frozen only with a companion assertion that removes the new key and requires the
+  ORIGINAL digest back byte for byte, so the constant is pinned to "the old snapshot plus
+  exactly one key" rather than to whatever the code now emits. Regenerating a golden digest
+  from current behaviour is the failure mode that avoids.
+- **Record-keeping corrections found on the way through:** D144, D145 and D146 each cited the
+  wrong addendum id (every one off by one); project-changes #30 named `PHASE5-4-04`, which did
+  not exist, and `test_governance` was failing on exactly that; and #32 affected the SPEC, not
+  only the phase document, since the catalog is spec 5.3's table asserted key for key.
+- **Manual verification:** the full compose stack, brought up from a clean `deploy/.env` per
+  `guide/getting-started.md` — six containers healthy, owner seeded, broker accounts minted in
+  the documented two passes. Then generate → rotate → regenerate driven against a real uvicorn
+  and read out of the database: the rotate-without-a-stack 404, `degraded` with `verified:
+  false` and 3 revisions published anyway, all 7 stack secrets rotated with none unchanged
+  (compared by digest, never by value), revisions aggregator-only with zero for Listeners, and
+  no credential in any response or audit detail. **This is what found defect (2)** — the
+  platform's column read 3 while the devices had been told `2 -> 0`. Re-checked after the fix
+  across sweep ticks: the counter reached 4, devices were told 4, and no tick reset it.
+- **Two invalid measurements, recorded as such rather than as red gates.** One run came back
+  with four `docker start` failures (`/forwards/expose returned unexpected status: 500`) in one
+  module on one worker and 0 test failures — the D99/D124 fault, re-run rather than recorded.
+  A later run failed the two fixed-port compose suites because the manual-verification stack
+  was holding 15432 and 16379; that one was self-inflicted, so the cause was removed before
+  re-running rather than the run simply repeated.
+- **Command:** `make gate`.
+
+## 2026-08-12: INFRA.1 — the test suite stops starting a container per module (Gate 60 GREEN)
+
+- **Task closed:** INFRA.1, an unnumbered E0-owned infrastructure batch landed at the head of
+  `e5-batch-1` before checkpoint C4 on the owner's decision. DECISIONS **D140** and **D141**,
+  project-changes **#29**, addendum **PHASE5-2-03**. No E5 unit changed.
+- **Gate:** 60, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **1006 backend / 115 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. The seven added are `test_container_pool.py`, the pool's own contract suite.
+  ruff, `ruff format` and the frontend typecheck all clean.
+- **What it does:** `ephemeral_postgres` keeps its signature and its guarantee — a migrated,
+  empty, private database — and stops being a container. One machine-wide warm Postgres runs
+  with its data directory on tmpfs, `alembic upgrade head` runs ONCE into a template database
+  keyed by a fingerprint of the migration directory, and each caller gets
+  `CREATE DATABASE ... TEMPLATE`. Mosquitto persistence, Prometheus's TSDB, Grafana's SQLite
+  and MinIO's data directory moved to tmpfs too. `make testpool-down` closes the pool by hand;
+  otherwise it closes itself once four hours pass without an acquisition.
+- **Measured, before and after, on the same machine:**
+
+  | | Before (C3 tree) | After | |
+  |---|---|---|---|
+  | Backend stage | 290.21s | **224.15s** | -66s, on 7 more tests |
+  | Containers created per gate | 193 | **65** | -66% |
+  | Disk written per gate | 4.05 GB | **0.69 GB** | -83% |
+  | One `ephemeral_postgres` | 4.02s | **0.017s** | 236x |
+
+  The pre-change baseline was itself a green instrumented gate run rather than the ledger's
+  recorded C3 figure, so the two numbers are comparable.
+- **What it cost, and none of it was predicted:** three defects, all found by running the gate
+  rather than by reasoning about it. Docker mounts a `--tmpfs` root-owned at mode 0755 while
+  these images drop to unprivileged users, which panicked Prometheus and took the whole rig
+  down with 37 errors in four modules. Grafana's startup on tmpfs then got fast enough to
+  expose a latent race the rig had always had — nothing waited for Prometheus to scrape itself,
+  and `/-/ready` answers strictly earlier than having data. And removing 55 Postgres startups
+  removed the pacing that had kept D99's forwarder fault rare, which surfaced as seven
+  `test_dev_broker` setup errors in a run whose 999 tests all passed (D141).
+- **What it did not fix, measured so the next attempt aims correctly:** the remaining writes are
+  not container churn. `docker build` accounts for ~638 MB of them (400 MB in
+  `test_e0_readiness`, 238 MB in the `containers-build` stage) and the shipped compose stack's
+  named volumes for 184 MB. The whole service rig now writes 30 MB, and 186 seconds of
+  broker-heavy tests write 19 MB.
+- **Consequence for phase 5:** section 5's ~300s ceiling is superseded and **224.15s is the new
+  baseline C4 measures against**. C3 had reached 299.16s against a ~300s cap, which left E5.8b's
+  compose-config tests and E5.10's keystone bring-up no margin at all.
+- **Manual verification:** `make testpool-down` run by hand against a live pool — it removed
+  the container, named it, and cleared the registry — and the next suite run started a fresh
+  one and passed, which is the reap-and-recreate path end to end. The isolation and
+  schema-equivalence properties are asserted by `test_container_pool.py` and were not checked
+  by hand; they are automated precisely because they are the ones a person cannot eyeball.
+- **Command:** `make gate`.
+
+## 2026-08-12: E5.6, E5.7a and E5.7b — credentials a device can use, and settings that reach it (Gate 59 GREEN)
+
+- **Tasks closed:** E5.6 (per-device broker credential minting), E5.7a (the service-settings
+  projection and the privileged write), E5.7b (the two authorized E3-owned edits). Checkpoint
+  **C3**. DECISIONS D132-D139, project-changes #27 and #28, addenda PHASE5-2-02 and PHASE5-4-01.
+- **Gate:** 59, GREEN. `make gate`, the entire accumulated suite, no filters.
+- **Tests:** **999 backend / 115 vitest / 4 Playwright**, 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage **299.16s** (+20.1s over C2 for 57 new backend tests). ruff,
+  `ruff format`, `mypy app` and the frontend typecheck all clean.
+- **Command:** `make gate`.
+- **The gate was green on the first full run of this batch**, which is worth saying plainly
+  after C2's first run was red: the discipline that produced it was running the AFFECTED suites
+  after each unit rather than only the new ones — the D130 lesson from C2. Three of those
+  intermediate runs found real problems (below) before a gate ever saw them.
+
+### What E5.6 built
+
+- `app/services/credentials.py`: the `BrokerCredentialProvider` protocol **E4.6 imports rather
+  than declares** (D117's reversal, now real), `DynsecCredentialProvider`,
+  `DevBrokerCredentialProvider`, and `drain_pending_revocations`. Plus `broker_credential`
+  (migration `c4e9b21f83da`), three routes on `/aggregators/{id}/broker-credential`, and
+  `aggregator_acl_grants` extracted from `devbroker.acl_file_text`.
+- **The ACL grants now have exactly one source, and the second renderer needed a grant the
+  first does not have** (D132). `read` in an `acl_file` becomes TWO dynsec acltypes:
+  `subscribePattern` decides whether the SUBSCRIBE is accepted, `publishClientReceive` whether
+  a matching message is actually delivered. Granting only the first produces a device that
+  subscribes successfully and then receives nothing — indistinguishable, from the device's side,
+  from a platform that never published. Both renderers now read one list and a test checks each
+  against it; `test_dev_broker.py` passes **unchanged**, which is the proof the ACL file's bytes
+  did not move.
+- **Three credential states, not two, on the owner's decision** (D133, project-changes #27).
+  Deleting an Aggregator whose broker is unreachable returns 204, leaves `revoke_pending`, and
+  the worker's sweep finishes the revocation. Refusing the delete would let one deployment's
+  outage block inventory work; passing silently would strand a live credential forever. A CHECK
+  ties `revoked_at` to the `revoked` state so the third value cannot make the timestamp
+  ambiguous, and an unreachable broker (retried) is distinguished from a plugin that answered
+  and REFUSED (raised and logged — retrying a configuration fault hides it).
+
+### What E5.7a built, and the defect it closed
+
+- `app/services/projection.py` (twelve keys, `PROJECTION` asserted against `CATALOG` at import),
+  the `allow_write_restricted` flag, and `publisher.publish_all` with both callers on it.
+- **`changed_keys` was comparing raw effective maps including the write-restricted keys** (D136,
+  the E2-owned defect phase-5 §2 names). One services save therefore marked every Listener in
+  the deployment as changed and minted a revision — and a retained publish — per Listener whose
+  bytes were byte-identical to the previous one. On the SIM fleet this repository's own harness
+  runs, that is **~600 pointless revisions and ~600 pointless retained publishes per save.** It
+  now composes through `snapshot_from_raw`, the same function the payload and the drift sweep
+  use, so the three cannot disagree. Measured by hand: one save on a deployment with one
+  Aggregator and thirty Listeners produces **exactly one revision**.
+- **The flag is four signatures, not the three fixed choice 3 counted** (D134), because
+  `apply_change_plan` calls `put_overrides`. It also carries the "regenerated wholesale, never
+  merged" behaviour the same fixed choice requires — so an S3 endpoint an operator clears leaves
+  the projection instead of surviving forever.
+
+### What E5.7b built
+
+- `MqttClientManager.refresh()` and refresh loops in **both** hosts, `_async_sweep_loop`, and two
+  sweep registrations: `service-config` (spec 16.4's late-device delivery) and
+  `broker-credential` (D133's retry). **D137 states the whole E3-owned surface taken and, just
+  as importantly, what was not.**
+- **`services_recheck_sweep` is still NOT registered**, though E5.5's notes and the INTERFACES
+  entry both said E5.7b would do it. Both have been corrected rather than left to imply
+  otherwise. Spec 16.5's periodic re-checks need a production `ServiceTestRunner` dialling every
+  deployment's real services on a timer — a behaviour no unit in this phase scoped — and it is
+  now recorded in the ledger as **outstanding and a stop-and-ask**.
+
+### Three things the intermediate runs found, recorded rather than smoothed over
+
+1. **A test asserted plaintext where the contract says markers** (D138). E5.7b's acceptance
+   words the retained message as "carrying all twelve keys", and the first version of the test
+   read that as twelve VALUES. It is twelve keys with the four secrets as D51 markers — the E3.4
+   contract, correct, and now pinned by an assertion that ALSO requires no plaintext anywhere in
+   the payload. If a later change ever puts a credential in a retained broker message, that test
+   fails.
+2. **A "rotation" test was passing for the wrong reason.** `ephemeral_broker` ships files in with
+   `docker cp` rather than a bind mount (a deliberate cross-platform choice), so rewriting the
+   host password file and SIGHUPing changed nothing the broker could see. The test now copies
+   the file into the container; the suite also dropped from 29s to 9s once the rotation actually
+   worked.
+3. **The gate-locked readiness suite caught the two new env vars missing from `.env.example`**
+   — exactly what it is for.
+
+### Two efficiency defects found by this session's own review of the cross-epic diff
+
+- `restricted_keys()` walks the whole catalog and was being called **once per key** inside the
+  plan's write-target loop. Hoisted.
+- `service_config_sweep` built a full change plan for every deployment with any service row —
+  loading every hierarchy table and recomputing effective config for every device under it, once
+  a minute. The case that hits it is a deployment with only its `mqtt` row, which is **every**
+  deployment with a working control plane and an unfinished wizard. It now returns before
+  planning when there is nothing to deliver and nothing to withdraw, pinned by a test that makes
+  the planner raise if it is reached.
+
+- **Manual verification** (outside pytest, against a real Postgres container, a real
+  `alembic upgrade head`, a real dynsec Mosquitto, a real uvicorn process and real HTTP —
+  **28 checks, all passing**):
+  - **E5.7a:** saved four services; all twelve keys landed in `entity_override` with every
+    secret as a `$secret` MARKER and **no plaintext anywhere in the row or in any response**;
+    **exactly one revision, for the Aggregator, with thirty Listeners present**; saving twice
+    with identical input minted **zero** new revisions; `GET config/effective` showed all twelve
+    at `source: deployment` with credentials redacted; and `PUT .../config/overrides` was walked
+    through **all twelve keys one at a time** and 422'd `service_restricted` on every one.
+  - **E5.6:** minted over HTTP — the response carries no password field at all, and the
+    plaintext was retrievable only from SecretStore. The device then **logged in to the real
+    broker with that password**, was **refused on its own `desired` topic**, and the paired
+    authorized publish to the same topic **did** arrive (the control, because denial looks like
+    silence). After `DELETE`, the broker **refused that login**. On a broker with no dynsec
+    plugin the mint was refused 422 with a message naming the remedy (fixed choice 4).
+  - **E5.7b, proven behaviourally rather than from a log:** a config apply to a deployment with
+    no broker row left its revision `draft`; the row was then added **while uvicorn kept
+    running**, and one refresh interval later the same apply reached **`pending`** — which is
+    only possible if the live process holds a real connection. No restart.
+  - **A pre-existing defect this exposed** (D139): the first attempt proved the above by
+    grepping the uvicorn log, and found nothing — **including for the deployment connected since
+    startup**. Every `app.*` INFO line in the API process is dropped, because uvicorn leaves the
+    root logger bare, and `runner.py::main`'s docstring asserts the opposite. Not fixed here:
+    logging configuration for the whole API is E0-owned and a stop-and-ask.
+  - No plaintext credential appeared in the uvicorn log.
+
 ## 2026-08-12: SIM.4 and SIM.5 — a fleet on one command, and the harness joins the gate (Gate 58 GREEN)
 
 - **Tasks closed:** SIM.4 (fleet runner) and SIM.5 (CI integration). **Epic SIM is complete.**
@@ -85,6 +489,58 @@
     behaviour and points at the suite; `--scenario drft` lists the scenarios that exist.
   - The stale-image path, reproduced deliberately: a pre-E3.13 `api` image made the fleet exit
     non-zero saying the API predates E3.13 and to rebuild, instead of raising a `KeyError`.
+
+## 2026-08-12: E5.4a-e and E5.5 — five testers, one container rig, and a rollup that reproduces itself (Gate 57 GREEN)
+
+- **Tasks closed:** E5.4a (verified, not authored, this session), E5.4b, E5.4c, E5.4d, E5.4e,
+  E5.5. Checkpoint C2.
+- **Gate:** 57, GREEN
+- **Tests:** 942 backend / 115 vitest / 4 Playwright — 0 failed / 0 skipped / 0 xfailed /
+  0 deselected. Backend stage 279.06s against C1's 262.7s, so the whole five-container rig
+  costs **+16.4s** and the phase-5 §5 ~300s ceiling holds with ~21s to spare.
+- **Command:** `make gate`
+- **The first C2 run was RED, and it is recorded here because it found three real defects**
+  that no per-unit run could have. `test_no_committed_secret_patterns` tripped on three
+  `*_PASSWORD = "..."` constants (the scanner matches 20+ characters after the keyword);
+  `E0_ROUTES` had never been extended for E5.5's `GET .../services/status`; and E5.4a's
+  registry test still asserted `set(REGISTRY) == {"mqtt"}`. **None was contention** — every
+  one reproduced on a targeted re-run. Two were latent in commit `09b5271`, which had been
+  committed after running only its own test file. Fixed, then the gate was re-run in full.
+- **Artifacts:** `app/services/clients/{httpbase,influx,prometheus,grafana,s3}.py` — the only
+  place a deployment service is dialled from (fixed choice 8), with one shared failure
+  taxonomy so five services speak one operator-facing vocabulary;
+  `app/services/testers/{influx,prometheus,grafana,s3}.py` completing `REGISTRY`;
+  `app/services/status.py` (`roll_up` as the sole writer of `deployment.services_status`,
+  `DEGRADE_AFTER_FAILURES = 2`, `apply_test_results`, the re-check sweep as a callable E5.7b
+  will register); `GET /deployments/{id}/services/status`; migration `b7d41f0c2e93` adding
+  `deployment_service.required`; and `conftest.service_rig` — five containers in parallel,
+  8.3s to ready, one session fixture on one xdist group.
+- **Decisions:** D129 (the required flag is a stored column, not an argument to `roll_up` —
+  the save path and the invariant sweep recompute with no test results in hand, so a parameter
+  would make the denormalized column irreproducible from its own rows), D130 (a test that pins
+  "nothing else has been built yet" is not a test of a behaviour; three instances found),
+  D131 (importing a conftest FIXTURE defeats session scope and built the rig three times —
+  measured at 5/10/15 containers, and worth 27s on four suites alone).
+- **Manual verification:** the whole loop driven over HTTP against a real uvicorn, a real
+  Postgres, and real Influx / Prometheus / Grafana / MinIO / Mosquitto containers. Logged in,
+  saved all five services, and: the GET echoed **no** submitted secret and rendered every set
+  one as `{"$secret_set": true}`; `POST .../services/test` returned `pass` for all five with
+  every check green (mqtt connect/round_trip/dynsec, influx query/write/cleanup, prometheus
+  read_query/remote_write, grafana health/datasources/contact_point, s3
+  head_bucket/write/cleanup) and the rollup reached `verified`; **no credential appeared
+  anywhere in the test response**; replacing the Influx token with a wrong one moved the row
+  to `untested` on save (a save unverifies) and then to `failed` with the rollup at
+  `degraded`; removing the S3 credentials produced `not_required` and `required=False` rather
+  than a failure; and a POST without the CSRF header was refused with 403. **One thing the
+  walkthrough did NOT demonstrate:** the `DEGRADE_AFTER_FAILURES` tolerance path
+  (verified → one failure → still verified), because the preceding save had reset the row to
+  `untested` — which is the correct onboarding behaviour, and the tolerance path is covered by
+  `test_services_status.py` rather than by hand.
+- **Open question for the owner, recorded in the ledger:** E5.4e must answer `not_required`
+  "for a deployment with raw-audio upload disabled" and **the settings catalog has no such
+  toggle**. The tester keys on both S3 credentials being absent; a half-entered form is tested
+  for real and fails. An explicit `upload.raw_audio_enabled` key would be an E2-owned catalog
+  change and a stop-and-ask.
 
 ## 2026-08-11: Several gate runs can now share one machine (Gate 56 GREEN)
 
@@ -193,6 +649,68 @@
   as a fixture error — worth a look before CI ever runs two suites side by side.
 - **Two containers leaked by an interrupted session** (`eoe-mqtt-961700caf6`, `eoe-pg-23037728f6`,
   8 hours old, holding host ports) were removed on the owner's instruction.
+
+## 2026-08-11: E5.1-E5.3 — services onboarding gets a data model, a write-only API, and a test framework (Gate 54 GREEN)
+
+- **Tasks closed:** E5.0, E5.1, E5.2, E5.3 on branch `e5-batch-1`, worked in a separate git
+  worktree so the parallel SIM sessions keep the primary tree. This is checkpoint **C1** of the
+  epic's five, and it carries E5.3 (a C2 unit) as well, because the unit was finished before the
+  gate ran and gating it separately would have bought nothing.
+- **Gate 54 GREEN:** `make gate`, **839 backend / 115 vitest / 4 Playwright, 0 failed / 0
+  skipped / 0 xfailed / 0 deselected**. Backend stage 262.7s; `ruff check`, `ruff format
+  --check`, `mypy app` (strict) and `tsc --noEmit` all clean.
+- **E5.1 (built in the prior session, verified in this one).** `deployment_service` widens
+  rather than forks (phase-5 fixed choice 1): five spec 16.2 `service_key`s, the four
+  MQTT-shaped connection columns nullable behind a conditional CHECK that still makes them
+  mandatory for an `mqtt` row, `config`/`secret_names` JSONB, the per-service status block, and
+  `deployment.services_status`. Migration `a31287354e23`. It also fixed a live 500:
+  `DELETE /deployments/{id}` hit `deployment_service`'s hard FK for any deployment `devbroker`
+  had touched. D121.
+- **E5.2 — the write-only secrets API.** `GET/PUT /deployments/{id}/services`, with one
+  `extra="forbid"` Pydantic model per service in `app/services/schemas.py` — which is where the
+  typing E5.1 promised when it chose JSONB actually happens. Secret fields take a plaintext, the
+  D51 keep sentinel, or nothing; the GET renders a set secret as the sentinel and is redacted by
+  construction, because it reads the row and never SecretStore. **D122:** the PUT is a partial
+  collection of wholesale members — within a service a merge would silently keep a field the
+  operator cleared, and across services wholesale replacement would force the wizard to
+  resubmit four credentials it does not hold. No delete: removing the `mqtt` row would strand
+  the control plane.
+- **E5.3 — the connection test framework.** `ServiceTester`, `TestResult`/`CheckResult` with a
+  required remedy, the concurrent runner with per-tester **and** whole-call budgets,
+  `resolve_credentials`, and `POST .../services/test`. **D123:** a tester says four things and
+  two of them are not failures (`not_required`, `not_configured`) — red an operator is meant to
+  ignore destroys the meaning of the red that matters. `REGISTRY` ships **empty**; E5.4a-e fill
+  it, and until then the endpoint honestly reports no results rather than inventing verdicts.
+- **Two new permissions** (fixed choice 9): `MANAGE_SERVICES` (Owner and Deployment Operator
+  only) and `VIEW_SERVICES` (all four roles). The RBAC suite is test-critical: these are rows
+  **added** to its matrix and every existing assertion is untouched.
+- **Manual verification** (outside the test harness, against a real Postgres container, real
+  `alembic upgrade head`, a real uvicorn process and real HTTP): seeded the demo hierarchy, PUT
+  Influx and S3 credentials as plaintext, and confirmed by `grep` over the raw response bodies
+  that **none of the three submitted plaintexts appears in the PUT or GET response**; the GET
+  rendered every set secret as `{"$secret_set": true}` and the five services in spec 16.2 order.
+  `SecretStore.get` round-tripped both values, and a `LIKE` over `secret.ciphertext` matched
+  zero rows — the values are stored encrypted, not merely hidden. `POST .../services/test`
+  returned 200 with `results: []` (no tester registered yet). The audit rows read
+  `{"services": {...field names...}}` and `{"outcomes": {}}`, and a `LIKE` over `audit_log.detail`
+  for the plaintexts matched zero rows. A field tech got 200 on GET and **403** on both PUT and
+  test. No plaintext in the uvicorn log. A deployment with pods still refuses with **409**; a
+  childless deployment carrying two service rows and three secrets deleted with **204**, leaving
+  zero rows and zero secrets — the E5.1 500, gone.
+- **One honest note on the road to this gate.** Two earlier broad sweeps taken while the SIM
+  session was live returned 829/7 errors and 831/5 errors. Every error was a container fixture
+  failing to start, none was a test-logic failure, and the errored modules moved between runs.
+  The fault is D99's `/forwards/expose ... 500`, which `docker_retry` already retries and which
+  still exhausts under two sessions. **Neither run was recorded as a gate result**; the gate
+  above was run with the other session idle. **D124** records the defect, the interim rule
+  (check before gating) and the harness fix that is owed — and says explicitly not to widen
+  `docker_retry`, which is narrow on purpose.
+- **Artifacts:** `backend/app/services/schemas.py`, `backend/app/services/testers/{__init__,base}.py`,
+  `backend/app/api/services.py`; `app/auth/rbac.py` and `frontend/src/lib/rbac.ts` (two
+  permissions); suites `backend/tests/test_services_api.py` (24) and
+  `backend/tests/test_service_testers.py` (25), plus additions to `test_rbac.py` and the two new
+  routes in `test_e0_readiness.py::E0_ROUTES`; `docs/INTERFACES.md` gains its **Owned by E5**
+  section; DECISIONS D122, D123, D124; `project_planning/e5-progress-ledger.md` current per unit.
 
 ## 2026-08-11: The gate runs in parallel — 541s to 260s (Gate 53 GREEN)
 

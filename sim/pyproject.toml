@@ -42,6 +42,16 @@ dev = [
     "cryptography>=44.0",
     "pyotp>=2.9",
     "httpx>=0.28",
+    # Arrived with E5 and found by merging the two branches, not by either
+    # gate alone: E5 promoted these three to backend RUNTIME dependencies
+    # (boto3 for the object-storage tester, pyyaml because the stack generator
+    # serialises compose in production code, bcrypt for Prometheus's
+    # web_config.yml), and `app.main` imports the chain that reaches them. SIM
+    # gated before they existed; E5 gated without /sim in gate.sh. The first
+    # gate that runs both is the first that could see it.
+    "boto3>=1.35",
+    "pyyaml>=6.0",
+    "bcrypt>=5.0.0",
 ]
 
 [tool.uv]

@@ -61,6 +61,8 @@ SPEC_53_KEYS = {
     "telemetry.prom_remote_write_user",
     "telemetry.prom_remote_write_password",
     "telemetry.grafana_url",
+    # Spec 5.3's thirty-eighth row, added by E5.11 (addendum SPEC-5-01, D146).
+    "services.credentials_generation",
 }
 
 SECRET_KEYS = {
@@ -88,6 +90,9 @@ SERVICE_RESTRICTED_KEYS = {
     "telemetry.prom_remote_write_user",
     "telemetry.prom_remote_write_password",
     "telemetry.grafana_url",
+    # E5.11's rotation counter (D146). Write-restricted like the twelve above,
+    # but the only one that is not a projection of a service ROW.
+    "services.credentials_generation",
 }
 
 # D49: inventory-resolved keys read from listener columns, never overrides -
@@ -102,7 +107,7 @@ INVENTORY_KEYS = {"identity.name", "identity.mac", "location.gps_lat", "location
 
 
 def test_catalog_matches_spec_53_key_for_key():
-    assert len(CATALOG) == 37  # the spec table's row count; duplicates would shrink the set
+    assert len(CATALOG) == 38  # the spec table's row count; duplicates would shrink the set
     assert {entry.key for entry in CATALOG} == SPEC_53_KEYS
     assert {entry.key for entry in CATALOG if entry.secret} == SECRET_KEYS
     assert {

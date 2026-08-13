@@ -17,6 +17,7 @@ holds the specification).
 | [E1 verification walkthrough](e1-verification.md) | Hand-verify the hierarchy and inventory release feature by feature against a seeded local stack |
 | [E2 verification walkthrough](e2-verification.md) | Hand-verify the configuration release: the inheritance editor, secrets, bulk preview/commit, and saved selections |
 | [E3 verification walkthrough](e3-verification.md) | Hand-verify the control plane: the MQTT broker and its isolation, publication, reconciliation, and device status |
+| [E5 verification walkthrough](e5-verification.md) | Hand-verify deployment services onboarding: write-only credentials, the five connection tests, the rolled-up status, and the generated stack |
 
 ## The five-minute path
 

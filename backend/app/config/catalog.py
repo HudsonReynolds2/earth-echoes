@@ -309,6 +309,17 @@ CATALOG: tuple[CatalogEntry, ...] = (
         write_restricted=SERVICE_ONBOARDING,
         notes="deployment default",
     ),
+    CatalogEntry(
+        key="services.credentials_generation",
+        value_type="int",
+        lowest_level="deployment",
+        default=0,
+        write_restricted=SERVICE_ONBOARDING,
+        notes=(
+            "bumped by every stack rotation (E5.11); the one non-secret signal "
+            "that a deployment's service credentials changed"
+        ),
+    ),
 )
 
 CATALOG_BY_KEY: dict[str, CatalogEntry] = {entry.key: entry for entry in CATALOG}

@@ -60,22 +60,46 @@ def validate_override_map(
     overrides: Mapping[str, Any],
     catalog: Mapping[str, CatalogEntry],
     entity_level: str,
+    *,
+    allow_write_restricted: bool = False,
 ) -> list[OverrideError]:
     """Validate a full sparse override map for one entity level. Returns
     every error (sorted by key), never just the first - the API folds them
-    into one 422 so a bulk edit fails atomically and informatively."""
+    into one 422 so a bulk edit fails atomically and informatively.
+
+    `allow_write_restricted` is the ONE door through which the twelve
+    service-onboarding keys can be written (E5.7a, phase-5 fixed choice 3),
+    and it is keyword-only and defaulted off so that every existing caller -
+    which is every operator-facing path - keeps refusing them. **The
+    `service_restricted` 422 has its own independent test precisely so this
+    shortcut cannot pass unnoticed**; deleting the check instead of gating it
+    is what this parameter exists to avoid. Nothing else about validation
+    changes: the level rule, the value rules and the inventory-resolved
+    refusal all still apply to these keys.
+    """
     if entity_level not in LEVEL_DEPTH:
         raise ValueError(f"unknown entity level {entity_level!r}")
     errors: list[OverrideError] = []
     for key in sorted(overrides):
-        error = _validate_key(key, overrides[key], catalog, entity_level)
+        error = _validate_key(
+            key,
+            overrides[key],
+            catalog,
+            entity_level,
+            allow_write_restricted=allow_write_restricted,
+        )
         if error is not None:
             errors.append(error)
     return errors
 
 
 def _validate_key(
-    key: str, value: Any, catalog: Mapping[str, CatalogEntry], entity_level: str
+    key: str,
+    value: Any,
+    catalog: Mapping[str, CatalogEntry],
+    entity_level: str,
+    *,
+    allow_write_restricted: bool = False,
 ) -> OverrideError | None:
     entry = catalog.get(key)
     if entry is None:
@@ -87,7 +111,7 @@ def _validate_key(
             f"{key} is inventory-resolved; edit it via PATCH /listeners/{{mac}}, "
             "not config overrides",
         )
-    if entry.write_restricted is not None:
+    if entry.write_restricted is not None and not allow_write_restricted:
         return OverrideError(
             key,
             "service_restricted",

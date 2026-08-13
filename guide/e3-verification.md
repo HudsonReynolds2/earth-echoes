@@ -89,15 +89,32 @@ docker compose -f deploy/docker-compose.yml -p eoe-qa exec mosquitto mosquitto_p
 Finally, the platform's own record of the broker:
 
 - [ ] In the database, `select deployment_id, service_key, host, port, tls_enabled,
-      username, password_secret_name from deployment_service;` returns one `mqtt` row per
-      deployment, with `host` = `mosquitto`, `port` = **8883** and `tls_enabled` = true.
-      8883, not 18883, is correct: these are the coordinates the API container dials inside
-      the compose network, where every service still uses its standard port. 18883 is only
-      the host-side publication you connect to from your own machine.
+      username, password_secret_name from deployment_service where service_key = 'mqtt';`
+      returns one row per deployment, with `host` = `mosquitto`, `port` = **8883** and
+      `tls_enabled` = true. 8883, not 18883, is correct: these are the coordinates the API
+      container dials inside the compose network, where every service still uses its
+      standard port. 18883 is only the host-side publication you connect to from your own
+      machine.
+
+  > **Amended by E5 (E5.1, E5.12b).** `deployment_service` is no longer broker-only: it
+  > widened to the five spec 16.2 services rather than forking a second table, so a
+  > deployment that has been through services onboarding carries up to four more rows
+  > (`influx`, `prometheus`, `grafana`, `s3`). Their mqtt-shaped columns are NULL, which the
+  > conditional `mqtt_coordinates_required` CHECK permits for exactly those keys — hence the
+  > `where service_key = 'mqtt'` this step now carries. A freshly seeded database still has
+  > only the one row per deployment, so the step reads the same until you onboard.
+  > [The E5 walkthrough](e5-verification.md) section 1 covers the widened table.
+
 - [ ] **No password appears in that table.** The row names a `deployment:<id>:mqtt_password`
       entry; the value itself lives encrypted in the `secret` table (rule R2). Confirm with
       `select name from secret;` — names only, and `select * from deployment_service;`
       contains no credential material beyond the username.
+
+  > **Amended by E5 (E5.1).** Still true, and now true of two more columns: `config` holds
+  > each service's non-secret fields and `secret_names` maps a field name to a SecretStore
+  > NAME. Neither ever holds a value, which is what makes "no credential material beyond the
+  > username" survive the widening. E5's own walkthrough re-runs this check across all five
+  > services.
 
 ## 2. The client manager survives a broker restart (E3.2)
 

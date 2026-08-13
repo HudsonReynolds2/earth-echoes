@@ -41,6 +41,8 @@ only the published host side moved, so the stack coexists with other local servi
 | `EOE_WORKER_IN_API` | no | run the reconciliation worker inside the API process instead of the `worker` container (E3.7, D59); default off |
 | `EOE_TIMEOUT_SWEEP_SECONDS` | no | pending-timeout sweep cadence, default 30 (E3.7) |
 | `EOE_DRIFT_SWEEP_SECONDS` | no | drift re-comparison cadence, default 300 (E3.7) |
+| `EOE_BROKER_REFRESH_SECONDS` | no | how often both hosts reload broker coordinates, default 30 (E5.7b, D137) |
+| `EOE_SERVICE_CONFIG_SWEEP_SECONDS` | no | deployment-service config sweep cadence, default 60 (E5.7b, D137) |
 
 No secret defaults are committed; `deploy/.env.example` documents names only, never values.
 Settings precedence: environment variable over TOML config file over default (D5).
@@ -779,22 +781,66 @@ reimplement their logic.** Signatures, verbatim:
   derive from it, so a caller can catch either level. **`PayloadError` is safe to log
   verbatim** — it names the model and the failing fields and never the values (D68).
 
-### `deployment_service` — broker coordinates (E3.1; spec 7.1) — **E5 EXTENDS THIS**
+### `deployment_service` — the five deployment services (E3.1, widened by E5.1; spec 7.1, 16.2)
 
-- **Table** (migration `a41f9c7b2e05`, singular per D30): `id`, `deployment_id` FK,
-  `service_key` CHECK-constrained to `('mqtt')` for now, `host`, `port` (CHECK 1..65535),
-  `tls_enabled`, `ca_cert_pem`, `username`, `password_secret_name`, timestamps.
+- **Table** (migration `a41f9c7b2e05`, widened by `a31287354e23`, singular per D30): `id`,
+  `deployment_id` FK, `service_key`, `host`, `port` (CHECK 1..65535), `tls_enabled`,
+  `ca_cert_pem`, `username`, `password_secret_name`, `config`, `secret_names`, `status`,
+  `status_reason`, `last_tested_at`, `consecutive_failures`, `last_test_detail`, timestamps.
   UNIQUE `(deployment_id, service_key)`.
-- **E5 owns extending it** with the Influx/Grafana/Prometheus/S3 rows, connection tests, and
-  the spec 16.5 verification status lifecycle — by widening the `service_key` CHECK and
-  adding columns here, **not** by starting a second table. E3 reads this row and writes only
-  the `mqtt` one.
+- **`service_key` is CHECK-constrained to the five spec 16.2 services**: `mqtt`, `influx`,
+  `prometheus`, `grafana`, `s3` — `models.SERVICE_KEYS`, in that order.
+  `tests/test_services_model.py` pins the tuple against a hand transcription of the spec
+  table, so **a sixth key without a spec revision is a red gate** (the
+  `test_settings_catalog.py` pattern). E3 reads and writes only the `mqtt` row.
+- **E5 widened this table; it did not fork it** (phase-5 fixed choice 1). The six MQTT-shaped
+  columns stay where they are — moving them would rewrite `load_broker_coordinates`,
+  `devbroker.register_services` and the `port_range` CHECK for no benefit.
+- **`host`, `port`, `username` and `password_secret_name` are nullable, and CONDITIONALLY
+  REQUIRED** by `ck_deployment_service_mqtt_coordinates_required`:
+  `service_key <> 'mqtt' OR (host IS NOT NULL AND port IS NOT NULL AND username IS NOT NULL
+  AND password_secret_name IS NOT NULL)`. The database is the enforcer, deliberately — a
+  Python guard would be routed around by the first writer that forgot it.
+- **`config` (JSONB, NOT NULL, default `{}`)** carries the heterogeneous per-service fields;
+  **`secret_names` (JSONB, NOT NULL, default `{}`)** maps a field name to its SecretStore
+  name and **never to a value**, the same rule `password_secret_name` follows. Fifteen
+  nullable columns whose validity is a function of `service_key` would document and constrain
+  nothing, and a CHECK cannot validate a URL: the typing that matters happens at the write
+  boundary, one Pydantic model per service (E5.2).
+- **Per-service status** — `status` CHECK-constrained to `('untested','verified','failed')`
+  (`models.SERVICE_STATUS_VOCAB`, spec 16.2), default `untested`; plus `status_reason`,
+  `last_tested_at`, `consecutive_failures` (default 0) and `last_test_detail`. **This is a
+  DIFFERENT vocabulary from `deployment.services_status`** (spec 16.5) and the two are never
+  interchangeable. E5.1 creates the columns; **E5.5 owns every transition.**
 - **`deployment_id` IS a real foreign key**, unlike the immutable-evidence tables (D33/D55):
   a service row describes a live connection and is meaningless once its deployment is gone.
+  **`DELETE /deployments/{id}` deletes these rows** through
+  `app.services.store.delete_services_for`, beside the existing `delete_overrides_for` call,
+  and deletes the returned SecretStore names only AFTER the commit (D51). It does **not**
+  refuse on them: `devbroker.register_services` writes an `mqtt` row for every deployment, so
+  a refusal would make deletion permanently impossible.
 - **Credentials never live in the row.** `password_secret_name` names a SecretStore entry
-  (`deployment:{deployment_id}:mqtt_password`); `ca_cert_pem` is deliberately NOT a secret —
-  it is the public trust anchor the platform verifies the broker against, and storing the
-  PEM rather than a path keeps it portable across API replicas and containers.
+  (`deployment:{deployment_id}:{service_key}_password`); `ca_cert_pem` is deliberately NOT a
+  secret — it is the public trust anchor the platform verifies the broker against, and storing
+  the PEM rather than a path keeps it portable across API replicas and containers.
+- **`app/services/store.py`** (E5.1) is the row access: `load_service(db, deployment_id,
+  service_key)`, `load_services(db, deployment_id)` (spec 16.2 order), `upsert_service(...)`
+  (**wholesale replace, never a merge** — the E1.7 tags and `put_overrides` precedent) and
+  `delete_services_for(db, deployment_id) -> tuple[str, ...]`, which returns every
+  `password_secret_name` plus every value in every `secret_names` map. Stage-never-commit;
+  the caller owns the transaction. **Nothing there writes the status columns.**
+  `app/services/` means DEPLOYMENT services; `app/config/service.py` is the unrelated merge
+  accessor.
+
+### `deployment.services_status` — the spec 16.5 rollup (E5.1) — **E5.5 IS ITS ONLY WRITER**
+
+- Column on `deployment`, CHECK-constrained to `('unconfigured','pending_verification',
+  'verified','degraded')` (`models.SERVICES_STATUS_VOCAB`), NOT NULL, default `unconfigured`.
+- **Denormalized deliberately** (phase-5 fixed choice 2): E6.4's map rollup and E7.4's Owner
+  fan-out both read it once per deployment, inside fan-outs that are already cross-deployment.
+  The correctness risk is answered by making E5.5's `app/services/status.py::roll_up` the only
+  writer and asserting the invariant across the suite — not by arguing about it.
+- E5.1 creates the column and its default and **writes nothing**.
 
 ### The development broker (E3.1; spec 7.1)
 
@@ -816,6 +862,14 @@ reimplement their logic.** Signatures, verbatim:
   `desired`/`cmd`/`lst/+/desired`, write `reported`/`status`/`event`/`lst/+/reported`).
   A device therefore cannot publish its own desired config — which would let it manufacture
   agreement and defeat drift detection.
+  **E5.6 made that list have exactly one source (D132):**
+  `devbroker.aggregator_acl_grants(slug, aggregator_uuid) -> tuple[AclGrant, ...]`, where
+  `AclGrant(access, topic)` uses the `acl_file` vocabulary. `acl_file_text` renders
+  `topic {access} {topic}`; `services/credentials.py::dynsec_role_acls` renders the dynamic
+  security plugin's. Neither writes a topic literal, and `read` becomes TWO dynsec acltypes
+  (`subscribePattern` decides whether the SUBSCRIBE is accepted, `publishClientReceive` whether
+  a matching message is delivered — granting only the first yields a device that subscribes
+  successfully and then receives nothing). **E5.8a moves this to `app/brokerconfig.py`.**
 - **Denial looks like silence.** Mosquitto accepts a subscription to a topic its ACL denies
   (SUBACK 0) and then never delivers, and it filters wildcards per message. Every denial
   assertion in `backend/tests/test_dev_broker.py` is therefore paired with a positive
@@ -849,6 +903,15 @@ reimplement their logic.** Signatures, verbatim:
   row with `service_key == "mqtt"`, ordered by slug, resolving `password_secret_name` through
   SecretStore. A row whose secret is unreadable is **skipped with a warning naming the secret,
   never its value** — one badly provisioned deployment must not deafen the others (D64).
+  **Amended by E5.1:** a row missing any of `host` / `port` / `username` /
+  `password_secret_name` is skipped the same way, with a warning naming the deployment and the
+  missing COLUMNS. Those columns became nullable when `deployment_service` widened to five
+  services, and `ck_deployment_service_mqtt_coordinates_required` is what keeps them mandatory
+  on the broker row — so the branch should be unreachable, and exists because a future
+  migration touching that CHECK must cost one deployment its connection rather than crash the
+  loader every deployment shares. **This is one of the E3-owned edits E5 is authorized to
+  make; the return value is otherwise byte-for-byte what it was before the migration**,
+  asserted across the migration boundary in `tests/test_services_model.py`.
 - **`tls_context(coordinates)`** → `ssl.SSLContext | None`. When `ca_cert_pem` is set, that CA
   is the **only** trust anchor (D65) — deliberately not "system store plus this one".
   `check_hostname` and `CERT_REQUIRED` hold on both branches, minimum TLS 1.2; aiomqtt's
@@ -882,9 +945,27 @@ reimplement their logic.** Signatures, verbatim:
   desired topics (spec 6.4). Client identifier: `{prefix}-{slug}-{8 hex}`, one suffix per
   manager instance, so a reconnect retires its own old session but two API replicas never
   collide.
-- **Coordinates load once, at `start()`.** Adding a deployment's broker row takes a manager
-  restart; E3.7 owns that lifecycle. **Nothing constructs this manager yet** — E3.2 ships the
-  library, the worker (D59) wires it up.
+- **~~Coordinates load once, at `start()`.~~ AMENDED BY E5.7b — `refresh()` re-reads them.**
+  The original contract said adding a deployment's broker row takes a manager restart. That was
+  honest while broker rows only changed when somebody re-ran `app.devbroker`; E5's services
+  onboarding changes them as a matter of course (Path B writes a new row, rotation changes its
+  password, a new deployment gets its first), so it became a bug the moment E5 shipped. This is
+  one of the two discretionary E3-owned edits phase-5 section 2 authorizes.
+  **`refresh() -> (started, stopped, restarted)`** re-runs the loader off the event loop, diffs
+  by `deployment_id`, and starts / cancels / restarts tasks. **A rotated password IS a
+  difference** — `BrokerCoordinates` is a frozen dataclass, so equality compares every field and
+  a later session adding one gets it reconciled for free. `start()`'s semantics are unchanged;
+  `_registrations` stays manager-level, so a task started by a refresh inherits the FULL
+  subscription set. Refreshing a manager that never started is a no-op, not an error — both
+  hosts poll while `start_or_retry` may still be backing off. Idempotent: called with unchanged
+  coordinates it cancels no task, asserted by IDENTITY on the task objects in
+  `tests/test_broker_refresh.py` (counting them would pass on a stop/start cycle that dropped
+  every message in between).
+  **Both hosts poll it**, because they are different processes: `ReconciliationWorker._refresh_loop`
+  and `main.py::_refresh_forever`, both on `EOE_BROKER_REFRESH_SECONDS` (default 30s), both
+  waiting BEFORE the first call since `start()` has just loaded. A poll rather than
+  LISTEN/NOTIFY: a new deployment's broker cannot be dialled before the operator has finished
+  configuring it anyway, so a channel and a second delivery path buy nothing.
 - **New runtime dependency: `aiomqtt`** (the phase-3 fixed client choice), which pulls
   `paho-mqtt`. Async tests run on **anyio's pytest plugin** via the `anyio_backend` fixture in
   `conftest.py` — no pytest-asyncio (D66).
@@ -1309,6 +1390,463 @@ reimplement their logic.** Signatures, verbatim:
 
 ---
 
+## Owned by E5
+
+### `GET/PUT /deployments/{id}/services` — the write-only services API (E5.2; spec 16.2, 13; D51, D122)
+
+- **`GET`** returns all five spec 16.2 services **always**, configured or not, as an object
+  keyed by `service_key` and inserted in the spec's order (`mqtt`, `influx`, `prometheus`,
+  `grafana`, `s3`), so a client iterating the object gets the spec's order without sorting.
+  Each entry is `{service_key, configured, status, status_reason, last_tested_at,
+  consecutive_failures, settings}`. `status` and its siblings are E5.5's to write; until then
+  every row reads `untested` / `0`.
+- **`settings` is REDACTED by construction.** It is built by
+  `app/services/schemas.py::redacted_settings`, which reads the row and **never SecretStore**,
+  so no branch of the read can return a credential. A set secret renders as the D51 keep
+  sentinel `{"$secret_set": true}`; an unset one is absent from the object entirely.
+- **`PUT` is a partial collection of wholesale members (D122).** A service **present** in
+  `body.services` is replaced wholesale — every field the caller omits is cleared, the
+  `put_overrides` / E1.7 tags precedent. A service **absent** is left completely untouched, so
+  the wizard can save one step without resubmitting the other four. **There is no delete:**
+  removing the `mqtt` row would strand the deployment's control plane, and
+  `DELETE /deployments/{id}` (E5.1) is what removes them all.
+- **Secret fields accept exactly three things:** a plaintext string (stored under
+  `deployment:{deployment_id}:{service_key}_{field}` and never echoed), the keep sentinel
+  (keep what is stored — a keep sentinel for a credential that is **not** set is a 422,
+  `code: "no_stored_secret"`), or omission/null (unset it, and the orphaned SecretStore entry
+  is deleted **after** the commit, D51).
+- **The broker password name is `deployment:{id}:mqtt_password`**, which is exactly what
+  `devbroker.secret_name` mints — so Path A rewriting broker credentials through this API
+  lands on the name `load_broker_coordinates` reads. Pinned by a test, not by coincidence.
+  It lives in the `password_secret_name` **column**; every other credential lives in the
+  `secret_names` map.
+- **Typed at the boundary** (phase-5 fixed choice 1, rule R2): one `extra="forbid"` Pydantic
+  model per service in `app/services/schemas.py` — `MqttSettings` (host, port, tls_enabled,
+  ca_cert_pem, username, **password required**), `InfluxSettings` (url, database, token),
+  `PrometheusSettings` (read_url, remote_write_url, remote_write_user,
+  remote_write_password), `GrafanaSettings` (base_url, service_account_token), `S3Settings`
+  (bucket, region, endpoint, access_key, secret_key). `SERVICE_SCHEMAS` is keyed by
+  `service_key` and its keys are asserted equal to `models.SERVICE_KEYS` at import time, so a
+  sixth service cannot reach the database without a model to type it.
+- **`plan_write` is pure.** It takes submitted settings plus the row that exists today and
+  returns a `ServiceWritePlan` naming what to write, what to `SecretStore.put` and what to
+  delete after the commit. Every plan is computed before anything is written, so a rejected
+  second service never leaves the first half-saved.
+- **Permissions:** `PUT` needs `MANAGE_SERVICES` scoped to the deployment, plus CSRF; `GET`
+  needs `VIEW_SERVICES`. The permission check runs before any lookup, so the route never
+  confirms a deployment's existence to a caller who may not know it.
+- **Audit:** `services.update`, `entity_type="deployment"`, scope = the deployment, detail
+  `{"services": {service_key: [field names written]}}` — **names only, never values**.
+  Nothing is audited when the body submits no services.
+- **Suite:** `backend/tests/test_services_api.py`.
+
+### Two new permissions (E5.2; phase-5 fixed choice 9)
+
+- **`MANAGE_SERVICES`** — Owner and Deployment Operator only. A deployment's service
+  credentials are its keys to everything it stores; a Field Tech provisions hardware and has
+  no business holding an Influx admin token.
+- **`VIEW_SERVICES`** — all four roles. The services API is write-only, so a read carries
+  endpoints and status and no secret, and status has to render everywhere.
+- Both extend `app/auth/rbac.py`, `frontend/src/lib/rbac.ts`, `backend/tests/test_rbac.py`
+  and `frontend/tests/rbac.test.tsx`. The RBAC suite is test-critical (spec 14.5): these are
+  **additions** to its matrix and every existing assertion is untouched.
+
+### `POST /deployments/{id}/services/test` and the tester framework (E5.3; spec 16.2; D123)
+
+- **`ServiceTester`** (`app/services/testers/base.py`) is what E5.4a-e implement:
+  `service_key`, `budget_seconds`, `async run(credentials) -> TestResult`. Testers are written
+  in terms of `app/services/clients/`, the only place a deployment service is dialled from
+  (phase-5 fixed choice 8) — **E7 extends those modules and does not create parallel ones.**
+- **`TestResult`** is `(service_key, outcome, checks)`; **`CheckResult`** is
+  `(name, passed, detail, remedy, elapsed_ms)`. `remedy` is non-empty on every failing check
+  and the suite asserts it table-driven — a red row with no "what now" is what teaches
+  operators to ignore red.
+- **`TesterOutcome` is `pass` | `fail` | `not_required` | `not_configured`** — a DIFFERENT
+  vocabulary from the spec 16.2 per-service status, deliberately (D123). E5.5 maps one onto
+  the other; neither is the other's alias.
+- **Two budgets.** Each tester declares its own; `WHOLE_CALL_BUDGET_SECONDS` bounds the whole
+  endpoint over the top, so a tester that ignores its own budget cannot hang a request.
+- **Containment.** A timeout, an unexpected exception, a wrong-`service_key` result and a
+  missing credential each become that service's failure and leave the other verdicts real. A
+  crash reason names the exception **type** and never `str(error)`.
+- **`resolve_credentials(service_key, stored, candidate, secret_getter)`** decides what to dial
+  with: candidate beats stored, the D51 keep sentinel reaches back for a stored value, and a
+  service with neither is `not_configured`. Same three-way rule as the E5.2 PUT, so "test" and
+  "save" cannot disagree about which credential they mean. It raises nothing — an unreadable
+  secret is logged **by name** and skipped.
+- **`ServiceCredentials` never renders its secrets**: `secrets` is `repr=False` behind a
+  `__str__` naming only the service and its non-secret settings, exactly as `BrokerCoordinates`
+  does (D66). Keep both.
+- **The endpoint** takes an optional body of candidate settings (the same five typed models the
+  PUT takes) and tests stored credentials when it is absent. `MANAGE_SERVICES` + CSRF, because
+  the body carries credentials. **It writes no status** — `deployment_service.status` and
+  `deployment.services_status` are E5.5's. Audited as `services.test` with detail
+  `{"outcomes": {service_key: outcome}}` and nothing else.
+- **`testers.REGISTRY` fills across E5.4a-e**, and is read through the module rather than a
+  from-import so registration at import time is visible to the endpoint. A service with no
+  registered tester is simply absent from `results`.
+- **Suite:** `backend/tests/test_service_testers.py`.
+
+### The MQTT tester and the dynsec probe (E5.4a; spec 16.2 row 1, 16.4, 16.5; fixed choice 4)
+
+- **`app/services/clients/mqtt.py::MqttServiceClient`** is how a deployment's broker is dialled
+  for a test. It builds a `BrokerCoordinates` and calls **`broker.py::tls_context`** rather than
+  growing a second TLS rule, so D65's pinned-CA property — the stored PEM is the *only* trust
+  anchor, never "the system store as well" — holds identically for a candidate that has never
+  been saved and for a stored row. `password` is `repr=False` behind a `__str__` naming only the
+  deployment and the socket (D66). Keep both.
+- **The reserved round-trip leaf is `eoe/{slug}/_selftest`**, built through
+  `contracts.mqtt.deployment_root` and never written as a literal. It is inside the single grant
+  the platform account already holds (`topic readwrite eoe/{slug}/#`), so a correctly cut ACL
+  passes without being widened. Published QoS 1 and **never retained** — a retained self-test
+  would be delivered to every device that later subscribed to the deployment root.
+- **`classify_connect_error` maps a dial failure onto `kind` ∈ `authentication` | `tls_trust` |
+  `tls_handshake` | `dns` | `unreachable`**, keyed on the exception's `__cause__` type rather
+  than its message, because aiomqtt wraps everything below it in `MqttError` whose `str` is the
+  underlying exception's. Recognised branches may quote `ssl`'s verification reason and `errno`
+  text, which are credential-free; the unrecognised branch falls back to the exception **type**,
+  keeping `base.py::_crashed`'s rule exactly where its reasoning applies.
+- **`app/services/dynsec.py` is the `$CONTROL/dynamic-security/v1` channel** — the probe now,
+  and **E5.6 CONSUMES AND EXTENDS THIS**, adding mint and revoke through the same `call()`. It
+  operates on an already-connected client and never on `MqttClientManager`, whose subscription
+  set is fixed before `start()` (D64) and which only knows deployments that already have a row.
+- **The probe has three verdicts and the discriminator is the SUBACK on the response topic**,
+  not the publish:
+
+  | broker | SUBACK | reply | verdict |
+  | --- | --- | --- | --- |
+  | `acl_file`, no plugin | Granted QoS 1 | none | `absent` |
+  | dynsec, client holding `admin` | Granted QoS 1 | yes | `available` |
+  | dynsec, client without `admin` | Not authorized | none | `denied` |
+
+  A Mosquitto using `acl_file` **grants** a subscription to a topic its file never mentions and
+  then silently refuses the matching publish, so "the publish was refused" cannot separate a
+  missing plugin from an unprivileged account; dynsec refuses the SUBSCRIBE. Established by
+  experiment against real brokers rather than from documentation.
+- **A non-`available` verdict FAILS the tester** (fixed choice 4); it does not warn. dynsec is
+  required for v1, so `absent` and `denied` both keep `services_status` off `verified`, which by
+  spec 16.5 blocks bundle generation. `DynsecProbe.usable` is the single predicate, and E5.6
+  reads it before attempting a mint.
+- **The probe never publishes to `$CONTROL` on a broker that has not accepted it**, and that is
+  structural rather than a rule to remember: a refused SUBACK returns before the publish. Note
+  for anyone testing it — the plugin **consumes** a control publish and never distributes it, so
+  no subscriber can witness one; the broker's log at `log_type all` is the only witness.
+- **`ServiceCredentials` gained `deployment_id` and `deployment_slug`**, keyword-only and
+  defaulted on `resolve_credentials`, for the one tester whose target topic is a function of the
+  deployment. The other four dial a URL that carries no deployment identity and ignore both.
+- **`app/services/clients/` must not import from `app/services/testers/`.** `testers/__init__`
+  imports every tester to populate `REGISTRY`, so a client reaching back for `ServiceCredentials`
+  closes an import cycle and fails at import. Converting credentials into a client is the
+  tester's job (`testers/mqtt.py::client_for`). This is the layering E7 wants regardless: clients
+  dial, and know nothing about verdicts.
+- **Test fixtures:** `conftest.dynsec_broker(tmp_path, slug)` stands the same container up with
+  the plugin loaded instead of the `acl_file`, carrying one administrator and one plain account
+  in a single `dynamic-security.json` — so `available` and `denied` are a property of which
+  credential the test dials with, which is also what they are in reality. `ephemeral_broker`
+  gained a `conf` parameter so one container recipe serves both. `Broker.logs()` returns the
+  broker's own record. **E5.8a replaces the hand-written `dynamic-security.json` with a
+  generated one.**
+- **Suite:** `backend/tests/test_tester_mqtt.py`.
+
+### The other four testers, and the container rig (E5.4b-e; spec 16.2 rows 2-5; D131)
+
+- **`app/services/clients/` is the only place a deployment service is dialled from** (phase-5
+  fixed choice 8). `httpbase.py` holds what the three HTTP clients share — `ServiceFailure`
+  (`kind`/`detail`/`remedy`), the transport-error taxonomy, `safe_endpoint`, `redact`,
+  `snippet`, and `open_client` with `follow_redirects=False` so an authenticated request can
+  never replay its Authorization header to a `Location`. `influx.py`, `prometheus.py`,
+  `grafana.py` and `s3.py` add only what is theirs. **E7 extends these modules and does not
+  create parallel ones**: `InfluxClient` gains query methods, `PrometheusClient` gains PromQL.
+- **No client imports `app/services/testers/`** and the constraint is enforced by a would-be
+  import cycle rather than by discipline (D128). Turning a `ServiceCredentials` into a client is
+  each tester's `client_for`.
+- **Influx (E5.4b)** uses the **HTTP query API, never FlightSQL**, so `pyarrow` stays out of the
+  image. Influx 3 Core has no row-level delete: the reserved measurement `_eoe_selftest` is
+  dropped whole, and a query for a dropped table answers "not found" rather than "zero rows",
+  which `count_rows` reads as zero. `auth` and `not_found` are distinguishable kinds.
+- **Prometheus (E5.4c)** probes the remote-write receiver with a **well-formed empty body**, so
+  the connection test leaves no series in an operator's monitoring data. Three verdicts:
+  `accepted` (204), `unauthorized` (401), `receiver_disabled` (404 — the receiver is **off by
+  default**). **401 is read before 404** because Prometheus checks basic auth before it routes,
+  so a wrong password answers 401 on a correctly configured server too.
+- **Grafana (E5.4d)** is the only client that WRITES. Provisioning is never a side effect of a
+  test: `datasources()` reports what is missing and `provision_datasource` /
+  `ensure_contact_point` are separate deliberate calls, each idempotent by lookup-then-decide.
+  The contact point `eoe-platform-alerts` targets **`POST /webhooks/grafana-alerts`, which E7.6
+  implements and E5 does not** — inert until an alert fires, and spec 11.1 gives v1 no alert
+  rules. Missing datasources do **not** fail the tester; an offer is not a verdict.
+- **Object storage (E5.4e)** goes through `boto3` in `asyncio.to_thread`. `forbidden` and
+  `not_found` are separate kinds, and where S3 genuinely cannot tell them apart (it answers 404
+  for a bucket the caller may not know about) the remedy names both. It answers **`not_required`
+  when neither credential is set** — see the open question in `e5-progress-ledger.md`: the
+  catalog has no raw-audio toggle, so this is a reading of spec 16.2's conditional requirement
+  rather than a quotation of it.
+- **The rig (`conftest.service_rig`, `rig`)** is five containers — Influx, two Prometheus (one
+  with `--web.enable-remote-write-receiver`, one without), Grafana, MinIO — started in parallel
+  on Docker-assigned ports, **8.3s to ready**. It is a **session fixture pinned to one xdist
+  group** (`RIG_MODULES` / `RIG_GROUP`) so it is built once per gate. **Both halves are
+  required**: D131 records that importing the `rig` fixture into a test module defeats session
+  scope and built it three times while the grouping worked perfectly. **From E5.10 the rig
+  becomes the generated stack** and this hand-written assembly goes away.
+- **`REGISTRY` is complete**: all five spec 16.2 services have a tester, pinned equal to
+  `models.SERVICE_KEYS` so a sixth service cannot arrive without one.
+- **Suites:** `backend/tests/test_tester_{influx,prometheus,grafana,s3}.py`.
+
+### `GET /deployments/{id}/services/status` and the rollup lifecycle (E5.5; spec 16.5; D129)
+
+- **Two vocabularies, deliberately.** Per-service `untested` / `verified` / `failed` on
+  `deployment_service`; rolled-up `unconfigured` / `pending_verification` / `verified` /
+  `degraded` on `deployment.services_status`. Neither is derivable from the other one row at a
+  time, and a UI rendering one as the other would report a whole deployment broken because one
+  optional service is. E5.3's `TesterOutcome` is a **third** vocabulary (D123).
+- **`app/services/status.py::roll_up` is the ONLY writer** of `deployment.services_status`
+  (fixed choice 2), through `recompute`, which every mutation path calls.
+  `test_services_status.py` walks **every** deployment after every mutation and asserts the
+  stored value equals `roll_up` over its own rows.
+- **`deployment_service.required` is a stored column** (migration `b7d41f0c2e93`), not an
+  argument — D129. The save path and the invariant sweep recompute with no test results in
+  hand, so a required-set only a live test could reconstruct would make the denormalized column
+  irreproducible from its rows.
+- **`DEGRADE_AFTER_FAILURES = 2`, and the threshold guards a demotion, not a first verdict.** An
+  operator getting a credential wrong in the wizard sees `failed` immediately; a service that
+  had reached `verified` survives one transient re-check.
+- **A test of CANDIDATE credentials writes no status.** Spec 16.2's "validates each entry before
+  accepting it" is precisely a test that has not been accepted, so a wizard rehearsing an
+  unsaved form cannot leave a deployment recorded as `verified` against a credential the
+  platform is not holding. `POST .../services/test` returns `services_status` so the wizard
+  needs no second request.
+- **Saving a service unverifies it**: new credentials mean the old verdict was about something
+  else, and the failure counter resets with it.
+- **The re-check sweep ships as a callable and is NOT registered on the worker.**
+  `runner.py` is E3-owned and this phase authorizes exactly two discretionary edits there, both
+  E5.7b's. ~~E5.7b registers `services_recheck_sweep` in the same edit.~~ **Corrected at C3:
+  it did not** (D137). Registering it needs a production `ServiceTestRunner` that dials every
+  deployment's real services on a timer, and no unit in this phase scoped that behaviour;
+  E5.7b's own diff was already carrying `service_config_sweep` plus D133's revocation retry.
+  `services_recheck_sweep` remains a tested callable with no caller, and spec 16.5's "periodic
+  re-checks" is **outstanding** — recorded in `e5-progress-ledger.md` rather than implied
+  complete by this line.
+- **Permissions:** `VIEW_SERVICES` (all four roles) — status renders everywhere and carries no
+  credential. **Suite:** `backend/tests/test_services_status.py`.
+
+### Per-device broker credentials and the E4 seam (E5.6; spec 7.1, 7.2, 16.4; D132, D133)
+
+- **Path:** `backend/app/services/credentials.py`; routes in
+  `backend/app/api/broker_credentials.py`; table `broker_credential` (migration
+  `c4e9b21f83da`); the dynsec transport is `app/services/dynsec.py` (E5.4a's, extended by use).
+- **`BrokerCredentialProvider` is defined HERE and consumed by E4.6** — the dependency phase-4
+  fixed choice 1 reversed (D117, addendum PHASE4-2-01). A `Protocol` with
+  `async mint(coordinates, aggregator_uuid) -> DeviceCredential` and
+  `async revoke(coordinates, aggregator_uuid)`. **E4.6 imports it and does not declare one.**
+  Two implementations ship: `DynsecCredentialProvider` (the real one, fixed choice 4) and
+  `DevBrokerCredentialProvider` (reads the accounts `app.devbroker` already generated; it mints
+  nothing and revokes nothing, because the dev broker's password and ACL files are rewritten
+  wholesale by one pass and a second writer is how they drift). `default_provider()` returns the
+  dynsec one; **no setting selects the dev one in production.**
+- **Reached through `app.state.credential_provider`**, set at `create_app`. Routes never call
+  `default_provider()` directly — the same shape `app.state.secret_store` and `app.state.mqtt`
+  have, and what lets a test substitute a provider without a broker.
+- **A mint dials its own short-lived connection, never `MqttClientManager`** (three reasons in
+  the module docstring, any one sufficient). It reuses `MqttServiceClient`, so TLS is
+  `broker.py::tls_context` and D65's pinned-CA rule holds identically.
+- **Every dynsec operation is idempotent by construction.** A mint deletes any existing client
+  and role for the `aggregator_uuid` before creating them, so a rotation and a first mint are
+  one code path and a retry after a partial failure is safe. The deletes tolerate the plugin's
+  "not found" and nothing else.
+- **`_require_admin` runs first.** A `createClient` against a plugin-less broker would time out
+  and report "the plugin did not answer", which is true and useless; the E5.4a probe's verdicts
+  carry the remedy an operator can act on, so those are what surface.
+- **`aggregator_uuid` is NOT a foreign key** and the row **outlives the device** (D133). Deleting
+  a Pi is exactly when its credential must be destroyed, and if the broker is unreachable that
+  destruction is retried later — a cascade would delete the platform's only record of a login
+  still live on somebody's broker.
+- **Three states** (D133, project-changes #27): `minted` / `revoke_pending` / `revoked`, with a
+  CHECK making `revoked_at` non-null **exactly** when `state = 'revoked'`, so the timestamp means
+  "the broker confirmed" on every row. An unreachable broker is retried; a plugin that ANSWERED
+  and refused raises, because retrying a configuration fault hides it.
+- **Routes:** `POST` / `DELETE` / `GET /aggregators/{id}/broker-credential`. **No response
+  carries a password and none can — `BrokerCredentialOut` has no field for one.** `MANAGE_SERVICES`
+  to mint and revoke, `VIEW_SERVICES` to read; every refusal is a 404 (the E1.2 item-route
+  pattern). `POST` is 503 `service_unavailable` on an unreachable broker; `DELETE` returns 200
+  with `state: revoke_pending`, because a 503 would only invite a retry that changes nothing.
+- **`DELETE /aggregators/{id}` is now `async` and revokes on the way through**, its one E1-owned
+  edit. The audit detail carries `broker_credential` so a reader can tell a clean decommission
+  from one still awaiting a broker.
+- **Gate-locked sets extended:** `E0_ROUTES` (three routes) and `E0_TABLES` (`broker_credential`)
+  in `backend/tests/`. **Suite:** `backend/tests/test_broker_credentials.py` (26 tests, real
+  dynsec broker).
+
+### The service-settings projection and the privileged write (E5.7a; spec 5.3, 5.4, 16.4; D134, D136)
+
+- **Path:** `backend/app/services/projection.py`. `service_settings(rows, read_secret) -> dict`
+  is **pure**: the five service rows in, the twelve write-restricted catalog keys out, secrets as
+  PLAINTEXT for `put_overrides` to convert to D51 markers.
+- **`PROJECTION` is a table, and its keys are asserted against `CATALOG` at import time.** A row
+  naming a key the catalog does not mark `write_restricted` raises at import — that would let E5
+  write something an operator may also write, and fixed choice 3's wholesale regeneration would
+  silently resolve the collision in the platform's favour on every save.
+- **The `mqtt` row projects nothing.** Broker coordinates reach a device through E4.6's bootstrap
+  block; a device that could only learn its broker address over the broker could never connect.
+- **A key with no value is ABSENT, not null**, which is what makes omission mean unset under the
+  wholesale regeneration. **An unreadable credential is skipped, not raised on** (the D64 rule):
+  one broken secret degrades one key, not the whole save.
+- **`allow_write_restricted` is keyword-only, defaults off, and threads through FOUR signatures**
+  (D134): `validate_override_map` -> `put_overrides` -> `build_change_plan` -> `apply_change_plan`.
+  It means two things that are one idea: permit the twelve keys, **and** drop every
+  write-restricted key stored at the write target before applying the change map. Unrestricted
+  keys are untouched either way. **`PUT .../config/overrides` still 422s `service_restricted` on
+  all twelve**, walked one key at a time in `test_service_projection.py` — that is why the check
+  was gated rather than deleted.
+- **`put_overrides` remains the only writer of `entity_override`.** E5 did not grow a second one.
+- **`changed_keys` is computed through `snapshot_from_raw`** (D136), closing the E2-owned defect
+  phase-5 section 2 names. A services save now produces **one revision for the Aggregator and
+  zero for its Listeners**, with the Listener snapshots byte-identical before and after; the raw
+  comparison used to mint one per Listener carrying identical bytes (~600 per save on a SIM
+  fleet). Pinned by two acceptance tests so it cannot be dropped as an optimization.
+- **`publisher.publish_all(session_factory, publisher, revisions, *, publish_enabled, actor_user_id)`**
+  is `api/config.py::_publish_applied` extracted, and both callers use it — two publish loops with
+  two error-swallowing policies is a bug that surfaces months later as "some applies publish and
+  some do not". Behaviour unchanged: after the commit, one failure does not abort the rest, a
+  None publisher means `draft`.
+- **`PUT /deployments/{id}/services` is now `async`** and its audit detail gains `revisions`.
+- **Suite:** `backend/tests/test_service_projection.py` (21 tests).
+
+### Delivering service settings to late devices (E5.7b; spec 16.4; D137)
+
+- **Path:** `backend/app/services/config_sweep.py::service_config_sweep`. **The body is E5-owned
+  and `runner.py` only registers it**, which keeps the authorized E3-owned diff to registrations.
+- **It is the same code path as the services save**, deliberately: it recomputes each
+  deployment's projection and runs it through `build_change_plan` / `apply_change_plan`. E5.7a's
+  `changed_keys` fix is what makes that safe on a timer — a device already up to date is `no_op`,
+  so a pass over an unchanged fleet writes and publishes nothing. A bespoke "find devices with no
+  service keys" query would be a second definition of up-to-date.
+- **One transaction per deployment** (`runner.py`'s own rule). A deployment with no service rows
+  is skipped, not written to. `actor_user_id=None`: nobody clicked anything, and the trail is the
+  `reconciliation_event` its transition writes.
+- **Registered sweeps after E5.7b:** `timeout`, `drift` (E3.7), **`service-config`** and
+  **`broker-credential`** (E5.6's D133 revocation retry), plus a `mqtt-coordinates-refresh` task
+  that is deliberately OUTSIDE `_sweeps` — the heartbeat vouches for the sweeps, and a worker
+  whose coordinates poll died is still reconciling everything it holds.
+- **`_async_sweep_loop` is a second loop, not a branch.** The E3.7 sweeps are blocking SQLAlchemy
+  and go through `asyncio.to_thread`; these await a broker and must not. Every other rule is
+  `_sweep_loop`'s: run first and wait after, log and retry a failure rather than let the task die.
+- **New settings:** `EOE_SERVICE_CONFIG_SWEEP_SECONDS` (default 60) and
+  `EOE_BROKER_REFRESH_SECONDS` (default 30), both documented in `deploy/.env.example`.
+- **A retained desired message carries secret MARKERS, not plaintext** (D138) — the E3.4 contract,
+  and E5's projection is pinned to it by a test asserting the marker AND that no plaintext appears
+  anywhere in the payload.
+- **Suite:** `backend/tests/test_broker_refresh.py` (9 tests, real broker, two deployments).
+
+### The generated stack: bundle, rotation, and the thirteenth key (E5.8-E5.11; spec 16.3, 16.5; D142-D149)
+
+- **Three endpoints, all `MANAGE_SERVICES`, all audited, none returning a credential.**
+  `POST /deployments/{id}/services/stack` generates, `GET .../services/stack/download` streams
+  the archive, and `POST .../services/stack/rotate` regenerates. The download's audit detail is
+  the byte count and nothing else.
+- **The platform stores no blob and there is no `deployment_stack` table** (D143). Every
+  generation parameter is recovered from stored rows — object storage is *whether an `s3` row
+  exists*, the hostname is the `mqtt` row's `host`, the CA is its `ca_cert_pem` — and the rest
+  lives under deterministic `deployment:{id}:stack:*` SecretStore names kept separate from
+  E5.2's per-service names, so an operator's hand-save cannot clobber them. **Two consecutive
+  downloads are byte-identical**, which is what makes re-rendering an acceptable substitute for
+  storing the archive; entry order, mtime, uid/gid, uname/gname and the gzip header are all
+  pinned.
+- **Credentials are generated, stored and committed BEFORE a byte renders** (fixed choice 7).
+  `SecretStore.put` commits on its own session, so "zero secrets after a fault" is
+  compensation rather than a shared transaction, and a failed generation **restores prior
+  values rather than deleting names** (D143) — regeneration overwrites the same deterministic
+  names, so the destructive version wiped the working stack it was replacing.
+- **`services.credentials_generation` is the thirteenth write-restricted key** and the only one
+  that is not a projection of a service row (D146, spec addendum SPEC-5-01). It is an `int` on
+  `deployment.services_credentials_generation`, bumped in the same transaction as every
+  generation. **It exists because a rotation is otherwise invisible to devices:** a desired
+  snapshot carries secret MARKERS, and a marker is a SecretStore name — the same string before
+  and after. `write_restricted` keeps it out of Listener-bound config, so rotation mints one
+  revision per Aggregator and zero per Listener. Adding it moved the frozen merge-engine golden
+  checksum, recorded in D149.
+- **Rotation publishes BEFORE it knows whether re-verification passed, and unconditionally.**
+  The intuitive order is wrong: the likeliest reason re-verification fails is that the operator
+  has not restarted the stack yet, which is exactly when the devices need the new credentials.
+  A failed re-verification therefore leaves `services_status` at `degraded` **and still
+  publishes**. `verified` is never optimistic — generation returns every service to `untested`
+  and only a real test pass moves it on. The code carries a comment saying so; do not "fix" it.
+- **Grafana is the one credential that cannot be generated ahead of the stack**
+  (`app/services/provision.py`). Service account tokens are issued at runtime and shown once,
+  so the platform generates an ADMIN account and the first verification uses it once as a
+  bootstrap to mint the scoped token. **This is the only place in the phase where verifying can
+  create something on a target system**, and it is deliberately outside the testers:
+  `GrafanaTester.run` still writes nothing, and an operator who pasted their own token never
+  reaches this module.
+- **No sweep re-checks any of this on a timer, deliberately** (D145). Degradation comes from
+  observed events only — an operator-run test, a rotation's re-verification, and for MQTT the
+  control plane's connection and LWT. `status.py::services_recheck_sweep` is an on-demand bulk
+  re-test for an operator action to invoke, not a scheduled job.
+- **Suites:** `test_stack_generator.py`, `test_stack_generation.py`, `test_stack_endpoints.py`,
+  `test_stack_rotation.py`, `test_grafana_bootstrap.py`, and `test_stack_keystone.py` — the
+  keystone being the only test in the epic that RUNS the generated artifact under
+  `docker compose` and points all five testers at it, rather than inspecting it.
+
+### Amendment: the connection lifecycle is shielded at BOTH ends (E5, D150; extends D94)
+
+- **`app/controlplane/broker.py` has two symmetric helpers, and they are not optional.**
+  `_close_client` (D94) and `_open_client` (D150) each run an aiomqtt context transition in its
+  own task, shield it, and await it to completion if the surrounding task is cancelled. Neither
+  may be reduced to a bare `async with` or a bare `enter_async_context`.
+- **Why the entry needs it too.** aiomqtt's `__aenter__` awaits paho's blocking `connect()` in
+  an executor thread and then the CONNACK. A cancellation at either point abandons
+  `enter_async_context` **before the client is registered on the stack**, while the executor
+  thread completes the connect anyway — a started thread cannot be cancelled. The result is a
+  CONNECTED client with a live socket and a running `_misc_loop` owned by nothing, which
+  `stop()` cannot close and which outlives the process's shutdown.
+- **`stop()` therefore means the sockets are going away, not that they are already gone.**
+  aiomqtt schedules its `_misc_loop` cancel from paho's `_on_socket_close` via
+  `call_soon_threadsafe` and nothing awaits it, so a `_misc_loop` task may briefly outlive
+  `stop()` — **with no socket under it**. A survivor still holding a LIVE socket is a leak, not
+  a slow teardown, because anything that reached `__aexit__` has already resolved
+  `_disconnected`. `test_mqtt_manager.py::_tasks_outliving` encodes exactly that distinction
+  and must not be given a grace period for the live-socket case.
+
+### The services onboarding UI (E5.12a, E5.12b; spec 16.2, 16.3, 16.5; screen S5; D152-D157)
+
+- **Route: `inventory/deployments/:deploymentId/services`**, nested in `InventoryLayout` with
+  a crumb special case, the `/inventory/import` precedent. It does **not** build S5's
+  standalone wizard frame (D153) — the app's top bar, context bar and hierarchy rail are the
+  chrome, and only the mock draws its own.
+- **`frontend/src/lib/services.ts` is the client and the FORM SCHEMA.** Shaped after
+  `lib/inventory.ts`: the typed `ApiError` from `lib/http.ts`, one exported function per call,
+  flat query keys (`["services", id]`, `["services-status", id]`). `SERVICE_SCHEMA` is a
+  mirror of the five Pydantic models in `app/services/schemas.py` — field names, their order,
+  which are secrets, which are required — and `tests/services-schema.test.ts` parses the
+  Python and fails on any divergence (D152). **Adding a field to a service model means adding
+  it here too**; the test is what makes that unmissable rather than a convention. There is
+  deliberately no schema endpoint.
+- **`downloadStack` goes through `fetch`, not an `<a href>`.** The API can be on another
+  origin, where the `download` attribute is ignored and an auth failure would navigate the
+  operator to a JSON error page instead of raising. The bytes go straight to an object URL
+  that is revoked in the same turn.
+- **Secrets are write-only in the UI, and this is asserted rather than intended.** A stored
+  credential arrives as the D51 keep sentinel, so there is no value to populate an input with:
+  the field renders its set-ness and Replace reveals an EMPTY input. The component test reads
+  the input's `value` after a load, and asserts that typed plaintext is carried by exactly one
+  control on the card and never appears as rendered text. **A future change that populates a
+  secret input from a response breaks these tests, and that is the point.**
+- **Three status vocabularies, three renderings, no sharing (D154).** `StatusChip` /
+  `.status-chip` stays the six spec 9.3 DEVICE states. `ServiceChip` / `.service-chip` is the
+  per-connection `untested` / `verified` / `failed`. The deployment rollup's four values render
+  in the summary panel with their own words. A test asserts no `.status-chip` and none of the
+  six device words reach this page. The eight `--eoe-color-service-*` tokens are `var()`
+  aliases of the `--eoe-color-status-*` keys — one sheet, so they cannot drift, and the night
+  theme is inherited rather than restated.
+- **`required` and `degrade_after_failures` come from the API, never from a frontend rule.**
+  Object storage is conditionally required (spec 16.2, D135) and the `optional` tag is driven
+  by the status response.
+- **The page REPORTS spec 16.5's provisioning gate and does not enforce it (D157).** E4.3's
+  bundle generator is what refuses; `deployment.services_status` and the per-service rows are
+  what E5 owes it, and both ship.
+- **Path B offers Download and Rotate unconditionally.** Fixed choice 7 stores no bundle and
+  no "a stack exists here" flag, so a missing stack is reported as a clear 404 message rather
+  than guessed at (D156). A later epic wanting a real signal should add a cheap existence
+  check, not call `load_generated_stack` on a read every role hits.
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

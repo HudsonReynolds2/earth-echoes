@@ -81,14 +81,28 @@ def put_overrides(
     *,
     catalog: Mapping[str, CatalogEntry] | None = None,
     catalog_version: int = CATALOG_VERSION,
+    allow_write_restricted: bool = False,
 ) -> OverrideChange:
     """Wholesale replace of one entity's sparse map (the E1.7 tags precedent:
     PUT is never a merge). Secret keys: a plaintext string stores the value
     in SecretStore and the marker here; the keep sentinel preserves the
     stored secret; omission unsets it (deletion deferred to post-commit).
-    Raises OverrideValidationError before staging anything."""
+    Raises OverrideValidationError before staging anything.
+
+    `allow_write_restricted` (E5.7a) lets the services onboarding flow write
+    the twelve keys the catalog reserves for it. Keyword-only and off by
+    default, so `PUT /deployments/{id}/config/overrides` and every other
+    operator path still 422 on them. **This function stays the only writer of
+    `entity_override`** — E5 does not grow a second one, because duplicating
+    the D51 secret-marker convention is exactly how the two drift.
+    """
     entries = catalog if catalog is not None else CATALOG_BY_KEY
-    errors = validate_override_map(new_map, entries, entity_level=entity_type)
+    errors = validate_override_map(
+        new_map,
+        entries,
+        entity_level=entity_type,
+        allow_write_restricted=allow_write_restricted,
+    )
     row = get_override_row(db, entity_type, entity_id)
     old = dict(row.overrides) if row is not None else {}
     for key, value in new_map.items():

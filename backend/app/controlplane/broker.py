@@ -63,6 +63,43 @@ MQTT_SERVICE_KEY = "mqtt"
 KEEPALIVE_SECONDS = 30
 
 
+async def _open_client(stack: contextlib.AsyncExitStack, client: aiomqtt.Client) -> aiomqtt.Client:
+    """Enter a client's context so that a cancellation cannot strand it.
+
+    **The mirror image of `_close_client`, and the same defect from the other
+    end.** aiomqtt's `__aenter__` awaits twice: once on paho's blocking
+    `connect()` inside an executor thread, and once on the CONNACK. Cancel the
+    task at either point and `enter_async_context` never returns, so the client
+    is never registered on the stack — while the executor thread runs
+    `connect()` through to completion regardless, because a thread that has
+    already started cannot be cancelled. The socket opens, paho's
+    `_on_socket_open` schedules the `_misc_loop` task, and what is left is a
+    fully CONNECTED client holding a live socket that nothing owns and that
+    `stack.aclose()` has never heard of. It outlives `stop()` for the life of
+    the process.
+
+    So the entry runs in its OWN task, shielded. If we are cancelled while it
+    runs, we wait for it to finish — which is precisely what puts the client on
+    the stack — and only then let the cancellation continue, by which time the
+    caller's `_close_client` can see it and close it.
+
+    Found by `test_shutdown_leaves_no_running_tasks` under a loaded gate
+    (D150): the same detector that found D94 at the teardown end, reporting the
+    same shape of survivor.
+    """
+    entering = asyncio.ensure_future(stack.enter_async_context(client))
+    try:
+        return await asyncio.shield(entering)
+    except asyncio.CancelledError:
+        # The shield kept `entering` alive. Let it land so the stack really
+        # owns the client, then let the cancellation continue up. A connect
+        # that failed on its own raises here instead and leaves nothing to
+        # close, which is why the suppression is this broad.
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await entering
+        raise
+
+
 async def _close_client(stack: contextlib.AsyncExitStack) -> None:
     """Close an aiomqtt client's context, even while being cancelled.
 
@@ -144,6 +181,16 @@ def load_broker_coordinates(
     A row whose secret is missing is SKIPPED with a warning rather than
     raising: one deployment provisioned badly must not stop the control plane
     for every other deployment. The warning names the secret, never its value.
+
+    A row missing its connection columns is skipped the same way, and for the
+    same reason (D64). E5.1 made `host`, `port`, `username` and
+    `password_secret_name` nullable so a Grafana or S3 row is not four
+    meaningless empty strings; the `mqtt_coordinates_required` CHECK is what
+    keeps them mandatory on THIS row, so the branch below should be
+    unreachable. It exists because "should be unreachable" is not a thing to
+    dial a socket on, and because a future migration that touched that
+    constraint must degrade to one deaf deployment rather than to a crash in
+    the loader every deployment shares.
     """
     coordinates: list[BrokerCoordinates] = []
     with session_factory() as db:
@@ -154,13 +201,32 @@ def load_broker_coordinates(
             .order_by(Deployment.slug)
         ).all()
         for service, slug in rows:
+            host, port = service.host, service.port
+            username, secret = service.username, service.password_secret_name
+            if host is None or port is None or username is None or secret is None:
+                missing = [
+                    name
+                    for name, value in (
+                        ("host", host),
+                        ("port", port),
+                        ("username", username),
+                        ("password_secret_name", secret),
+                    )
+                    if value is None
+                ]
+                log.warning(
+                    "skipping the %s broker: its deployment_service row is missing %s",
+                    slug,
+                    ", ".join(missing),
+                )
+                continue
             try:
-                password = secret_store.get(service.password_secret_name)
+                password = secret_store.get(secret)
             except SecretStoreError as error:
                 log.warning(
                     "skipping the %s broker: %s is unreadable (%s)",
                     slug,
-                    service.password_secret_name,
+                    secret,
                     error,
                 )
                 continue
@@ -168,9 +234,9 @@ def load_broker_coordinates(
                 BrokerCoordinates(
                     deployment_id=service.deployment_id,
                     slug=slug,
-                    host=service.host,
-                    port=service.port,
-                    username=service.username,
+                    host=host,
+                    port=port,
+                    username=username,
                     password=password,
                     tls_enabled=service.tls_enabled,
                     ca_cert_pem=service.ca_cert_pem,
@@ -282,9 +348,16 @@ class MqttClientManager:
         async with manager:
             ...
 
-    `start()` loads coordinates once. Adding or removing a deployment's broker
-    row therefore takes a restart of the manager, which is honest for E3.2:
-    the reconciliation worker (E3.7) owns the lifecycle and can restart it.
+    `start()` loads coordinates once; **`refresh()` re-reads them and
+    reconciles the running tasks** (E5.7b). Until E5 that was a restart of the
+    manager, which was honest for E3.2 because broker rows only changed when
+    somebody re-ran `app.devbroker`. E5's services onboarding changes them as a
+    matter of course, so both hosts now poll `refresh()` on an interval.
+
+    **Registration is still fixed before `start()`.** `refresh()` starts and
+    stops CONNECTIONS, never subscriptions: `_registrations` is manager-level,
+    so a deployment that arrives an hour late inherits the same filter set as
+    one that was there at startup.
     """
 
     def __init__(
@@ -338,11 +411,7 @@ class MqttClientManager:
         # The loader is synchronous SQLAlchemy; keep it off the event loop.
         coordinates = await asyncio.to_thread(self._loader)
         for coords in coordinates:
-            self._coordinates[coords.deployment_id] = coords
-            self._connected[coords.deployment_id] = asyncio.Event()
-            self._tasks[coords.deployment_id] = asyncio.create_task(
-                self._connection_loop(coords), name=f"mqtt-{coords.slug}"
-            )
+            self._begin(coords)
         log.info("mqtt client manager started for %d deployment(s)", len(self._tasks))
 
     async def start_or_retry(self) -> bool:
@@ -419,6 +488,95 @@ class MqttClientManager:
         self._coordinates.clear()
         self._running = False
 
+    async def refresh(self) -> tuple[int, int, int]:
+        """Re-read the coordinates and reconcile the running tasks.
+
+        **Added by E5.7a's epic, E5.7b, as one of two authorized E3-owned
+        edits** (phase-5 section 2). Until this phase, "coordinates load once,
+        at `start()`" was an honest limitation: E3 created broker rows through
+        `app.devbroker` and a restart was a fair price. E5 changes broker rows
+        as a matter of course — Path B writes a new one, rotation changes its
+        password, a new deployment gets its first — so the limitation becomes a
+        bug the moment E5 ships.
+
+        Returns `(started, stopped, restarted)`.
+
+        **A rotated password IS a difference**, and the diff is three lines
+        because `BrokerCoordinates` is a frozen dataclass: equality compares
+        every field, so a changed password, host, port or CA all fall out of
+        `!=` without anything here enumerating them. A later session adding a
+        field to that dataclass gets it reconciled for free, which is the whole
+        reason the comparison is not a hand-written list of attributes.
+
+        **`start()`'s semantics are unchanged and `_registrations` is
+        manager-level**, so a task started here inherits the full subscription
+        set — a deployment that arrives late is not a deployment that listens
+        to less.
+
+        **A poll rather than LISTEN/NOTIFY**, deliberately: a new deployment's
+        broker cannot be dialled before the operator has finished configuring
+        it anyway, so a channel, a payload contract and a second delivery path
+        would buy nothing. Both hosts call this on a loop; see `runner.py` and
+        `main.py`.
+
+        Refreshing a manager that is not running is a no-op rather than an
+        error: the hosts' loops keep ticking while `start_or_retry` is still
+        backing off in the background, and making that a raise would fill a
+        log with exceptions describing a state that resolves itself.
+        """
+        if not self._running or self._stopping.is_set():
+            return (0, 0, 0)
+        loaded = await asyncio.to_thread(self._loader)
+        latest = {coords.deployment_id: coords for coords in loaded}
+
+        gone = set(self._coordinates) - set(latest)
+        arrived = set(latest) - set(self._coordinates)
+        changed = {
+            deployment_id
+            for deployment_id in set(latest) & set(self._coordinates)
+            if latest[deployment_id] != self._coordinates[deployment_id]
+        }
+
+        for deployment_id in gone | changed:
+            await self._cancel(deployment_id)
+        for deployment_id in arrived | changed:
+            self._begin(latest[deployment_id])
+
+        if gone or arrived or changed:
+            log.info(
+                "broker coordinates refreshed: %d started, %d stopped, %d reconnected",
+                len(arrived),
+                len(gone),
+                len(changed),
+            )
+        return (len(arrived), len(gone), len(changed))
+
+    def _begin(self, coords: BrokerCoordinates) -> None:
+        """Start one deployment's connection loop. Shared with `start()` so
+        there is one place a task and its bookkeeping are created together."""
+        self._coordinates[coords.deployment_id] = coords
+        self._connected[coords.deployment_id] = asyncio.Event()
+        self._tasks[coords.deployment_id] = asyncio.create_task(
+            self._connection_loop(coords), name=f"mqtt-{coords.slug}"
+        )
+
+    async def _cancel(self, deployment_id: uuid.UUID) -> None:
+        """Stop one deployment's connection and wait for the task to finish.
+
+        Awaited rather than fire-and-forget: a restart that started the new
+        task before the old one had closed its socket would leave two clients
+        with the same identifier, and the broker would evict one of them.
+        """
+        task = self._tasks.pop(deployment_id, None)
+        self._coordinates.pop(deployment_id, None)
+        self._clients.pop(deployment_id, None)
+        self._connected.pop(deployment_id, None)
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await task
+
     async def __aenter__(self) -> "MqttClientManager":
         await self.start()
         return self
@@ -484,7 +642,8 @@ class MqttClientManager:
             # inside an already-cancelled task strands its internal task.
             stack = contextlib.AsyncExitStack()
             try:
-                client = await stack.enter_async_context(
+                client = await _open_client(
+                    stack,
                     aiomqtt.Client(
                         hostname=coords.host,
                         port=coords.port,
@@ -494,7 +653,7 @@ class MqttClientManager:
                         tls_context=tls_context(coords),
                         keepalive=self._keepalive,
                         clean_session=True,
-                    )
+                    ),
                 )
                 attempt = 0
                 # Subscribe BEFORE announcing the connection: a caller that

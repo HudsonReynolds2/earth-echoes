@@ -30,8 +30,7 @@ from app.config.catalog import CATALOG_BY_KEY
 from app.config.merge import ResolvedValue, redact_secrets
 from app.config.plan import ChangePlan, PlanError, apply_change_plan, build_change_plan
 from app.config.selection import SelectionQuery, evaluate_selection, validate_selection_query
-from app.controlplane.broker import BrokerUnavailable
-from app.controlplane.publisher import PublishError, publish_revision
+from app.controlplane.publisher import publish_all
 from app.errors import AppError
 from app.models import ConfigRevision, Selection, SettingsCatalog, UserSession
 from app.scoping import require_any_assignment
@@ -314,36 +313,19 @@ def _aggregate_state(total: int, published: int) -> str:
 async def _publish_applied(
     request: Request, revisions: list[ConfigRevision], actor_user_id: uuid.UUID
 ) -> set[uuid.UUID]:
-    """Publish every revision this apply created; return the ids that went out.
+    """`publisher.publish_all`, with this endpoint's state unpacked for it.
 
-    Called AFTER the commit, so nothing here can undo the operator's edit. A
-    broker that is down costs a publish and not the work: that revision stays
-    `draft`, is reported as such, and `POST /revisions/{id}/publish` retries it.
-
-    The manager is None when `EOE_PUBLISH_ENABLED` is off, and also in any
-    process that never ran the lifespan (D86) — a test client used without its
-    context manager, for one. Both mean "nothing may reach a device", which is
-    exactly `draft`.
+    **The loop moved to `app/controlplane/publisher.py` at E5.7a** so that E5's
+    services save is the second CALLER of it rather than the second COPY of it.
+    Two publish loops with two error-swallowing policies is a bug that surfaces
+    months later as "some applies publish and some do not", and nothing about
+    the behaviour changed in the move — see `publish_all` for the three rules
+    it keeps.
     """
-    manager = getattr(request.app.state, "mqtt", None)
-    settings = request.app.state.settings
-    if manager is None or not settings.publish_enabled or not revisions:
-        return set()
-
-    published: set[uuid.UUID] = set()
-    for revision in revisions:
-        try:
-            await publish_revision(
-                request.app.state.session_factory,
-                manager,
-                revision.id,
-                publish_enabled=True,
-                actor_user_id=actor_user_id,
-            )
-        except (PublishError, BrokerUnavailable) as error:
-            # Logged, counted, and left as draft. Raising would abort the rest
-            # of a fleet-wide apply over one unreachable deployment.
-            log.warning("could not publish revision %s on apply: %s", revision.id, error)
-            continue
-        published.add(revision.id)
-    return published
+    return await publish_all(
+        request.app.state.session_factory,
+        getattr(request.app.state, "mqtt", None),
+        revisions,
+        publish_enabled=request.app.state.settings.publish_enabled,
+        actor_user_id=actor_user_id,
+    )

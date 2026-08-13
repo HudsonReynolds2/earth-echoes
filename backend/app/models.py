@@ -18,6 +18,7 @@ from sqlalchemy import (
     false,
     func,
     text,
+    true,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -30,6 +31,47 @@ from app.db import Base
 #: and the value the worker falls back to when a revision outlives the
 #: deployment row it names (`config_revision.deployment_id` is un-FK'd, D33).
 DEFAULT_PENDING_TIMEOUT_SECONDS = 300
+
+#: The five deployment services of spec 16.2, in the order that table lists
+#: them (task E5.1, phase-5 fixed choice 1). `deployment_service.service_key`
+#: is CHECK-constrained to exactly this set: E3 wrote only `mqtt` because the
+#: control plane cannot exist without broker coordinates, and E5 widens the
+#: vocabulary rather than starting a second table. A sixth key needs a spec
+#: change first - `tests/test_services_model.py` pins this tuple against a
+#: hand transcription of the spec table, the way test_settings_catalog.py
+#: pins CATALOG against spec 5.3.
+SERVICE_KEYS: tuple[str, ...] = ("mqtt", "influx", "prometheus", "grafana", "s3")
+
+#: Per-service verification status (spec 16.2's "per-service status"), a
+#: property of ONE service connection and stored on its own row. E5.5 owns
+#: every transition; E5.1 only creates the column and its `untested` default.
+SERVICE_STATUS_VOCAB: tuple[str, ...] = ("untested", "verified", "failed")
+
+#: The rolled-up `deployment.services_status` of spec 16.5 - a DIFFERENT
+#: vocabulary from the per-service one, deliberately, because "this
+#: deployment is degraded" is not a statement any single service can make.
+#: E5.5's `app/services/status.py::roll_up` is its only writer.
+SERVICES_STATUS_VOCAB: tuple[str, ...] = (
+    "unconfigured",
+    "pending_verification",
+    "verified",
+    "degraded",
+)
+
+
+#: The lifecycle of a per-device broker login (E5.6). `revoke_pending` is the
+#: one that needed a decision rather than following from the domain: deleting
+#: an Aggregator while its broker is unreachable must neither block the
+#: operator nor leave a decommissioned Pi holding live credentials, so the
+#: delete proceeds and the revocation is retried. Owner's call, 2026-08-12;
+#: DECISIONS D133, project-changes #27.
+BROKER_CREDENTIAL_STATES: tuple[str, ...] = ("minted", "revoke_pending", "revoked")
+
+
+def _in_vocab(column: str, vocab: tuple[str, ...]) -> str:
+    """A SQL `IN` predicate rendered from a vocabulary tuple, so the CHECK and
+    the constant can never disagree."""
+    return f"{column} IN ({', '.join(repr(value) for value in vocab)})"
 
 
 def utcnow() -> datetime:
@@ -192,6 +234,9 @@ class Deployment(Base):
         UniqueConstraint("organization_id", "name"),
         CheckConstraint("slug ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'", name="slug_format"),
         CheckConstraint("pending_timeout_seconds > 0", name="pending_timeout_positive"),
+        CheckConstraint(
+            _in_vocab("services_status", SERVICES_STATUS_VOCAB), name="services_status_vocab"
+        ),
         Index("ix_deployment_tags", "tags", postgresql_using="gin"),
     )
 
@@ -215,6 +260,35 @@ class Deployment(Base):
     #: worker reads this to decide an action - the only code that may read it
     #: reports it.
     auto_reconcile: Mapped[bool] = mapped_column(default=False, server_default=false())
+    #: E5.1: the spec 16.5 rollup over this deployment's `deployment_service`
+    #: rows (phase-5 fixed choice 2). DENORMALIZED deliberately - E6.4's map
+    #: rollup and E7.4's Owner fan-out both read it once per deployment inside
+    #: fan-outs that are already cross-deployment, and a join per deployment to
+    #: answer "is this stack healthy" is the cost being avoided. The
+    #: correctness risk of denormalizing is answered by making E5.5's
+    #: `app/services/status.py::roll_up` the ONLY writer and asserting the
+    #: invariant across the suite. E5.1 creates the column and its default and
+    #: writes nothing.
+    services_status: Mapped[str] = mapped_column(
+        String(30), default="unconfigured", server_default=text("'unconfigured'")
+    )
+    #: **How many times this deployment's service credentials have been
+    #: generated** (E5.11). Projected onto `services.credentials_generation`,
+    #: which is the ONE non-secret thing a rotation changes in a device's
+    #: desired config.
+    #:
+    #: Without it a rotation is invisible to devices: a desired snapshot
+    #: carries secret MARKERS and never plaintext (spec 5.4, 8; D51, D138), and
+    #: a marker is a SecretStore NAME — the identical string before and after a
+    #: rotation. Every snapshot would be unchanged, every plan entry a no-op,
+    #: and nothing minted, so "rotation is a config revision and not a manual
+    #: redistribution" (spec 16.3) would not be true of any device. This is the
+    #: counter that makes it true, and it is deliberately a COUNT rather than a
+    #: timestamp: two renders of one generation have to be identical, and a
+    #: clock is not (D146).
+    services_credentials_generation: Mapped[int] = mapped_column(
+        default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -506,13 +580,31 @@ class EntityOverride(Base):
 
 class DeploymentService(Base):
     """A deployment-local service the platform connects outbound to (task
-    E3.1; spec 7.1, 16.2).
+    E3.1, widened by E5.1; spec 7.1, 16.2).
 
-    **E5 OWNS EXTENDING THIS TABLE.** E3 defines the row shape and populates
-    exactly one service_key, 'mqtt', because the control plane cannot exist
-    without broker coordinates. The Influx / Grafana / Prometheus / S3 rows,
-    the connection tests, and the verification status lifecycle (spec 16.5)
-    are E5's; adding them means adding columns here, not a second table.
+    **E5 EXTENDS THIS TABLE; it does not fork it** (phase-5 fixed choice 1).
+    E3 defined the row shape and populated exactly one service_key, 'mqtt',
+    because the control plane cannot exist without broker coordinates. E5.1
+    widens `service_key` to the five spec 16.2 services and adds the columns
+    the other four need, rather than starting a second table.
+
+    **The six MQTT-shaped columns stay exactly where they are.** Moving them
+    into `config` would rewrite `load_broker_coordinates`,
+    `devbroker.register_services` and the `port_range` constraint for no
+    benefit, and `load_broker_coordinates` is the function every deployment's
+    control plane depends on. They become CONDITIONALLY REQUIRED instead: the
+    `mqtt_coordinates_required` CHECK makes `host`, `port`, `username` and
+    `password_secret_name` NOT NULL for an `mqtt` row and optional for every
+    other, so a Grafana row is not four meaningless empty strings.
+
+    **`config` and `secret_names` carry everything else.** Fifteen nullable
+    columns whose validity is a function of `service_key` is a schema that
+    documents nothing and constrains nothing, and a CHECK cannot validate a
+    URL anyway - so the heterogeneous per-service fields are typed at the
+    WRITE BOUNDARY instead, in one Pydantic model per service (E5.2, rule
+    R2). `secret_names` maps a field name to its SecretStore name and
+    **never to a value**, exactly as `password_secret_name` does for the
+    broker; it is the same D51 discipline in map form.
 
     Credentials never live in this row: `password_secret_name` names a
     SecretStore entry (`deployment:{deployment_id}:{service_key}_password`)
@@ -526,23 +618,136 @@ class DeploymentService(Base):
     __tablename__ = "deployment_service"
     __table_args__ = (
         UniqueConstraint("deployment_id", "service_key"),
-        CheckConstraint("service_key IN ('mqtt')", name="service_key_vocab"),
+        CheckConstraint(_in_vocab("service_key", SERVICE_KEYS), name="service_key_vocab"),
         CheckConstraint("port > 0 AND port < 65536", name="port_range"),
+        # Conditional requirement, phase-5 fixed choice 1: the broker row
+        # still cannot exist without the four fields E3 dials it with, and
+        # the DATABASE is what says so - not a Python guard a later writer
+        # could route around.
+        CheckConstraint(
+            "service_key <> 'mqtt' OR ("
+            "host IS NOT NULL AND port IS NOT NULL "
+            "AND username IS NOT NULL AND password_secret_name IS NOT NULL)",
+            name="mqtt_coordinates_required",
+        ),
+        CheckConstraint(_in_vocab("status", SERVICE_STATUS_VOCAB), name="status_vocab"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
     service_key: Mapped[str] = mapped_column(String(40))
-    host: Mapped[str] = mapped_column(String(255))
-    port: Mapped[int] = mapped_column()
+    host: Mapped[str | None] = mapped_column(String(255), default=None)
+    port: Mapped[int | None] = mapped_column(default=None)
     tls_enabled: Mapped[bool] = mapped_column(default=True)
     ca_cert_pem: Mapped[str | None] = mapped_column(Text, default=None)
-    username: Mapped[str] = mapped_column(String(200))
-    password_secret_name: Mapped[str] = mapped_column(String(200))
+    username: Mapped[str | None] = mapped_column(String(200), default=None)
+    password_secret_name: Mapped[str | None] = mapped_column(String(200), default=None)
+    #: The heterogeneous, non-secret per-service fields (Influx database name,
+    #: S3 bucket and region, Grafana base URL, ...). Typed at the write
+    #: boundary by E5.2's per-service Pydantic models, never here.
+    config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
+    #: field name -> SecretStore name. **Never a value** (rule R2); the same
+    #: rule `password_secret_name` follows, in map form.
+    secret_names: Mapped[dict[str, str]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb")
+    )
+    #: Spec 16.2's per-service status block. E5.1 creates these columns;
+    #: **E5.5's `apply_test_results` is what writes them**, and E5.3's testers
+    #: are what produce the evidence. `consecutive_failures` is state rather
+    #: than a heuristic because spec 16.5 demotes "on repeated failure", and a
+    #: counter incremented on fail and zeroed on pass is the smallest thing
+    #: that makes "repeated" true without a history table.
+    status: Mapped[str] = mapped_column(
+        String(20), default="untested", server_default=text("'untested'")
+    )
+    #: E5.5: whether this service has to reach `verified` for the DEPLOYMENT
+    #: to. True for everything by default; set False when a tester answers
+    #: `not_required` - spec 16.2 makes object storage conditionally required,
+    #: and a deployment with raw-audio upload off must still be able to verify.
+    #: **A stored column rather than a parameter to `roll_up`, because
+    #: `deployment.services_status` has to be reproducible from these rows
+    #: alone.** It was a parameter first, and the suite-wide invariant
+    #: assertion caught it on the first run: a rollup depending on a fact known
+    #: only during a test run cannot be recomputed afterwards, which is exactly
+    #: the divergence denormalizing the column risks (D129).
+    required: Mapped[bool] = mapped_column(default=True, server_default=true())
+    status_reason: Mapped[str | None] = mapped_column(Text, default=None)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    consecutive_failures: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    #: The last structured `TestResult` (E5.3), for the S5 wizard's remedy
+    #: text. Redaction is the tester's job: nothing here may name a credential.
+    last_test_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    deployment: Mapped[Deployment] = relationship()
+
+
+class BrokerCredential(Base):
+    """One per-device broker login the platform minted (task E5.6; spec 16.4).
+
+    Fixed choice 4 makes Mosquitto's dynamic security plugin required, so this
+    row is the platform's record of a client that exists **on a broker** — a
+    thing outside this database that has to be cleaned up deliberately. That
+    single fact decides most of the shape below.
+
+    **`aggregator_uuid` is a plain string and deliberately NOT a foreign key
+    to `aggregator`.** The row has to OUTLIVE the device: deleting a Pi is
+    exactly when its credential must be destroyed, and a cascade would delete
+    the platform's only record of a login that is still live on the broker.
+    Spec 4.2 also makes `aggregator_uuid` the identifier the device itself
+    carries, which is what the broker knows it by.
+
+    **Three states, not the two the phase document pencilled** (project-changes
+    #27). `minted` and `revoked` are the steady ones; `revoke_pending` exists
+    because a broker that is unreachable must not be able to block an operator
+    from deleting inventory, while a decommissioned Pi must still end up with a
+    dead credential. The owner chose that trade on 2026-08-12. The sweep in
+    `app/services/credentials.py::drain_pending_revocations` is what closes it,
+    and `revoked_at` stays NULL until the broker has actually confirmed.
+
+    Credentials never live here: `password_secret_name` names a SecretStore
+    entry and the plaintext moves only through `app.secrets.SecretStore`
+    (rule R2), exactly as `deployment_service.password_secret_name` does.
+    """
+
+    __tablename__ = "broker_credential"
+    __table_args__ = (
+        # One live credential per device. A rotation REPLACES this row's
+        # password rather than accumulating history: two `minted` rows for one
+        # `aggregator_uuid` would be two logins on the broker and no way to
+        # tell which the device holds.
+        UniqueConstraint("deployment_id", "aggregator_uuid"),
+        CheckConstraint(
+            _in_vocab("state", BROKER_CREDENTIAL_STATES),
+            name="state_vocab",
+        ),
+        # A row is `revoked` exactly when the broker confirmed it. Making the
+        # database say so keeps `revoked_at` from becoming a field that means
+        # "we asked" on some rows and "it is gone" on others.
+        CheckConstraint(
+            "(state = 'revoked') = (revoked_at IS NOT NULL)",
+            name="revoked_at_matches_state",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("deployment.id"), index=True)
+    aggregator_uuid: Mapped[str] = mapped_column(String(64), index=True)
+    username: Mapped[str] = mapped_column(String(200))
+    password_secret_name: Mapped[str] = mapped_column(String(200))
+    state: Mapped[str] = mapped_column(
+        String(20), default="minted", server_default=text("'minted'")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     deployment: Mapped[Deployment] = relationship()
 

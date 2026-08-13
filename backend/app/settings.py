@@ -75,6 +75,23 @@ class Settings(BaseSettings):
     # per applied device, and a device that diverges tells us so on its next
     # report anyway - this sweep is the backstop for the one that does not.
     drift_sweep_seconds: int = Field(default=300, validation_alias="EOE_DRIFT_SWEEP_SECONDS")
+    # E5.7b, spec 16.4: how often the worker delivers a deployment's service
+    # settings to devices that do not have them yet, and retries any broker
+    # credential whose revocation could not reach its broker (D133). Its whole
+    # job is the Aggregator created AFTER the operator saved their services, so
+    # the cadence is "how long a newly registered Pi waits", not a correctness
+    # bound - the services save itself already reached every device that
+    # existed at the time. A minute keeps that wait short, and a pass over an
+    # up-to-date fleet writes and publishes nothing.
+    service_config_sweep_seconds: int = Field(
+        default=60, validation_alias="EOE_SERVICE_CONFIG_SWEEP_SECONDS"
+    )
+    # E5.7b: how often both hosts re-read the `deployment_service` broker rows
+    # and reconcile their connections. Faster than the config sweep because
+    # nothing else notices a new deployment at all - until this ticks, that
+    # deployment's control plane does not exist. It is one query and a
+    # frozen-dataclass comparison; a no-change tick starts and stops nothing.
+    broker_refresh_seconds: int = Field(default=30, validation_alias="EOE_BROKER_REFRESH_SECONDS")
     # Where the standalone worker writes its liveness stamp. The compose
     # healthcheck reads the file's age; the worker serves no port, and
     # opening one purely to answer a probe would add a socket, a framework

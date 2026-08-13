@@ -5,6 +5,225 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #39 (2026-08-13): E5's handoff list named two environment variables that never existed
+
+- **What changed:** the `INTERFACES.md` **Owned by E0** environment-variable table gains
+  `EOE_BROKER_REFRESH_SECONDS` (default 30) and `EOE_SERVICE_CONFIG_SWEEP_SECONDS` (default 60)
+  as additive rows, and phase 5's section 6 gains addendum **PHASE5-6-02** recording that its own
+  handoff line named them wrongly.
+- **Why:** the line required "the environment-variable table in `INTERFACES.md`'s **Owned by E0**
+  section gaining `EOE_COORDINATES_REFRESH_SECONDS` and the services re-check interval". Neither
+  name is real. E5.7b shipped `EOE_BROKER_REFRESH_SECONDS`, and **there is no services re-check
+  interval at all** — D145 closed spec 16.5's periodic re-checks as *deliberately not built*, so
+  the second setting is the config sweep that delivers projected settings to late devices, which
+  is not a re-test of anything. The rows were never added to the E0 table under either name.
+- **Why it is worth a change entry rather than a silent edit:** both settings were already
+  documented in `deploy/.env.example` and in the **Owned by E5** section, so nothing was
+  undocumented — but the E0 table is the one place an operator reads for "what environment
+  variables exist", and a handoff artifact the epic listed and did not deliver is a gap in the
+  definition of done, not a formatting preference.
+- **How it was found:** auditing E5's section 6 against the tree after the epic had already gone
+  green and been tagged `gate-62`. A green gate asserts nothing about a documentation artifact
+  that no test names.
+- **Affects:** project_planning/phase-5-deployment-services.md section 6 (the handoff artifact
+  list, addendum **PHASE5-6-02**); docs/INTERFACES.md **Owned by E0**
+- **Addendum:** PHASE5-6-02
+
+## #35 (2026-08-13): The bundle README template moves out of `deploy/` and into the package
+
+- **What changed:** `deploy/stack-templates/README.md` becomes
+  `backend/app/services/stack_templates/README.md`, and `stack.TEMPLATE_DIR` resolves beside its
+  own module. Two new guards in `tests/test_repo_layout.py` keep every runtime data file inside
+  the API image's build context.
+- **Why:** the phase document's location was **unshippable**, not merely inconvenient. The API
+  image is built with `context: ../backend`, so `deploy/` is outside the build context entirely
+  and no `COPY` can reach it; the download endpoint raised `FileNotFoundError` on
+  `/srv/deploy/stack-templates/README.md` in every containerized deployment. The whole suite was
+  green because tests run from the repo tree where the path exists — every README assertion was
+  true of the developer's filesystem and false of the artifact that ships. Details in D158.
+- **How it was found:** the first hand-run of `guide/e5-verification.md` against a real
+  container, minutes after the C5 gate went green.
+- **Why not keep the location and copy it in:** the only way to `COPY` a sibling of `backend/`
+  is to move the build context to the repo root, which changes `backend/Dockerfile`,
+  `deploy/docker-compose.yml` and CI — E0-owned infrastructure, for a file that has no reason to
+  live outside the package that reads it. Inside `app/`, `COPY app ./app` ships it by
+  construction rather than by anyone remembering.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.8b's "Static prose
+  lives in `deploy/stack-templates/`", addendum **PHASE5-4-07**) and section 6 (the handoff
+  artifact list, addendum **PHASE5-6-01**); docs/DECISIONS.md **D158**;
+  backend/app/services/stack.py; backend/tests/test_repo_layout.py;
+  backend/tests/test_stack_generator.py.
+- **Addendum:** PHASE5-4-07
+
+## #34 (2026-08-13): A third E3-owned edit is taken, to fix a stranded broker connection
+
+- **What changed:** `app/controlplane/broker.py` gains `_open_client` and `_connection_loop`
+  uses it, so a cancellation inside aiomqtt's `__aenter__` can no longer strand a connected
+  client off the `AsyncExitStack`. Plus a forced regression test in `test_mqtt_manager.py`.
+- **Why:** `stop()` cancelling mid-connect left a CONNECTED client with a live socket and a
+  running `_misc_loop` that nothing owned and nothing could close — a per-reconnect leak of
+  sockets and tasks in a process meant to run for months. Found by E3's own
+  `test_shutdown_leaves_no_running_tasks` under a loaded gate, and reproduced deterministically
+  before the fix was written. Details in D150.
+- **Whose scope this crosses:** the phase document authorizes **two** discretionary E3-owned
+  edits, both in E5.7b, and says a third is a stop-and-ask. It was asked and answered:
+  **taken on the owner's explicit authorization**, 2026-08-13, over the declined alternative of
+  recording the defect and deferring it to an E3 batch — which would have left a known flake
+  able to redden any later gate, E5.12's included.
+- **Affects:** project_planning/phase-5-deployment-services.md section 2 ("The E3-owned edits
+  this phase is authorized to make"); docs/DECISIONS.md D150, extending D94
+- **Addendum:** PHASE5-4-06
+
+## #33 (2026-08-12): The API process gets a root log handler, and an E0-owned docstring that
+was wrong is corrected
+
+- **What changed:** `app/middleware.py` gains `install_root_handler`, called by both
+  `create_app` and `runner.py::main`. `runner.py`'s docstring, which claimed "under uvicorn the
+  server installs the handlers", is corrected.
+- **Why:** uvicorn attaches handlers to its own `uvicorn.*` loggers and leaves the ROOT logger
+  bare, so Python's last-resort handler passed WARNING and above and silently dropped every
+  `app.*` INFO line in the API process — broker connected, coordinates refreshed, publish
+  outcomes. Found by C3's manual walkthrough, which tried to prove `refresh()` had connected by
+  grepping the log and got nothing. The wrong docstring is why it survived three epics.
+- **Whose scope this crosses:** `app/middleware.py` is E0-owned. **Taken on the owner's
+  explicit authorization**, 2026-08-12, as an E0-owned fix made by E5; it closes D139, which
+  had been carried as a stop-and-ask.
+- **Affects:** project_planning/phase-5-deployment-services.md section 5 (definition of done);
+  docs/DECISIONS.md D148, closing D139
+- **Addendum:** PHASE5-4-05
+
+## #32 (2026-08-12): A thirteenth device-facing config key, so a rotation is visible to devices
+
+- **What changed:** the catalog gains `services.credentials_generation` (int,
+  `write_restricted=SERVICE_ONBOARDING`) and `deployment` gains a
+  `services_credentials_generation` column (migration `d5f28c60a419`). E5's projection, which
+  the phase document describes as "the twelve device-facing keys", now writes thirteen.
+- **Why:** a desired snapshot carries secret MARKERS and never plaintext (spec 5.4, 8; D51,
+  D138), and a marker is a SecretStore name — identical before and after a rotation. Measured:
+  rotating every credential minted ZERO revisions, while rotating to a different hostname minted
+  one per Aggregator and none per Listener. So E5.11's acceptance ("one new revision per
+  Aggregator") and spec 16.3's "rotation is a config revision, not a manual redistribution"
+  were unachievable without one non-secret thing that changes.
+- **Whose scope this crosses:** the catalog is E2-owned and this is a migration, so it is out of
+  phase 5's scope under rule R2. **Taken only on the owner's explicit decision**, 2026-08-12,
+  over the declined alternatives of accepting zero revisions and amending the acceptance, or
+  deferring the question to E7.
+- **Also changes the spec, which the first draft of this entry missed.** The catalog is spec
+  5.3's table and the suite asserts them key for key, so a thirteenth restricted key is a spec
+  change and not only a phase-document one: `echoes-of-earth-platform-spec-v1.1.md` gains a
+  thirty-eighth row and addendum **SPEC-5-01**. The frozen wire checksum in the merge-engine
+  suite moves with it — recorded separately in D149, because re-freezing a golden digest is
+  never routine.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.7a, E5.11);
+  project_planning/echoes-of-earth-platform-spec-v1.1.md section 5.3;
+  docs/DECISIONS.md D146, D149
+- **Addendum:** PHASE5-4-02
+
+## #31 (2026-08-12): Spec 16.5's periodic service re-checks are closed as deliberately not built
+
+- **What changed:** the platform runs no timed re-verification of deployment services. E5.11
+  registers no sweep, and spec 16.5's "periodic re-checks" item is closed as *not built* rather
+  than carried as outstanding work. `status.py::services_recheck_sweep` survives as an
+  on-demand bulk re-test invoked by an operator action, and its docstring now says so.
+- **Why:** the owner's decision, asked directly and answered directly on 2026-08-12 — timed
+  polling reports a fact that was true minutes ago, and the platform should fail fast and
+  loudly off real liveness instead. Degradation comes from observed events only: an
+  operator-run test, a rotation's re-verification, and for MQTT the control plane's own
+  connection and LWT.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.11); the E5.5
+  notes and the INTERFACES entry that both expected E5.7b to register the sweep
+- **Addendum:** PHASE5-4-03
+
+## #30 (2026-08-12): The broker fixtures are pinned to the version the generated stack ships
+
+- **What changed:** `backend/tests/conftest.py` and `deploy/docker-compose.yml` stop using the
+  floating `eclipse-mosquitto:2` tag. The fixture reads `app.services.stack.IMAGES` so there is
+  one pin; the dev compose stack names the same version.
+- **Why:** Docker Hub moved `:2` to 2.1.x, and 2.0 and 2.1 read `dynamic-security.json`
+  passwords differently (D144). Every dynsec test in the suite passed against 2.1.2 while the
+  2.0.20 the platform pins refused every login — a pinned artifact tested against a floating tag
+  proves nothing about what ships. Found by E5.10's keystone.
+- **Whose scope this crosses:** `conftest.py` is E0-owned test infrastructure and
+  `deploy/docker-compose.yml` is E0/E3-owned. **Taken on the owner's explicit authorization**,
+  2026-08-12.
+- **Affects:** project_planning/phase-5-deployment-services.md section 5 (gate-time design)
+- **Addendum:** PHASE5-4-04
+
+## #29 (2026-08-12): An unnumbered infrastructure batch lands before C4, and phase 5's
+"additive-only in `conftest.py`" rule is broken deliberately
+
+- **What changed:** a batch with no task number — **INFRA.1** — lands at the head of
+  `e5-batch-1` before C4 begins. It replaces the per-module Postgres container with a
+  machine-wide warm server handing out template clones, and moves every test container's
+  writable state to tmpfs. DECISIONS D140 and D141 carry the design and its costs.
+- **Why it is not part of C4:** it is E0-owned test infrastructure, not E5 scope, and folding it
+  into a numbered E5 unit would make that unit's diff unreviewable and its gate measurement
+  meaningless.
+- **Why it is not additive:** phase-5 section 2's process choices bind this epic to being
+  "additive-only in `conftest.py`" so the parallel SIM epic can merge cleanly. INFRA.1 REWRITES
+  `ephemeral_postgres` and cannot honour that. The owner accepted the merge cost knowingly; the
+  precedent runs the other way too, since commit `167aa6e` imported SIM's concurrency fix into
+  this worktree verbatim, and SIM adopts this one the same way.
+- **Why it happened now rather than after C4:** phase-5 section 5 caps the warm gate at ~300s
+  and the C3 checkpoint measured 299.16s, so E5.8b's compose-config tests and E5.10's keystone
+  bring-up had no margin at all. Section 5 pre-authorises cutting container-test scope to hold
+  the number — but E5.10's keystone IS its acceptance, and cutting it would gut the unit. The
+  owner chose to remove the cost instead of the tests, and additionally directed that the suite
+  stop wearing the machine's SSD, which the baseline measurement put at 4.05 GB per gate run.
+- **Who approved:** the owner, on 2026-08-12, choosing the infrastructure batch before C4 over
+  both "cut scope to hold 300s" and "measure C4 first, then raise the ceiling".
+- **Affects:** project_planning/phase-5-deployment-services.md section 2 (process choices) and
+  section 5 (the gate-time ceiling), project_planning/e5-progress-ledger.md
+- **Addendum:** PHASE5-2-03
+
+## #28 (2026-08-12): `allow_write_restricted` is four signatures, and the object-storage
+question is closed without a catalog toggle
+
+- **What changed, part one.** Phase-5 fixed choice 3 says the flag is threaded through
+  "three signatures". It is four: `apply_change_plan` calls `put_overrides`, so without the flag
+  reaching it the plan a caller was handed could not be executed. Same default, same meaning.
+  The flag also carries the "regenerated wholesale, never merged" behaviour the same fixed
+  choice requires, which the document implies but does not state. DECISIONS D134.
+- **What changed, part two.** The E5 ledger's "OPEN QUESTION for the owner" -- what makes object
+  storage `not_required` when spec 16.2 names a raw-audio toggle that does not exist -- is
+  **answered and closed**: E5.4e's reading (both credentials absent) stands, the platform
+  supports raw audio only for now, and **no `upload.raw_audio_enabled` catalog key is added**.
+  That would have been an E2-owned catalog change plus a migration, out of E5's scope under rule
+  R2. DECISIONS D135.
+- **Why:** the first is a document undercounting a signature, recorded because a document that
+  says "exactly three" while the tree has four is worse than no document. The second is a spec
+  gap the owner resolved by declining to widen the catalog for a flag with one consumer.
+- **Who approved:** the owner, on 2026-08-12, choosing the existing reading over both an
+  unconditional requirement and an explicit toggle.
+- **Affects:** project_planning/phase-5-deployment-services.md section 2 (fixed choice 3),
+  project_planning/e5-progress-ledger.md (the open question)
+- **Addendum:** PHASE5-2-02
+
+## #27 (2026-08-12): A broker credential has three states, not two, and revoking one never
+blocks a device delete
+
+- **What changed:** `broker_credential.state` is `minted` / `revoke_pending` / `revoked`, where
+  the E5.6 task description implies two. Deleting an Aggregator whose broker is unreachable
+  still returns 204; the row lands in `revoke_pending` and
+  `credentials.drain_pending_revocations` retries on the worker's sweep until the broker
+  confirms. A CHECK constraint ties `revoked_at` to the `revoked` state so the third value
+  cannot make the timestamp ambiguous.
+- **Why:** E5.6's acceptance ("deleting an aggregator revokes its dynsec client against a real
+  broker and leaves the row `revoked`") does not say what happens when the broker is down, and
+  it will be -- decommissioning is exactly the work that happens while a site is offline. Both
+  two-state answers are bad: refusing the delete lets one deployment's outage block inventory
+  work, and letting it pass silently strands a live credential on somebody's broker forever with
+  no record that it exists.
+- **The consequence for the E3-owned surface, stated rather than buried:** the retry needs a
+  loop, so E5.7b registers a second sweep (`broker-credential`) beside the authorized
+  `service_config_sweep`. Both have E5-owned bodies; the E3-owned diff is registrations.
+  DECISIONS D137 states the whole surface taken, including what was NOT taken.
+- **Who approved:** the owner, on 2026-08-12, choosing the retry over a 503 that refuses the
+  delete.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (E5.6), section 2
+  ("The E3-owned edits this phase is authorized to make")
+- **Addendum:** PHASE5-4-01
+
 ## #26 (2026-08-12): SIM.4 and SIM.5 share one gate
 
 - **What changed:** SIM.4 and SIM.5 are gated together at one gate (58) rather than at two.
@@ -23,6 +242,90 @@ referenced planning document; an entry with no addendum is incomplete.
   somebody deciding to try it.
 - **Affects:** project_planning/phase-sim-simulation-harness.md section 4
 - **Addendum:** PHASESIM-4-02
+
+## #38 (2026-08-11): `BrokerCredentialProvider` is defined by E5 and consumed by E4
+
+- **What changed:** `project_planning/phase-4-provisioning.md` §2 fixed choice 1 has E4.6
+  shipping the `BrokerCredentialProvider` seam, with "E5.6's entire job is to add a dynsec
+  provider and flip the default". That ordering assumed E4 landed first. **It did not** — E4
+  has not been started, and E5 is being built now. So the interface dependency reverses:
+  **E5.6 defines the protocol** (`mint`, `revoke`, `state`) in
+  `backend/app/services/credentials.py` and ships both `DynsecCredentialProvider` and
+  `DevBrokerCredentialProvider`.
+- **E4.6's remaining work is unchanged in substance** — choose a provider and flip
+  `EOE_BOOTSTRAP_CREDENTIALS`. It imports the protocol instead of declaring it, and writes no
+  dev provider of its own, because `DevBrokerCredentialProvider` is exactly the one phase 4
+  described.
+- **A second consequence for E4.6:** the degraded verified-broker predicate phase 4 specified
+  ("a `deployment_service` row with `service_key='mqtt'` exists", carrying a
+  `# E5.5 replaces this predicate` marker) is **no longer needed**, because E5.5 ships
+  `deployment.services_status`. E4.6 gates on `services_status == 'verified'` directly and that
+  marker should never be written.
+- **Why not wait for E4.** E5.6 needs to mint credentials regardless: the generated stack
+  pre-creates the platform account and the deployment-namespace role, and per-device
+  credentials must exist before hardware ships. Building it without a named interface, for E4
+  to wrap later, would be the same work with the seam discovered afterwards rather than
+  designed.
+- **Who approved:** the owner, on 2026-08-11, at plan approval.
+- **Affects:** project_planning/phase-4-provisioning.md §2 (fixed choice 1)
+- **Addendum:** PHASE4-2-01
+
+## #37 (2026-08-11): dynsec is required for v1, closing spec 17 item 14
+
+- **What changed:** spec 17 item 14 asked whether v1 should require Mosquitto's dynamic
+  security plugin for platform-managed brokers instead of supporting spec 16.4's
+  manual-install fallback. **The owner chose to require it**, and the item is now closed.
+  Spec 16.4's sentence about generating a credential pair for the operator to install by hand,
+  with the bundle held until they confirm, is superseded.
+- **What it deletes from task E5.6:** a second `BrokerCredentialProvider` implementation, a
+  `pending_manual_install` state and its confirm endpoint, a held-bundle predicate E4 would
+  have had to consult, a wizard branch, and the class of deployment that is half-provisioned
+  because someone meant to paste an ACL into a broker host and did not.
+- **What it costs, stated rather than hidden:** an operator running a Mosquitto without
+  `dynamic_security.so` must enable it before their deployment can be verified. The MQTT
+  tester's failure message names the plugin and what to add to `mosquitto.conf`.
+- **The consequence that had to be built:** the dynsec verdict is part of broker verification,
+  so `absent` and `denied` both keep `services_status` off `verified` — which by spec 16.5
+  blocks provisioning-bundle generation, since the bootstrap block would embed credentials
+  that do not exist. The probe reports three verdicts rather than two, because "plugin absent"
+  and "your platform account is not an admin" have different remedies.
+- **What did NOT change:** item 13 (Chameleon Cloud VM auto-provisioning) stays open and out
+  of scope; Path B still ends at a downloadable bundle.
+- **Who approved:** the owner, on 2026-08-11, at plan approval.
+- **Affects:** project_planning/echoes-of-earth-platform-spec-v1.1.md §17 (item 14)
+- **Addendum:** SPEC-17-01
+
+## #36 (2026-08-11): The E5 phase document, and the units and permissions it adds
+
+- **What changed:** epic E5 gains its phase document,
+  `project_planning/phase-5-deployment-services.md`, written to the project plan §5 structure
+  and now the binding scope for the epic. Two further changes it makes are recorded separately
+  as #37 (dynsec required) and #38 (the `BrokerCredentialProvider` reversal); this entry covers
+  the rest.
+- **A thirteenth unit, E5.0.** The project plan lists twelve E5 tasks and no phase-document
+  task. E5.0 is the document, `project_planning/e5-progress-ledger.md`, and these records.
+  Same shape as E4.0 and SIM.0. Five of the twelve tasks also split into lettered units for
+  gating (E5.4 into a-e, E5.7 into a-b, E5.8 into a-b, E5.12 into a-b), giving eighteen in all.
+- **Two new permissions**, `MANAGE_SERVICES` and `VIEW_SERVICES`, extending the test-critical
+  RBAC map and its frontend mirror. Neither the project plan nor the spec names them; E0.7
+  defined no services verb, and reusing `MANAGE_CONFIG` would hand a Field Tech write access
+  to a deployment's Influx admin token, S3 secret key and broker password.
+- **Cross-epic edits are authorized in advance**, all recorded in `DECISIONS.md`: two E3-owned
+  and discretionary (`MqttClientManager.refresh()` and a `service_config_sweep` on the existing
+  sweep runner), both confined to task E5.7b so the whole discretionary surface is one diff;
+  one E2-owned (`DevicePlan.changed_keys` computed from stripped snapshots, which stops one
+  services save minting a revision per Listener); and one E3-owned but forced rather than
+  chosen, in E5.1 (see D121). Any further cross-epic edit is a stop-and-ask.
+- **Process, for this epic only:** one branch (`e5-batch-1`) and one PR rather than phase 4's
+  per-batch shape, and the full gate at five checkpoints rather than after every numbered
+  unit — with the compensating rule that nothing reaches the remote without a full green gate.
+  Recorded as a deviation in `DECISIONS.md` (D119).
+- **What did NOT change:** the twelve tasks, their order, or the epic's definition of done.
+  Spec 16's two paths, five testers, and status lifecycle are implemented as written.
+- **Who approved:** the owner, on 2026-08-11, at plan approval, choosing the new permissions,
+  the hybrid container/fake test strategy, the single branch, and the checkpoint gate cadence.
+- **Affects:** project_planning/echoes-of-earth-project-plan.md §3 (epic E5)
+- **Addendum:** PLAN-3-03
 
 ## #25 (2026-08-11): The gate suite becomes safe to run concurrently, on the SIM branch
 

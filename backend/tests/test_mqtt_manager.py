@@ -21,6 +21,7 @@ import subprocess
 import sys
 import uuid
 
+import aiomqtt
 import pytest
 from conftest import (
     REPO_ROOT,
@@ -38,6 +39,7 @@ from app.controlplane.broker import (
     BrokerUnavailable,
     InboundMessage,
     MqttClientManager,
+    _open_client,
     load_broker_coordinates,
     tls_context,
 )
@@ -535,11 +537,20 @@ async def _tasks_outliving(before: set[asyncio.Task], settle: float = 10.0) -> s
       waits with the rest, and fails at the deadline if it is still there.
 
     Any wait at all is needed because aiomqtt cancels its own `_misc_loop` with
-    `call_soon_threadsafe(self._misc_task.cancel)` (client.py) — paho calls back
-    on its own thread, so the cancel is SCHEDULED on the event loop, and
-    `__aexit__` never awaits that task. No amount of correctness in `stop()` can
-    make a third party's `call_soon_threadsafe` synchronous, short of reaching
-    into private attributes of the library.
+    `call_soon_threadsafe(self._misc_task.cancel)` — from `_on_socket_close`,
+    NOT from `__aexit__`, which never touches that task (aiomqtt 2.5.1
+    client.py; an earlier version of this docstring said `__aexit__` and was
+    wrong). paho calls that back on its own thread, so the cancel is SCHEDULED
+    on the event loop and nothing awaits it. No amount of correctness in
+    `stop()` can make a third party's `call_soon_threadsafe` synchronous, short
+    of reaching into private attributes of the library.
+
+    **The immediate-fail rule below is load-bearing and was right.** It fired
+    once under a loaded gate on a survivor that was still CONNECTED, and that
+    turned out to be a real leak at the OTHER end of the lifecycle — a
+    cancellation inside `__aenter__` stranding a connected client off the stack
+    (D150, `_open_client`). A live socket here is not a teardown in flight: a
+    teardown that has reached `__aexit__` has already resolved `_disconnected`.
 
     Nothing here excuses a task by NAME. D94's leak was an anonymous
     `Client._misc_loop`, not the manager's own `mqtt-{slug}` connection task, so
@@ -633,6 +644,59 @@ async def test_shutdown_leaves_no_running_tasks(live_broker):
     assert not leaked, f"tasks outlived stop(): {[describe_leaked_task(t) for t in leaked]}"
     assert manager.deployment_ids == ()
     assert not manager.is_connected(_rc_deployment_id(coords))
+
+
+@pytest.mark.integration
+async def test_a_cancelled_connect_cannot_strand_a_connected_client(live_broker):
+    """D150, forced rather than waited for.
+
+    aiomqtt's `__aenter__` awaits twice — paho's blocking `connect()` in an
+    executor thread, then the CONNACK. A cancellation at either point used to
+    abandon `enter_async_context` BEFORE it registered the client, while the
+    executor thread ran the connect through to completion anyway (a started
+    thread cannot be cancelled). What survived was a CONNECTED client with a
+    live socket and a running `_misc_loop` that no `AsyncExitStack` owned, so
+    `stop()` could not close it and nothing ever would.
+
+    This is what `test_shutdown_leaves_no_running_tasks` above caught under a
+    loaded gate, once, as `socket=LIVE state=MQTT_CS_CONNECTED`. It reproduces
+    it deterministically instead: the socket is proven OPEN before the cancel,
+    so a pass cannot be the vacuous one where nothing had connected yet.
+    """
+    _, factory, store, _ = live_broker
+    coords = next(c for c in load_broker_coordinates(factory, store) if c.slug == RC)
+    client = aiomqtt.Client(
+        hostname=coords.host,
+        port=coords.port,
+        username=coords.username,
+        password=coords.password,
+        identifier=f"eoe-strand-{uuid.uuid4().hex[:8]}",
+        tls_context=tls_context(coords),
+        keepalive=30,
+        clean_session=True,
+    )
+    stack = contextlib.AsyncExitStack()
+    entering = asyncio.create_task(_open_client(stack, client))
+
+    # The leak lives in the window between paho opening the socket and
+    # `__aenter__` returning, so wait until the socket provably exists.
+    for _ in range(500):
+        if client._client.socket() is not None:
+            break
+        await asyncio.sleep(0.01)
+    assert client._client.socket() is not None, (
+        "never connected, so cancelling here would prove nothing"
+    )
+
+    entering.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await entering
+
+    # The cancellation must not have cost the stack its ownership: closing it
+    # has to take the connection down. Before the fix this closed nothing and
+    # the socket below stayed live.
+    await stack.aclose()
+    assert client._client.socket() is None, "a cancelled connect stranded a live socket"
 
 
 async def test_start_or_retry_survives_an_unreadable_coordinates_query():
