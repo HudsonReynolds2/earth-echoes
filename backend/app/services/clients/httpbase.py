@@ -245,6 +245,8 @@ async def send(
     failure has a remedy.
     """
     try:
+        # `**kwargs: object` keeps callers honest but cannot satisfy request()'s
+        # typed keyword-only parameters; the real shapes are pinned by the tester suites.
         return await client.request(method, url, **kwargs)  # type: ignore[arg-type]
     except httpx.HTTPError as error:
         raise ServiceDialError(classify_transport_error(error, url)) from error

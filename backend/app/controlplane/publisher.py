@@ -290,6 +290,8 @@ def desired_payload(revision: ConfigRevision, route: DesiredRoute) -> DesiredCon
     return DesiredConfig(
         revision_id=revision.id,
         generated_at=utcnow(),
+        # target_type is a DB `str`; DesiredTarget.type is the contract Literal,
+        # and pydantic re-validates at construction, so a bad row fails loudly here.
         target=DesiredTarget(type=revision.target_type, id=route.device_id),  # type: ignore[arg-type]
         config=revision.snapshot,
         checksum=revision.checksum,

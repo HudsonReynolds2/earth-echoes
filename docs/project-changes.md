@@ -5,6 +5,50 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #41 (2026-08-28): The E4 phase document's provenance and the E4-after-E5 sequencing, recorded
+
+- **What changed:** `project_planning/phase-4-provisioning.md` §1 gains addendum **PHASE4-1-01**
+  recording (1) that E5 and SIM were deliberately built before E4 (owner decision, 2026-08-11;
+  DECISIONS **D160**) and (2) the document's own provenance: it and `e4-progress-ledger.md`
+  landed in commit `23be96d`, an infrastructure commit whose message never mentions E4, with no
+  numbered entry here — the SIM and E5 phase documents both got one (#23, #36). The E4 ledger's
+  pencilled gate column is retired for the E5 ledger's decided-at-tag-time convention.
+- **Why:** 433 lines of binding planning material carried no paper trail, and `guide/README.md`
+  jumped E3 → E5 with no explanation, so every reader had to reconstruct the sequencing from
+  its consequences (D116/D117/D157, #37/#38). #38 amends this document as if it had always
+  existed; this entry is the record that introduces it.
+- **How it was found:** the same post-merge audit as #40.
+- **Who approved:** the sequencing — the owner, 2026-08-11, at E5 plan approval (D160); this
+  record — the owner, 2026-08-28, at hygiene-batch-2 plan approval.
+- **Affects:** project_planning/phase-4-provisioning.md section 1 (Scope)
+- **Addendum:** PHASE4-1-01
+
+## #40 (2026-08-28): E5.10b recorded — the Grafana service-account bootstrap joins the unit list
+
+- **What changed:** `project_planning/phase-5-deployment-services.md` §4 gains addendum
+  **PHASE5-4-08**, adding unit **E5.10b Grafana service-account bootstrap**
+  (`backend/app/services/provision.py` + `GrafanaAdminClient`) between E5.10 and E5.11, and
+  superseding the section's "Eighteen units" count.
+- **Why:** E5.10b shipped without a numbered entry. The E5.10 keystone found that a generated
+  stack has no Grafana service-account token (a token is minted by Grafana at runtime and shown
+  once, so it cannot be pre-generated the way every other stack credential is), and the fix was
+  resolved as a stop-and-ask during C4 — a new unit whose module is, by its own docstring, "the
+  one place in the phase where verifying can create something on a target system". The unit has
+  a ledger row, tests (`test_grafana_bootstrap.py`, 12), and an `INTERFACES.md` entry, but the
+  phase document's task list never gained it, which left E5.0's own acceptance criterion ("the
+  ledger's rows exist and their count equals the number of numbered units here") false and
+  unflagged.
+- **Why it is worth a change entry rather than a silent edit:** every comparable E5 plan delta
+  got one (#27-#36, #38); a unit that creates state on a target system during verification is
+  the last thing that should exist off the books.
+- **How it was found:** a post-merge audit of `f3d288e..f65a7d0` (the E3/SIM/E5 merges),
+  cross-checking the ledger's unit rows against §4's enumeration.
+- **Who approved:** the unit itself was approved by the owner as a stop-and-ask during C4
+  (2026-08-12, see the ledger's E5.10-keystone row); this entry records it, approved by the
+  owner on 2026-08-28 at hygiene-batch-2 plan approval.
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (the task list)
+- **Addendum:** PHASE5-4-08
+
 ## #39 (2026-08-13): E5's handoff list named two environment variables that never existed
 
 - **What changed:** the `INTERFACES.md` **Owned by E0** environment-variable table gains

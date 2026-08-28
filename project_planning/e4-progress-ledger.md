@@ -10,24 +10,28 @@ accumulated suite — 0 failed, 0 skipped, 0 xfailed, 0 deselected. No task star
 previous one is tagged. The implementing agent fills in its own row; the tag column is written
 only after the commit and tag exist.
 
-**Gate numbers below are pencilled**, assuming SIM completes on gates 52-57 and nothing else
-lands between. If anything does, shift the whole column and note it here — the sequence
-matters, the specific integers do not.
+**Gate numbers are decided at tag time, not pencilled** (the E5 ledger's convention, adopted
+here by hygiene batch 2 — see project-changes #41, DECISIONS D160). This column was originally
+pencilled at 58-69, assuming SIM completed on gates 52-57; SIM in fact closed at gate-58, and
+gates 59-63 went to E5's C3-C5, INFRA.1 and the E5↔SIM merge, with gate-64 to hygiene batch 2 —
+the shift this note's earlier wording asked for, applied by retiring the pencils. Each task
+takes `max(existing gate-* tags) + 1` when its tag is written and records the actual integer
+here.
 
 | Task | Status | Gate | Tag | Decisions | Notes |
 |---|---|---|---|---|---|
-| E4.0 Phase document and records | not started | 58 | — | — | Phase doc, this ledger, project-changes entry, plan §3 addendum, spec §13 addendum. Docs only; the gate is a regression check. |
-| E4.1 Bundle and record data model | not started | 59 | — | — | `provisioning_bundle`, `device_provisioning_record`, spec 8.5 statuses as a CHECK, un-FK'd evidence columns (D33/D55 precedent). |
-| E4.2 Versioned device config template | not started | 60 | — | — | `device_config` v1, YAML, `schema_version: 1`, DRAFT-marked in three places. Golden-file pinned. |
-| E4.3 Per-pod file generation | not started | 61 | — | — | Spec 8.2 mode 1. Byte-identical across the Pod; blanks derived from the catalog's `resolution="inventory"` keys. |
-| E4.4 Per-listener file generation | not started | 62 | — | — | Spec 8.2 mode 2 plus mixed mode. |
-| E4.5 Device-facing envelope encryption | not started | 63 | — | — | `EOE_FIRMWARE_KEK` + AES-256-GCM throughout; fresh per-Pod DEK per export; `app/provisioning/envelope.py`. |
-| E4.6 Aggregator `settings.yaml` + bootstrap | not started | 64 | — | — | `BrokerCredentialProvider` seam, `EOE_BOOTSTRAP_CREDENTIALS` off by default, degraded verified-broker predicate. |
-| E4.7 Manifest and README | not started | 65 | — | — | **TEST-CRITICAL (spec 14.5).** Complete in both directions. Its suite is locked from the moment it lands. |
-| E4.8 Export archive and download | not started | 66 | — | — | Plain zip; `POST/GET /provisioning/bundles`, `GET .../download`; secret-leak scan over the archive and the responses. |
-| E4.9 Registration matching and transitions | not started | 67 | — | — | Reconciler over `device_state`/`config_revision`/`quarantined_report`. `confirmed` latches; a later revision is not a mismatch. |
-| E4.10 Provisioning wizard and tracking UI | not started | 68 | — | — | S6 layout at v2 values; record status is NOT device status — no `StatusChip`, follow `.outcome-*`. |
-| E4.11 Fill-in-later flow + walkthrough | not started | 69 | — | — | Spec 8.6 name/GPS via the E1 endpoints; `guide/e4-verification.md` and amendments to earlier walkthroughs. |
+| E4.0 Phase document and records | not started | — | — | — | Phase doc, this ledger, project-changes entry, plan §3 addendum, spec §13 addendum. Docs only; the gate is a regression check. |
+| E4.1 Bundle and record data model | not started | — | — | — | `provisioning_bundle`, `device_provisioning_record`, spec 8.5 statuses as a CHECK, un-FK'd evidence columns (D33/D55 precedent). |
+| E4.2 Versioned device config template | not started | — | — | — | `device_config` v1, YAML, `schema_version: 1`, DRAFT-marked in three places. Golden-file pinned. |
+| E4.3 Per-pod file generation | not started | — | — | — | Spec 8.2 mode 1. Byte-identical across the Pod; blanks derived from the catalog's `resolution="inventory"` keys. |
+| E4.4 Per-listener file generation | not started | — | — | — | Spec 8.2 mode 2 plus mixed mode. |
+| E4.5 Device-facing envelope encryption | not started | — | — | — | `EOE_FIRMWARE_KEK` + AES-256-GCM throughout; fresh per-Pod DEK per export; `app/provisioning/envelope.py`. |
+| E4.6 Aggregator `settings.yaml` + bootstrap | not started | — | — | — | `BrokerCredentialProvider` seam, `EOE_BOOTSTRAP_CREDENTIALS` off by default, degraded verified-broker predicate. |
+| E4.7 Manifest and README | not started | — | — | — | **TEST-CRITICAL (spec 14.5).** Complete in both directions. Its suite is locked from the moment it lands. |
+| E4.8 Export archive and download | not started | — | — | — | Plain zip; `POST/GET /provisioning/bundles`, `GET .../download`; secret-leak scan over the archive and the responses. |
+| E4.9 Registration matching and transitions | not started | — | — | — | Reconciler over `device_state`/`config_revision`/`quarantined_report`. `confirmed` latches; a later revision is not a mismatch. |
+| E4.10 Provisioning wizard and tracking UI | not started | — | — | — | S6 layout at v2 values; record status is NOT device status — no `StatusChip`, follow `.outcome-*`. |
+| E4.11 Fill-in-later flow + walkthrough | not started | — | — | — | Spec 8.6 name/GPS via the E1 endpoints; `guide/e4-verification.md` and amendments to earlier walkthroughs. |
 
 Suggested batching, one PR per batch on `e4-batch-N` (rule R3):
 **B1** = E4.0-E4.2 · **B2** = E4.3-E4.5 · **B3** = E4.6-E4.8 · **B4** = E4.9-E4.11.

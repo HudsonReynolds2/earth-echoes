@@ -14,6 +14,7 @@ from conftest import REPO_ROOT
 
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 GATE_SH = REPO_ROOT / "gate.sh"
+GATE_PS1 = REPO_ROOT / "gate.ps1"
 FAN_IN = "ci-green"
 
 
@@ -40,6 +41,12 @@ def _registry_stages() -> list[str]:
 def _stage_functions() -> list[str]:
     text = GATE_SH.read_text(encoding="utf-8")
     return [name.replace("_", "-") for name in re.findall(r"^stage_([a-z0-9_]+)\(\)", text, re.M)]
+
+
+def _local_stages() -> list[str]:
+    match = re.search(r'^LOCAL_STAGES="([^"]+)"', GATE_SH.read_text(encoding="utf-8"), re.M)
+    assert match, "gate.sh has no LOCAL_STAGES registry line"
+    return match.group(1).split()
 
 
 def _job_stage_invocations() -> dict[str, str]:
@@ -173,3 +180,48 @@ def test_interfaces_documents_the_extension_recipe():
     section = text.split("### CI pipeline")[1].split("### ")[0]
     for needle in ("gate.sh", "3-step", "ci-green", "needs"):
         assert needle in section, f"CI pipeline section missing: {needle}"
+
+
+# --- check 10 (added at gate-64, D163): gate.ps1 mirrors the local registry ---
+
+# gate.ps1 is a linear script with no stage registry, so parity is pinned at
+# the command level: for every LOCAL_STAGES stage, the commands its gate.sh
+# body runs must appear in gate.ps1. The equality assertion on the dict's keys
+# makes adding a local stage to gate.sh without teaching this map — and
+# therefore without extending gate.ps1 — a red gate. Until this check existed,
+# gate.ps1's "mirrors this exactly" header was an unenforced claim (D163).
+PS1_STAGE_COMMANDS = {
+    "backend-quality": ("ruff check", "ruff format --check", "mypy app"),
+    "backend-tests": ("tests/gate_runner.py",),
+    "frontend-quality": ("npm run --silent lint", "npm run --silent typecheck"),
+    "frontend-tests": ("npm run --silent test }",),
+    "frontend-e2e": ("npm run --silent test:e2e",),
+    "sim-quality": ("ruff check", "ruff format --check", "uv run mypy }"),
+    "sim-protocol": ("tests/gate_runner.py",),
+}
+
+
+def test_gate_ps1_mirrors_the_local_stage_registry():
+    ps1 = GATE_PS1.read_text(encoding="utf-8")
+    assert set(PS1_STAGE_COMMANDS) == set(_local_stages()), (
+        "LOCAL_STAGES and PS1_STAGE_COMMANDS disagree: a local stage was added or removed "
+        "in gate.sh without deciding what gate.ps1 runs for it"
+    )
+    for stage, needles in PS1_STAGE_COMMANDS.items():
+        for needle in needles:
+            assert needle in ps1, f"gate.ps1 is missing {needle!r} (stage {stage})"
+    # The backend and sim suites are distinct invocations, not one shared line,
+    # and both stacks run their own ruff pair.
+    assert ps1.count("tests/gate_runner.py") >= 2, "gate.ps1 must run both python suites"
+    assert ps1.count("ruff check") >= 2 and ps1.count("ruff format --check") >= 2, (
+        "gate.ps1 must run the ruff pair for both python stacks"
+    )
+
+
+def test_gate_ps1_carries_no_ci_first_stage():
+    ps1 = GATE_PS1.read_text(encoding="utf-8")
+    for needle in ("alembic", "docker build"):
+        assert needle not in ps1, (
+            f"gate.ps1 must not run CI-first stage command {needle!r}: migrations-check and "
+            "containers-build are deliberately CI-first (gate.sh registry comment)"
+        )

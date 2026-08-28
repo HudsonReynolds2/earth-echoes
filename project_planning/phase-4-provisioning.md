@@ -34,6 +34,15 @@ tree.
 person loads the exported files. Every design question that starts "could the platform flash…"
 is answered no by the spec, not by this document.
 
+> **Addendum PHASE4-1-01 (2026-08-28, ref project-changes #41):** two facts this document should
+> carry on its face. **Sequencing:** E5 and SIM were built and merged before this epic, by owner
+> decision (2026-08-11; DECISIONS D160) — the "Depends on" line above is satisfied and exceeded:
+> E5.6's `BrokerCredentialProvider` and E5.5's `deployment.services_status` already exist, and
+> addendum PHASE4-2-01 records what that reverses in section 2. **Provenance:** this document
+> and `e4-progress-ledger.md` entered the repository in commit `23be96d` (2026-08-11), an
+> infrastructure commit whose message does not mention E4; project-changes #41 is the numbered
+> entry that introduces them, filed retroactively by hygiene batch 2.
+
 ## 2. Prerequisites and inherited interfaces
 
 Read `docs/INTERFACES.md` first. What this phase consumes, and does not redefine:

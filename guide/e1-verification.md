@@ -8,6 +8,12 @@ else, that is a finding worth writing down.
 Timing: 30–45 minutes for the full pass. Sections 1–7 need only the seeded owner account;
 section 8 has you create two more accounts.
 
+> **Amended by E3 (E3.1).** The dev-stack ports moved to the 1xxxx range (`localhost:5173` →
+> `localhost:15173`, `localhost:5432` → `localhost:15432`; project-changes #21, addendum
+> PHASE0-2-02), and the three URLs below were rewritten in place at gate-39. That rewrite
+> originally shipped without this marker; hygiene batch 2 added it, since this walkthrough's
+> contract is that a later epic amends it visibly.
+
 ## 0. Start the platform
 
 - [ ] From the repo root: `.\qa-stack.ps1` (PowerShell). First run builds images (about a

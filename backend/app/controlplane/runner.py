@@ -739,6 +739,7 @@ async def run_worker(settings: Settings | None = None) -> None:
     sharing the API's pool across a process boundary is not a thing that
     exists.
     """
+    # Settings() resolves from env (D5).
     resolved = settings if settings is not None else Settings()  # type: ignore[call-arg]
     _, session_factory = create_session_factory(resolved.database_url)
     worker = ReconciliationWorker(
