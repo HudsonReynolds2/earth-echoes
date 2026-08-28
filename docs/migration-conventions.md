@@ -33,6 +33,16 @@ All constraints are named by the `MetaData` naming convention in `backend/app/db
 Never pass an explicit unrelated name; let the convention generate it so autogenerate stays
 deterministic and downgrades can always drop what upgrades created.
 
+## Identifier annotations
+
+Declare the revision identifiers in the annotated form the alembic template emits:
+`revision: str = "..."`, `down_revision: str | None = "..."`,
+`branch_labels: str | Sequence[str] | None = None`, `depends_on: str | Sequence[str] | None =
+None` (with `from collections.abc import Sequence`). This was a de-facto convention until
+hygiene batch 2 wrote it down (D163): 23 of the first 24 migrations carry it and
+`d5f28c60a419` does not — and it **stays** unannotated, because convention 1 above outranks a
+cosmetic fix. A committed migration is never edited, not even for style.
+
 ## Authoring workflow
 
 1. Change or add models against `app.db.Base`.

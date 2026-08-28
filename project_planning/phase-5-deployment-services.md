@@ -644,6 +644,23 @@ sentence executed rather than described; download is `MANAGE_SERVICES`-gated and
 credential in the detail, the archive is streamed and never persisted server-side, and every
 test that renders a bundle writes to `tmp_path` so `SECRET_PATTERNS` can never match the tree.
 
+> **Addendum PHASE5-4-08 (2026-08-28, ref project-changes #40):** a unit this list never gained:
+> **E5.10b Grafana service-account bootstrap** (`app/services/provision.py` +
+> `GrafanaAdminClient`), between E5.10 and E5.11. The keystone found that a generated stack has
+> no Grafana service-account token — Grafana mints one at runtime and shows it exactly once, so
+> it cannot be pre-generated under fixed choice 7 like every other credential. The platform
+> generates an admin account, and the FIRST verification uses it once as a bootstrap: create
+> `echoes-platform` with the Admin role, have Grafana mint its token, store that as the
+> deployment's Grafana credential. E5.4d's rule that a test run provisions nothing still holds —
+> `GrafanaTester.run` writes nothing, and an operator who supplied their own token never reaches
+> the module. Approved as a stop-and-ask during C4 (2026-08-12); recorded here by hygiene
+> batch 2. **Count reconciliation:** this section's opening "Eighteen units" is superseded — as
+> written below there are twenty numbered units (E5.4a-e being five), and with E5.10b there are
+> **twenty-one**. The ledger carries twenty-two unit rows (E5.10 spans two: the endpoints row
+> and the keystone row) plus checkpoint and infrastructure rows (C1-C5, the harness adoption,
+> INFRA.1, the D158 fix) that are not units; E5.0's acceptance count is read against the
+> twenty-one.
+
 **E5.11 Rotation and regeneration flow.** `POST /deployments/{id}/services/stack/rotate`:
 regenerate through E5.9, re-render, re-run the E5.3 tests, republish through E5.7a's path — so
 rotation is a config revision, not a manual redistribution (spec 16.3).

@@ -10,6 +10,10 @@ sign in as the seeded owner, and open `http://localhost:15173`. The demo fixture
 no config overrides — you create them below, so this guide works against any fresh
 stack. Remember `.\qa-stack.ps1 down` before ever running `.\gate.ps1` (D44).
 
+> **Amended by E3 (E3.1).** The site URL above moved `localhost:5173` → `localhost:15173` with
+> the dev-stack port change (project-changes #21, addendum PHASE0-2-02); rewritten in place at
+> gate-39 and marked by hygiene batch 2.
+
 ## 1. The configuration tree and tabs
 
 - [ ] Open **/configuration**. The same hierarchy tree as /inventory renders on the

@@ -186,6 +186,25 @@ def test_planning_documents_tracked_by_git():
     assert len(tracked) >= 7
 
 
+# --- Gate 0 check 9 (added at gate-64, D163): walkthroughs are indexed ---
+
+
+def test_every_verification_walkthrough_is_indexed_in_the_guide_readme():
+    """Rule R1's walkthrough convention requires every epic's walkthrough to be
+    "added to the guide/README.md table" (project-rules.json,
+    verification_walkthrough). The SIM walkthrough shipped unindexed at gate-58
+    and nothing could catch it (D163); this guard makes the omission a red gate.
+    """
+    guide = REPO_ROOT / "guide"
+    readme = _read(guide / "README.md")
+    walkthroughs = sorted(guide.glob("*-verification.md"))
+    assert len(walkthroughs) >= 4, "expected the E1/E2/E3/E5/SIM walkthroughs in guide/"
+    for doc in walkthroughs:
+        assert f"]({doc.name})" in readme, (
+            f"guide/README.md has no row linking {doc.name} (rule R1, verification_walkthrough)"
+        )
+
+
 # --- Gate 0 check 10: commit template exists, matches R3, carries no trailer ---
 
 

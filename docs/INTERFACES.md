@@ -832,16 +832,6 @@ reimplement their logic.** Signatures, verbatim:
   `app/services/` means DEPLOYMENT services; `app/config/service.py` is the unrelated merge
   accessor.
 
-### `deployment.services_status` — the spec 16.5 rollup (E5.1) — **E5.5 IS ITS ONLY WRITER**
-
-- Column on `deployment`, CHECK-constrained to `('unconfigured','pending_verification',
-  'verified','degraded')` (`models.SERVICES_STATUS_VOCAB`), NOT NULL, default `unconfigured`.
-- **Denormalized deliberately** (phase-5 fixed choice 2): E6.4's map rollup and E7.4's Owner
-  fan-out both read it once per deployment, inside fan-outs that are already cross-deployment.
-  The correctness risk is answered by making E5.5's `app/services/status.py::roll_up` the only
-  writer and asserting the invariant across the suite — not by arguing about it.
-- E5.1 creates the column and its default and **writes nothing**.
-
 ### The development broker (E3.1; spec 7.1)
 
 - **Generator:** `backend/app/devbroker.py` (`uv run python -m app.devbroker`), documented
@@ -1451,6 +1441,19 @@ reimplement their logic.** Signatures, verbatim:
   and `frontend/tests/rbac.test.tsx`. The RBAC suite is test-critical (spec 14.5): these are
   **additions** to its matrix and every existing assertion is untouched.
 
+### `deployment.services_status` — the spec 16.5 rollup (E5.1) — **E5.5 IS ITS ONLY WRITER**
+
+*(Moved from the "Owned by E3" block, where it was misfiled — hygiene batch 2, D163. Content
+unchanged.)*
+
+- Column on `deployment`, CHECK-constrained to `('unconfigured','pending_verification',
+  'verified','degraded')` (`models.SERVICES_STATUS_VOCAB`), NOT NULL, default `unconfigured`.
+- **Denormalized deliberately** (phase-5 fixed choice 2): E6.4's map rollup and E7.4's Owner
+  fan-out both read it once per deployment, inside fan-outs that are already cross-deployment.
+  The correctness risk is answered by making E5.5's `app/services/status.py::roll_up` the only
+  writer and asserting the invariant across the suite — not by arguing about it.
+- E5.1 creates the column and its default and **writes nothing**.
+
 ### `POST /deployments/{id}/services/test` and the tester framework (E5.3; spec 16.2; D123)
 
 - **`ServiceTester`** (`app/services/testers/base.py`) is what E5.4a-e implement:
@@ -1840,9 +1843,9 @@ reimplement their logic.** Signatures, verbatim:
 - **`required` and `degrade_after_failures` come from the API, never from a frontend rule.**
   Object storage is conditionally required (spec 16.2, D135) and the `optional` tag is driven
   by the status response.
-- **The page REPORTS spec 16.5's provisioning gate and does not enforce it (D157).** E4.3's
-  bundle generator is what refuses; `deployment.services_status` and the per-service rows are
-  what E5 owes it, and both ship.
+- **The page REPORTS spec 16.5's provisioning gate and does not enforce it (D157).** E4.6's
+  bundle-generation gate is what refuses (corrected from E4.3 — D162); `deployment.services_status`
+  and the per-service rows are what E5 owes it, and both ship.
 - **Path B offers Download and Rotate unconditionally.** Fixed choice 7 stores no bundle and
   no "a stack exists here" flag, so a missing stack is reported as a clear 404 message rather
   than guessed at (D156). A later epic wanting a real signal should add a cheap existence

@@ -1,5 +1,62 @@
 # Project Updates
 
+## 2026-08-28: Hygiene batch 2 — the audit's record gaps closed, two guard tests, and the gate's Windows story told straight (Gate 64 GREEN)
+
+- **What closed:** hygiene batch 2 (branch `hygiene-batch-2`, the batch-1 precedent #12/D29):
+  the post-merge audit's remaining findings. DECISIONS **D160-D163**, project-changes
+  **#40-#41**, addenda **PHASE5-4-08** and **PHASE4-1-01**. In brief: E5.10b recorded (#40),
+  the E4-after-E5 sequencing and the E4 documents' provenance recorded (#41, D160), D119
+  closed as expired (D161), the spec 16.5 refusal corrected E4.3 → E4.6 (D162), the SIM
+  walkthrough indexed and `guide/README.md`'s stale close rewritten, "Amended by E3" markers
+  on the E1/E2 walkthroughs, PHASE0-4-07 restored to append order, the
+  `deployment.services_status` contract refiled from E3's block to E5's, the E5 ledger's C3
+  row filled, reason comments on the bare `type: ignore`s, the migration
+  identifier-annotation convention written down, the Provisioning page's stale E5 sentence
+  replaced, and **two guard tests**: every verification walkthrough must be indexed in
+  `guide/README.md` (`test_governance.py`), and `gate.ps1` is pinned to `gate.sh`'s
+  `LOCAL_STAGES` at the command level with the CI-first stages asserted absent
+  (`test_ci_pipeline.py`). This tag is the first **annotated** gate tag (D163's convention).
+- **Gate:** 64, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1145 backend / 163 vitest / 4 Playwright / 73 `/sim`** — 1385 in all,
+  0 failed / 0 skipped / 0 xfailed / 0 deselected. Backend stage **220.17s**, sim-protocol
+  **185.63s**. The three new guards are the +3 over gate-63's 1142.
+- **Command:** `make gate`, inside a purpose-built Linux container (Ubuntu 24.04, uv,
+  Node 20, Playwright, docker CLI) on Docker Desktop's engine — the working tree copied in,
+  `/work` and `/tmp` bind-mounted from the engine VM at identical paths so the compose
+  tests' bind mounts mean the same thing to the daemon, `--network host` plus the docker
+  socket so sibling test containers publish where the suite dials.
+- **Why the gate ran there, told straight (rule R0 — a red gate is reported, not
+  explained away):** `./gate.ps1` cannot run the accumulated backend suite on
+  Windows-native Python, and it turns out it never could past E2: aiomqtt registers its
+  socket with `loop.add_reader`, Windows' default Proactor event loop refuses the call
+  with `NotImplementedError`, and nothing in the suite selects the Selector loop — so
+  every broker-connected test E3 onward fails on Windows Python. Gates 1-38 predate the
+  broker suites and ran `./gate.ps1` green; gates 39-63 all record `make gate`, i.e. Linux
+  Python. The header claim in `gate.ps1` this batch's parity guard enforces is thereby
+  narrower than it reads: the guard pins the COMMANDS, and this entry records that the
+  backend stage of those commands does not currently run on Windows-native Python.
+  Discovering this cost two invalid `gate.ps1` attempts (mass MQTT failures, then
+  timeout-killed xdist workers wedging the controller) and one red run on a WSL-native
+  docker daemon that proved unstable mid-gate; the first Docker-Desktop container run then
+  failed exactly three tests — the keystone and the two fixed-port compose suites — on the
+  docker-outside-docker path-mismatch (a bind source that exists only inside the runner),
+  which the path-identity mounts above resolve. The final run passed everything.
+- **Three findings recorded for a future batch, none acted on here:** (1) the Windows
+  event-loop incompatibility above wants an owner decision — a Selector-loop policy in the
+  test bootstrap, or blessing the containerized runner as the Windows gate path;
+  (2) `conftest.gate_lock`'s dead-owner check cannot see a dead PID on Windows
+  (`os.kill(pid, 0)` answers `EINVAL`, not `ESRCH`), so a lock orphaned by a killed worker
+  is honoured for the full 40-minute TTL and freezes every later run; (3) `qa-stack.ps1`'s
+  broker step reads a helper function's pipeline as its exit status, which is correct
+  interactively but false the moment stdout is redirected — the script fails at the TLS
+  step under any output capture while the same commands succeed by hand.
+- **Manual verification:** the `git grep "E4\.3"` sweep confirms every remaining mention is
+  either the task's own identity, D162's correction text, or a dated record preserved
+  under a banner; every edited document re-read after the edits; the eoe-qa stack brought
+  up from this tree (fresh seed), signed in as the seeded owner, and `/provisioning`
+  renders the corrected EmptyState sentence — services onboarding pointed at Inventory,
+  nothing promised from E5. Stack taken down before this entry was written.
+
 ## 2026-08-13: SIM merges to main, E5 reconciles onto it, and the merged gate finds what neither branch could (Gate 63 GREEN)
 
 - **What closed:** epic **SIM** merged to `main` (PR #19). Epic **E5** reconciled onto it and is

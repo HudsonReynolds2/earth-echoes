@@ -4,6 +4,100 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D163 (2026-08-28): Hygiene batch 2 — two guard tests, one contract refiled, and the tag
+convention from gate-64 on
+
+- **Decision:** the post-merge audit's remaining mechanical findings close in one batch
+  (branch `hygiene-batch-2`, the hygiene-batch-1 precedent, #12/D29):
+  (1) **Guard: walkthrough indexing.** `test_governance.py` gains
+  `test_every_verification_walkthrough_is_indexed_in_the_guide_readme`, so rule R1's "added to
+  the guide/README.md table" requirement is gate-enforced. The SIM walkthrough shipped
+  unindexed at gate-58 and nothing could catch it; now the omission is a red gate.
+  (2) **Guard: Windows gate parity.** `test_ci_pipeline.py` gains two tests pinning `gate.ps1`
+  against `gate.sh`'s `LOCAL_STAGES` at the command level, and asserting the CI-first stage
+  commands (migrations-check's alembic round trip, containers-build's docker build) stay out
+  of it. `gate.ps1`'s header claimed "mirrors this exactly" and `INTERFACES.md`'s CI section
+  claimed the parity was test-enforced; neither was true until now — a stage added to
+  `gate.sh` and CI would have left the Windows gate silently narrower and still green.
+  (3) **Refiled:** the `deployment.services_status` contract moved from `INTERFACES.md`'s
+  "Owned by E3" block into "Owned by E5", where its writer lives; content unchanged, flagged
+  in place.
+  (4) **Convention: annotated gate tags.** From gate-64 onward a gate tag is annotated, its
+  message carrying the pass record (counts and the four zeros). 22 of the 25 E3/SIM/E5 tags
+  were lightweight, leaving the pass record only in project-updates; existing tags stay
+  untouched (R3 forbids rewriting a tagged gate).
+- **Companions in this batch:** D160 (E4 sequencing and provenance), D161 (D119 closed), D162
+  (the E4.6 correction), project-changes #40/#41, addenda PHASE5-4-08 and PHASE4-1-01, the E5
+  ledger's C3 row filled, "Amended by E3" markers on the E1/E2 walkthroughs, PHASE0-4-07
+  restored to append order, reason comments on the bare `type: ignore`s, the migration
+  identifier-annotation convention written down in `docs/migration-conventions.md` (the one
+  unannotated migration, `d5f28c60a419`, stays as committed — migration convention 1, "a
+  committed migration is never edited", outranks a cosmetic fix), and the Provisioning page's
+  stale E5 sentence removed.
+- **Reference:** project-changes #40, #41; the gate-64 project-updates entry; hygiene batch 1
+  (#12, D29) for the precedent.
+
+## D162 (2026-08-28): The spec 16.5 refusal belongs to E4.6, not E4.3 (D157 corrected in part)
+
+- **Decision:** the task that enforces spec 16.5's provisioning gate — refusing to generate a
+  bundle for a deployment whose `services_status` is not `verified` — is **E4.6** (the
+  Aggregator `settings.yaml` + bootstrap block, where broker knowledge lives), not **E4.3**
+  (per-pod file generation, which has none). D157 and the `INTERFACES.md` services-page entry
+  said E4.3; both now carry the correction.
+- **The evidence, four sources against two:** phase-4 §2 fixed choice 1 places the 422 "at one
+  call site" in E4.6's territory and E4.6's own acceptance says "generation for a deployment
+  with no MQTT `deployment_service` row is refused with a 422"; addendum PHASE4-2-01 has E4.6
+  gating on `services_status == 'verified'` directly; project-changes #38 says the same; the E4
+  ledger's notes repeat it. Against that, D157 and `INTERFACES.md` wrote "E4.3" — the drifted
+  pair, corrected before an E4 session builds the refusal into the wrong unit.
+- **What is NOT decided here:** nothing about the gate's semantics moves. E5 still only
+  reports; the refusal is still E4's; `deployment.services_status` and the per-service rows are
+  still what E5 owes it, all shipped (D157's list stands).
+- **Reference:** D157 (banner); `docs/INTERFACES.md` services-page entry (corrected in place,
+  flagged); phase-4 §2 fixed choice 1 + E4.6 acceptance; addendum PHASE4-2-01;
+  project-changes #38.
+
+## D161 (2026-08-28): D119 expired with E5 — the per-task gate cadence is the rule again
+(D119 closed)
+
+- **Decision:** D119's checkpoint cadence was scoped "for epic E5 only" and E5 has merged
+  (gate-62, and gate-63 for the reconciliation), so the deviation is closed. Rule R0's default
+  — every numbered task ends with a full gate — governs E4 and every later epic. A future epic
+  that wants checkpoint cadence needs a fresh, recorded owner decision; D119 says of itself
+  that it "is not a precedent", and this entry is what makes that sentence enforceable rather
+  than decorative.
+- **Why an entry at all:** the written rules and the practiced rules had drifted. The project
+  instructions file says "never commit or push a red gate" and R0 admits "no exceptions, for
+  any reason", while D119 re-scoped the prohibition to publication (local records commits
+  between checkpoints, push and tag as the gated events). Rather than rewriting the rules to
+  absorb the exception, the owner chose (2026-08-28, hygiene-batch-2 plan approval) to record
+  the exception as expired — the strict reading stands, and the E5-era divergence remains
+  explained by D119 alone.
+- **Reference:** D119 (now carrying its closed banner); rule R0;
+  `.claude/rules/project-rules.json` (unchanged by this entry, deliberately).
+
+## D160 (2026-08-28): E4 was deferred behind E5 and SIM — the sequencing decision recorded,
+with the E4 documents' provenance
+
+- **Decision (recorded retroactively; hygiene batch 2):** epics E5 and SIM were built and
+  merged before E4, on the owner's decision of 2026-08-11 at E5 plan approval. Every prior
+  record states a *consequence* of that decision (D116/D117 the provider reversal, D157 the
+  16.5 gate ownership, project-changes #37/#38, addendum PHASE4-2-01) with "E4 has not been
+  built" as a premise; no entry recorded the sequencing itself. This one does.
+- **Why the order was safe:** the project plan's critical path is E0 → E1 → E3 → E5 → E7 → E8,
+  with E4 hanging off it with slack; the plan's own contingency ("if E5 lags, land E4 with the
+  bootstrap block flagged off") was the reverse case and is now moot. The reversal left E4
+  better positioned than its phase document assumed: E4.6 imports a shipped, tested
+  `BrokerCredentialProvider` instead of declaring one, and gates on a real
+  `deployment.services_status` instead of a degraded predicate.
+- **Provenance recorded with it:** `phase-4-provisioning.md` and `e4-progress-ledger.md` landed
+  in commit `23be96d` ("Run the gate in parallel: 541s to 260s", 2026-08-11), whose message
+  never mentions E4, with no numbered project-changes entry — unlike the SIM and E5 phase
+  documents (#23, #36). Recorded now rather than left implicit; entry #41 and addendum
+  PHASE4-1-01 carry it on the change log and the phase document.
+- **Reference:** project-changes #41; phase-4 §1 addendum PHASE4-1-01; D116, D117, D157;
+  `echoes-of-earth-project-plan.md` (critical path; the "if E5 lags" contingency).
+
 ## D159 (2026-08-13): The sim harness could not import the platform after E5 added three
 runtime dependencies, and only the merged gate could see it
 
@@ -82,6 +176,10 @@ image does not contain anything outside `backend/`
   `deploy/`, it has to move the build context first, and the test above is what will say so.
 
 ## D157 (2026-08-13): E5 REPORTS the spec 16.5 provisioning gate; E4 enforces it
+
+> **CORRECTED, 2026-08-28 (D162):** the two "E4.3" attributions below should read **E4.6**. The
+> boundary this entry draws — E5 reports, E4 refuses — is unchanged; only the task number was
+> wrong. See D162 for the evidence. Recorded rather than rewritten.
 
 - **Decision:** the services page renders the state of spec 16.5's gate — blocked or unblocked,
   and the "your other services are not verified" warning — and does not implement it. Nothing
@@ -1214,6 +1312,11 @@ stop-and-ask (E5.0)
 
 ## D119 (2026-08-11): E5 gates at five checkpoints rather than per task, and nothing unverified
 reaches the remote (E5.0)
+
+> **CLOSED, 2026-08-28:** E5 merged at gate-62/63, so this decision's scope is exhausted. See
+> D161 — rule R0's default per-task cadence resumes for E4 and every later epic, and a future
+> epic wanting checkpoint cadence needs a fresh owner decision, exactly as the "is not a
+> precedent" paragraph below intended.
 
 - **Decision:** for epic E5 only, the full `make gate` runs at five checkpoints (C1-C5 in the
   phase document) rather than at the end of every numbered unit; each unit ends with its own

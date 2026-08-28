@@ -295,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"dev broker TLS material written to {args.out} (no accounts yet)")
         return 0
 
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings()  # type: ignore[call-arg]  # resolves from env (D5)
     _, session_factory = create_session_factory(settings.database_url)
     secret_store = SecretStore(session_factory, settings.kek)
     with session_factory() as db:
