@@ -1,5 +1,24 @@
 # Project Updates
 
+## 2026-11-13: Batch 1 records fix — a quoted scanner failure tripped the scanner in CI (Gate 69 GREEN)
+
+- **What closed:** PR #22's CI went red on `test_repo_layout.py::test_no_committed_secret_patterns`
+  against `docs/project-updates.md`. The gate-68 entry had quoted the scanner's failure message
+  verbatim, and the quote itself matches the secret pattern. The gate could not see it, because
+  R1 writes that entry after the gate. The tagged gate-68 commit is therefore red under CI. R3
+  forbids amending it, so this commit corrects it: the gate-68 entry now paraphrases the message,
+  and **D171** adds a step after every gate. Once the records are written and before the commit,
+  rerun `test_repo_layout.py` and `test_governance.py`, the two suites that read committed text.
+  The scanner is unchanged.
+- **Gate:** 69, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1167 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1407 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **229.86s**, sim-protocol **187.34s**,
+  wall clock **7m35s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** after this entry was written, `test_repo_layout.py` (15) and
+  `test_governance.py` were rerun green against the final tree (the D171 step, applied to its own
+  record).
+
 ## 2026-11-13: E4.2 — the on-card `device_config` v1 file, DRAFT (Gate 68 GREEN)
 
 - **Tasks closed:** E4.2. `app/provisioning/device_config.py`:
@@ -16,11 +35,13 @@
   0 skipped / 0 xfailed / 0 deselected. The +13 is `test_device_config.py`. Backend stage
   **226.64s**, sim-protocol **187.04s**, wall clock **7m28s**.
 - **The red run (rule R0):** the first gate-68 run failed **backend-tests** on exactly one test,
-  `test_repo_layout.py::test_no_committed_secret_patterns`: `possible committed secret in
-  backend/tests/test_device_config.py: 'SECRET = "planted-s3-secret-9d2e77-never'`. The value
-  was a deliberately fake planted marker, but the constant's NAME matched the scanner's
-  `SECRET… = "<20+ chars>"` pattern. The constant was renamed `PLANTED_S3_CREDENTIAL`; the
-  scanner is unchanged. Everything else in that run was green (1166 backend).
+  `test_repo_layout.py::test_no_committed_secret_patterns`, reporting a possible committed
+  secret in `backend/tests/test_device_config.py`. The flagged line assigned the planted fake S3
+  marker to a constant whose name ended in the word the scanner keys on, followed by a quoted
+  value over 20 characters. The value was deliberately fake, but the pattern matched. The
+  constant was renamed `PLANTED_S3_CREDENTIAL`; the scanner is unchanged. Everything else in that
+  run was green (1166 backend). (The scanner's message is paraphrased here on purpose: quoted
+  verbatim, it matches the scanner again. See the next entry.)
 - **Falsifiability:** the byte-scan leak test was run against a renderer patched in memory to
   emit the secret keys, and it failed, so it is not vacuous. An all-digit MAC
   (`12:34:56:12:34:56`, a YAML 1.1 base-60 integer) is asserted to round-trip as a string.

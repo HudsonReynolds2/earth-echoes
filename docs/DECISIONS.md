@@ -4,6 +4,20 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D171 (2026-11-13): Post-gate records are scanned before they are committed
+
+- **Decision:** after a green gate, once the project-updates entry and ledger row are written
+  and before the commit, rerun `tests/test_repo_layout.py` (the committed-secret scan) and
+  `tests/test_governance.py` (record and addendum format). These are the two suites that read
+  committed text, and the gate never sees records written after it.
+- **Why:** gate 68 was green, but its project-updates entry quoted a scanner failure word for
+  word, and the quote itself matched the secret pattern. CI went red on PR #22
+  (`test_no_committed_secret_patterns` flagged `docs/project-updates.md`), so the tagged
+  gate-68 commit is red under CI. R3 forbids amending a tagged gate commit, so the fix is a new
+  commit with its own gate (69). The scanner was not loosened: quoting a failure is a record's
+  job, and paraphrasing it costs nothing.
+- **Reference:** R0, R1, R3; PR #22's CI run; gate 69.
+
 ## D170 (2026-11-13): E4.1's table shape — scoped bundles with a per-Pod plan, and records keyed like revisions
 
 - **Decision:** `provisioning_bundle` carries `scope_type` (`pod`/`deployment`) + `scope_id`
