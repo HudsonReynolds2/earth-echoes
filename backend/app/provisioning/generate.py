@@ -1,5 +1,10 @@
 """Bundle file generation (tasks E4.3, E4.4; spec 8.2, 8.5; phase-4 §2).
 
+E4.4 adds spec 8.2 mode 2 (one MAC-keyed file per Listener) and the mixed mode
+spec 8.2 permits per Pod: the Pod's shared file for most cards, plus
+per-listener files for "the few devices that need" distinct first-boot
+settings. See `generate_for_pod` and `generate_for_deployment` at the bottom.
+
 E4.3 is spec 8.2 mode 1: **one file for a Pod, written to every card in it.**
 It works because every Listener in a Pod shares the Pod's network
 configuration. The per-listener data (name, GPS, MAC) is left blank and filled
@@ -47,7 +52,7 @@ from sqlalchemy.orm import Session
 
 from app.config.catalog import CATALOG
 from app.config.service import effective_resolved
-from app.models import Aggregator, ConfigRevision, Listener, Pod
+from app.models import BUNDLE_MODES, Aggregator, ConfigRevision, Listener, Pod
 from app.provisioning.device_config import render_device_config_v1
 from app.secrets import SecretStore
 
@@ -216,3 +221,112 @@ def generate_pod_file(
         if listener.mac not in exclude_macs
     )
     return GeneratedFile(path=path, content=content, records=records)
+
+
+# --- E4.4: per-listener files and mixed mode ---------------------------------
+
+
+def listener_file_path(pod_id: uuid.UUID, mac: str) -> str:
+    """`pods/<pod_id>/listeners/02-EE-0E-01-01-07.yaml`.
+
+    Dashes, not colons: `:` is illegal in a Windows filename, and cards are
+    written on Windows field laptops (phase-4 fixed choice 4). The MAC inside
+    the file keeps its canonical colon form.
+    """
+    return f"{pod_folder(pod_id)}/listeners/{mac.replace(':', '-')}.yaml"
+
+
+def generate_listener_file(
+    db: Session,
+    secret_store: SecretStore,
+    listener: Listener,
+    pod_id: uuid.UUID,
+    aggregator_uuid: str,
+) -> GeneratedFile:
+    """Spec 8.2 mode 2: one Listener's own card, resolved AT THE LISTENER.
+
+    Unlike the per-pod file, nothing is blanked: identity and location are
+    this device's own, and a Listener-level override is exactly the
+    "distinct settings at first boot" this mode exists for.
+    """
+    values = resolved_values(db, secret_store, "listener", listener.mac)
+    missing = missing_network_keys(values)
+    if missing:
+        raise GenerationError(
+            f"listener {listener.mac} cannot join its network: set {', '.join(missing)}",
+            missing=missing,
+        )
+    path = listener_file_path(pod_id, listener.mac)
+    record = listener_record(db, listener, pod_id, aggregator_uuid, kind="listener_file", path=path)
+    return GeneratedFile(path=path, content=render_device_config_v1(values), records=(record,))
+
+
+def generate_for_pod(
+    db: Session,
+    secret_store: SecretStore,
+    pod_id: uuid.UUID,
+    mode: str,
+    listener_macs: frozenset[str] = frozenset(),
+) -> list[GeneratedFile]:
+    """Every card file for one Pod in the chosen mode.
+
+    - `per_pod`: the shared file only; `listener_macs` must be empty.
+    - `per_listener`: one file per Listener in the Pod; `listener_macs` must be
+      empty (the mode means all of them).
+    - `mixed`: the shared file for every Listener NOT named, plus a
+      per-listener file for exactly the named ones. At least one must be named,
+      or it is just `per_pod`.
+
+    A named MAC outside this Pod is refused at generation rather than silently
+    included or dropped (E4.4 acceptance): a card generated for the wrong Pod
+    would carry the wrong network.
+    """
+    if mode not in BUNDLE_MODES:
+        raise GenerationError(f"unknown mode {mode!r}; expected one of {', '.join(BUNDLE_MODES)}")
+    pod, aggregator = _pod_with_aggregator(db, pod_id)
+    listeners = pod_listeners(db, aggregator)
+    in_pod = {listener.mac: listener for listener in listeners}
+
+    outsiders = sorted(listener_macs - in_pod.keys())
+    if outsiders:
+        raise GenerationError(f"not listeners of pod {pod.name!r}: {', '.join(outsiders)}")
+    if mode in ("per_pod", "per_listener") and listener_macs:
+        raise GenerationError(f"mode {mode!r} takes no listener list; use 'mixed' to name devices")
+    if mode == "mixed" and not listener_macs:
+        raise GenerationError("mode 'mixed' needs at least one listener; otherwise use 'per_pod'")
+
+    files: list[GeneratedFile] = []
+    if mode in ("per_pod", "mixed"):
+        files.append(generate_pod_file(db, secret_store, pod.id, exclude_macs=listener_macs))
+    chosen = listeners if mode == "per_listener" else [in_pod[mac] for mac in sorted(listener_macs)]
+    files.extend(
+        generate_listener_file(db, secret_store, listener, pod.id, aggregator.aggregator_uuid)
+        for listener in chosen
+    )
+    return files
+
+
+def generate_for_deployment(
+    db: Session,
+    secret_store: SecretStore,
+    deployment_id: uuid.UUID,
+    plan: Mapping[uuid.UUID, tuple[str, frozenset[str]]],
+) -> list[GeneratedFile]:
+    """A Deployment bundle: each named Pod in its own mode (spec 8.2, "Operators
+    pick per Pod"). `plan` maps pod id → (mode, listener MACs). Every Pod must
+    belong to this Deployment, so a plan cannot reach across deployments."""
+    if not plan:
+        raise GenerationError("a deployment bundle needs at least one pod")
+    pods = {pod.id: pod for pod in db.scalars(select(Pod).where(Pod.id.in_(list(plan))))}
+    foreign = sorted(
+        str(pod_id)
+        for pod_id in plan
+        if pod_id not in pods or pods[pod_id].deployment_id != deployment_id
+    )
+    if foreign:
+        raise GenerationError(f"pods not in deployment {deployment_id}: {', '.join(foreign)}")
+    files: list[GeneratedFile] = []
+    for pod_id in sorted(plan, key=str):
+        mode, macs = plan[pod_id]
+        files.extend(generate_for_pod(db, secret_store, pod_id, mode, macs))
+    return files

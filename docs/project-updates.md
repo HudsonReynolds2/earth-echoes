@@ -1,5 +1,27 @@
 # Project Updates
 
+## 2026-11-13: E4.4 — per-listener files, mixed mode, and Deployment bundles (Gate 72 GREEN)
+
+- **Tasks closed:** E4.4, spec 8.2 mode 2 plus mixed. In `app/provisioning/generate.py`:
+  - `generate_for_pod` covers `per_pod`, `per_listener` and `mixed`.
+  - `generate_listener_file` resolves at the Listener and blanks nothing.
+  - `generate_for_deployment` builds a per-Pod plan confined to its own Deployment.
+  - Named MACs outside the Pod and mode/list mismatches are refused at generation.
+  - Every Listener gets exactly one card.
+  - Per-listener filenames use dashes for Windows field laptops.
+
+  Choices in **D174**; the `INTERFACES.md` contract was extended.
+- **Gate:** 72, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1188 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1431 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +13 is `test_listener_file_generation.py`. Backend
+  stage **238.20s**, sim-protocol **189.02s**, wall clock **7m54s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` with the demo seed and network
+  values set on `Pod 01 · Alder Creek`, mixed mode naming its first two Listeners produced
+  `device_config.yaml` → 6 cards, `listeners/02-EE-0E-01-01-01.yaml` → 1 card and
+  `listeners/02-EE-0E-01-01-02.yaml` → 1 card (8 Listeners, 8 cards). The planted PSK was
+  absent from every file. The scratch container was removed.
+
 ## 2026-11-13: E4.3 — per-pod file generation (Gate 71 GREEN)
 
 - **Tasks closed:** E4.3, spec 8.2 mode 1. `app/provisioning/generate.py::generate_pod_file`:

@@ -4,6 +4,28 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D174 (2026-11-13): E4.4's choices — Windows-safe card names, strict mode/list agreement, and per-Pod modes in a Deployment bundle
+
+- **Decision:**
+  1. **Per-listener files are named with dashes:** `pods/<pod_id>/listeners/02-EE-0E-01-01-07.yaml`.
+     `:` is illegal in a Windows filename, and fixed choice 4 exists because cards are written
+     on Windows field laptops. The MAC inside the file keeps its canonical colon form. A test
+     forbids every Windows-reserved character in any generated path.
+  2. **A per-listener file resolves at the Listener and blanks nothing.** Its own overrides
+     and identity are the point of the mode ("distinct settings at first boot", spec 8.2). It
+     needs the same network values as a pod file, inherited from the Pod.
+  3. **Mode and listener list must agree:**
+     - `per_pod` and `per_listener` take no list (the latter means every Listener);
+     - `mixed` needs at least one MAC;
+     - a MAC outside the Pod, whether from another Pod or unknown, is refused, naming it.
+
+     Every Listener gets exactly one card, and named devices take no pod-file record.
+  4. **A Deployment bundle is a per-Pod plan** (`generate_for_deployment`, the D170 `plan`
+     shape). Every Pod must belong to the Deployment, so a plan cannot reach across
+     deployments.
+- **Reference:** spec 8.2; phase-4 E4.4, fixed choice 4; D170, D173;
+  `test_listener_file_generation.py`.
+
 ## D173 (2026-11-13): E4.3's choices — Pod-level resolution, which revision a card embeds, and when a Pod is refused
 
 - **Decision:**

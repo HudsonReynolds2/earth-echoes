@@ -1922,6 +1922,24 @@ exclude_macs=frozenset()) -> GeneratedFile(path, content, records)`.
 - **Raises:** `GenerationError` (`.missing` = unset network keys; the WiFi password is exempt
   when security is `OPEN`) or `LookupError` for an unknown Pod.
 
+### Per-listener and mixed mode, and Deployment bundles (E4.4; spec 8.2 mode 2; D174)
+
+`app/provisioning/generate.py`:
+
+- **`generate_for_pod(db, store, pod_id, mode, listener_macs) -> list[GeneratedFile]`.**
+  - `per_pod` gives the shared file.
+  - `per_listener` gives one `listener_file` per Listener.
+  - `mixed` gives the shared file (named MACs excluded from its records) plus a `listener_file`
+    for each named MAC.
+
+  Each Listener gets exactly one card. A mismatched mode/list or an out-of-Pod MAC raises
+  `GenerationError`.
+- **`generate_listener_file(...)`** resolves at the **Listener**, with no blanks.
+- **Paths:** `listener_file_path(pod_id, mac)` gives
+  `pods/<pod_id>/listeners/<MAC with dashes>.yaml`, which is Windows-legal.
+- **`generate_for_deployment(db, store, deployment_id, {pod_id: (mode, macs)})`** builds a
+  Deployment bundle. Every Pod must belong to that Deployment.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform
