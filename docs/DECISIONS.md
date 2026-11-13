@@ -4,6 +4,110 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D175 (2026-11-13): E4.5's envelope — required at the API only, AAD-bound blobs, one DEK per Pod per export
+
+- **Decision:**
+  1. **`EOE_FIRMWARE_KEK` is required by `create_app`, not by `Settings`.** `Settings.firmware_kek`
+     is optional and `FirmwareKey.from_base64` refuses a missing or malformed value when the API
+     is built. The message names the variable, gives a fingerprint for a wrong-length key, and
+     never echoes the value. Phase-4 fixed choice 3 says "validated fail-loud at app
+     construction exactly as EOE_KEK is", and that is honored. But the worker, the seed CLI and
+     the devbroker CLI also build `Settings` and never touch a card, so a Settings-level
+     requirement would have forced an unused secret into every one of those processes. In
+     compose, the `api` service fail-fast interpolates it and the `worker` does not receive it.
+  2. **`EOE_FIRMWARE_KEY_VERSION`** (optional, default 1) is a second, additive variable. It
+     supplies the `key_version` fixed choice 3 asks for. Without it the field would be a
+     constant that a future KEK rotation could not change.
+  3. **Encoding:** `base64(nonce || ciphertext || tag)`. The AAD binds each blob to its role
+     (`eoe-dek:v1`, `eoe-secret:v1:<catalog key>`), so swapping blobs between fields fails
+     authentication (asserted). The block also carries `format` and `algorithm`, so a firmware
+     parser can refuse what it does not understand rather than misread it.
+  4. **One fresh DEK per Pod per export,** shared by that Pod's shared and per-listener files
+     ("a fresh per-Pod DEK per export"). Every nonce is fresh. As a consequence, two exports of
+     one Pod differ in their `secrets:` block; E4.3's tests compare cards with that block set
+     aside.
+  5. **An OPEN network's card has no `wifi_password` field** rather than an encrypted empty
+     string.
+  6. **Golden file moved deliberately.** It gained exactly the seven-line `secrets:` block
+     (fixed stand-in blobs), and nothing else on the card changed.
+- **Still open:** spec 17 item 7 (KEK custody, backup, Organization-wide rotation). Losing the
+  key strands provisioning of new Pods; the getting-started guide now says so.
+- **Reference:** spec 8.4; phase-4 fixed choice 3, E4.5; D166; `test_firmware_envelope.py`.
+
+## D174 (2026-11-13): E4.4's choices — Windows-safe card names, strict mode/list agreement, and per-Pod modes in a Deployment bundle
+
+- **Decision:**
+  1. **Per-listener files are named with dashes:** `pods/<pod_id>/listeners/02-EE-0E-01-01-07.yaml`.
+     `:` is illegal in a Windows filename, and fixed choice 4 exists because cards are written
+     on Windows field laptops. The MAC inside the file keeps its canonical colon form. A test
+     forbids every Windows-reserved character in any generated path.
+  2. **A per-listener file resolves at the Listener and blanks nothing.** Its own overrides
+     and identity are the point of the mode ("distinct settings at first boot", spec 8.2). It
+     needs the same network values as a pod file, inherited from the Pod.
+  3. **Mode and listener list must agree:**
+     - `per_pod` and `per_listener` take no list (the latter means every Listener);
+     - `mixed` needs at least one MAC;
+     - a MAC outside the Pod, whether from another Pod or unknown, is refused, naming it.
+
+     Every Listener gets exactly one card, and named devices take no pod-file record.
+  4. **A Deployment bundle is a per-Pod plan** (`generate_for_deployment`, the D170 `plan`
+     shape). Every Pod must belong to the Deployment, so a plan cannot reach across
+     deployments.
+- **Reference:** spec 8.2; phase-4 E4.4, fixed choice 4; D170, D173;
+  `test_listener_file_generation.py`.
+
+## D173 (2026-11-13): E4.3's choices — Pod-level resolution, which revision a card embeds, and when a Pod is refused
+
+- **Decision:**
+  1. **The per-pod file resolves at the POD** (`effective_resolved(db, "pod", …)`), never per
+     Listener. Identical bytes for every card then hold by construction, and a Listener-level
+     override cannot leak into a shared file (asserted). Devices that need their own first-boot
+     values take a per-listener file (E4.4).
+  2. **A card embeds its device's latest `config_revision` by `(created_at, id)`, in any
+     state**: the same total order E3's `publisher.newest_revision_for_target` uses, so "current"
+     means one thing across the codebase. A device with no revision is recorded with NULLs. The
+     generator never creates a revision (phase-4 §2). Whether a NULL can later reach `confirmed`
+     is E4.9's question.
+  3. **Refusal.** A Pod is refused (`GenerationError`, with `missing` naming the keys) when any
+     `network.*` key is unset or empty. The single exception is `network.wifi_password` when
+     `network.wifi_security` is `OPEN`. A Pod with no Aggregator is also refused: spec 8.5 makes
+     the Aggregator the card's target slot, and its Listeners have nothing to stream to.
+  4. **Only Listener cards get records in E4.3.** The Aggregator's record belongs with its
+     `settings.yaml`, which is E4.6's file; a record pointing at a file that does not exist yet
+     would make E4.7's both-directions manifest check false.
+  5. **Archive layout:** `pods/<pod_id>/device_config.yaml`. Pod names contain spaces and `·`,
+     so the stable id names the folder, and E4.7's README maps ids to names.
+- **Reference:** spec 8.2, 8.5; phase-4 E4.3; D53, D55, D166; `test_pod_file_generation.py`.
+
+## D172 (2026-11-13): A killed mock device's disconnect error was never retrieved, and failed whichever test was running
+
+- **Decision:** `sim/device.py::MockAggregator.disconnect` now attaches
+  `_collect_disconnect_error` to the aiomqtt client's private `_disconnected` future. A
+  done-callback marks its `MqttCodeError` retrieved whenever it is stored, before or after the
+  bounded teardown. `sim/tests/test_device_teardown.py` pins both orderings, plus a control
+  showing the same state without the collector is what asyncio reports.
+- **The bug:**
+  1. After `kill()`, paho notices the dead socket and aiomqtt stores `MqttCodeError(128,
+     "Unexpected disconnection")` on `_disconnected`.
+  2. `disconnect()` cancels the reader task (the usual collector) first, and aiomqtt's
+     `__aexit__` returns early on a future that is already done.
+  3. Nobody retrieves the error. asyncio logs "Future exception was never retrieved", and
+     anyio's test runner raises it.
+
+  Whether it fires depends on when paho's callback lands. It failed
+  `test_the_disconnect_scenario_lands_as_an_lwt_offline` in one of PR #22's two CI runs, on code
+  batch 1 never touched, and has not been seen locally.
+- **Why it is a fix and not a flake (the D150 test):** the cause was traced to a specific
+  unretrieved future before anything changed, and the control test reproduces the exact state
+  deterministically. Nothing was loosened: no retry, no timeout change, no suppression wider than
+  "this one future's error is collected".
+- **PR #22 was merged after rerunning only its failed job**, once this analysis showed the
+  failure was in SIM-owned teardown that batch 1 does not touch. The fix lands here, gated (70),
+  as the first commit of batch 2.
+- **Boundary:** a private aiomqtt attribute, the same library boundary `kill()` already
+  crosses for the socket. The platform is not touched.
+- **Reference:** D150, D158; PR #22's CI; SIM.1's `MockAggregator`.
+
 ## D171 (2026-11-13): Post-gate records are scanned before they are committed
 
 - **Decision:** after a green gate, once the project-updates entry and ledger row are written

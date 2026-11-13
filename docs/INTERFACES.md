@@ -35,6 +35,8 @@ only the published host side moved, so the stack coexists with other local servi
 | `DATABASE_URL` | yes | Postgres connection URL |
 | `EOE_SESSION_SECRET` | yes | signs session cookies |
 | `EOE_KEK` | yes | base64 platform key-encryption key (SecretStore, E0.11) |
+| `EOE_FIRMWARE_KEK` | yes (API) | base64 **firmware** key-encryption key for provisioning cards (E4.5, D175). Validated fail-loud by `create_app`; the worker and CLIs do not read it. Additive row, owned by E4 |
+| `EOE_FIRMWARE_KEY_VERSION` | no (default `1`) | written into each card's `secrets.key_version` (E4.5). Additive row, owned by E4 |
 | `REDIS_URL` | no | enables Redis-backed features (E3, E7) |
 | `EOE_CORS_ORIGINS` | no | comma-separated allowed browser origins (D2/D4) |
 | `EOE_PUBLISH_ENABLED` | no | gates publication AND the API's outbound broker connection (D61, D86); default off until E3.13 |
@@ -1905,6 +1907,66 @@ firmware-agreed schema arrives as an **additive v2 renderer**, and v1 is never e
   rather than emitting a silent `null`. `blank` may only name plaintext card keys.
 - **Pinned by** `tests/golden/device_config_v1.yaml`, byte for byte: changing the card format
   means editing that file in the same commit.
+
+### Per-pod generation (E4.3; spec 8.2 mode 1; D173)
+
+`app/provisioning/generate.py::generate_pod_file(db, secret_store, pod_id, *,
+exclude_macs=frozenset()) -> GeneratedFile(path, content, records)`.
+
+- **Values:** `effective_resolved` at the **Pod**. It is the only plaintext accessor allowed
+  here, and its output never reaches a response.
+- **Content:** `render_device_config_v1` with `blank=INVENTORY_KEYS` (derived from the
+  catalog). The bytes are identical for every card in the Pod.
+- **Path:** `pods/<pod_id>/device_config.yaml`.
+- **Records:** one `PlannedRecord` per Listener not in `exclude_macs`, `file_kind="pod_file"`,
+  embedding the device's latest revision or NULLs. No revision is ever created. Records are
+  persisted by E4.8.
+- **Raises:** `GenerationError` (`.missing` = unset network keys; the WiFi password is exempt
+  when security is `OPEN`) or `LookupError` for an unknown Pod.
+
+### Per-listener and mixed mode, and Deployment bundles (E4.4; spec 8.2 mode 2; D174)
+
+`app/provisioning/generate.py`:
+
+- **`generate_for_pod(db, store, pod_id, mode, listener_macs) -> list[GeneratedFile]`.**
+  - `per_pod` gives the shared file.
+  - `per_listener` gives one `listener_file` per Listener.
+  - `mixed` gives the shared file (named MACs excluded from its records) plus a `listener_file`
+    for each named MAC.
+
+  Each Listener gets exactly one card. A mismatched mode/list or an out-of-Pod MAC raises
+  `GenerationError`.
+- **`generate_listener_file(...)`** resolves at the **Listener**, with no blanks.
+- **Paths:** `listener_file_path(pod_id, mac)` gives
+  `pods/<pod_id>/listeners/<MAC with dashes>.yaml`, which is Windows-legal.
+- **`generate_for_deployment(db, store, deployment_id, {pod_id: (mode, macs)})`** builds a
+  Deployment bundle. Every Pod must belong to that Deployment.
+
+### The firmware envelope — **a wire contract firmware must parse** (E4.5; spec 8.4; fixed choice 3; D175)
+
+Published the moment it merges, like `contracts/mqtt.py`. `app/provisioning/envelope.py`;
+`ENVELOPE_FORMAT = 1`. Every generated card ends with this top-level block:
+
+```yaml
+secrets:
+  format: 1                 # ENVELOPE_FORMAT; bumped only by an incompatible change
+  algorithm: AES-256-GCM
+  key_version: 1            # which firmware KEK (EOE_FIRMWARE_KEY_VERSION)
+  wrapped_dek: <base64>     # the Pod's DEK, sealed under the firmware KEK
+  stream_key: <base64>      # sealed under the DEK
+  wifi_password: <base64>   # sealed under the DEK; ABSENT on an OPEN network
+```
+
+- **Blob encoding:** `base64(nonce[12] || ciphertext || tag[16])`, AES-256-GCM. Keys are 32
+  bytes.
+- **AAD:** the wrapped DEK uses `b"eoe-dek:v1"`. A sealed value uses
+  `b"eoe-secret:v1:" + <full catalog key>` (e.g. `network.wifi_password`), so a blob moved to
+  another field fails authentication.
+- **Boot sequence:** unwrap the DEK with the KEK, then unseal each present field under the DEK.
+  `tests/test_firmware_envelope.py::firmware_boot` is the reference implementation.
+- **Key material:** a fresh DEK per Pod **per export**, shared by every file of that Pod in that
+  export. Fresh nonces everywhere.
+- **Key custody (spec 17 item 7) is OPEN.** The KEK comes from `EOE_FIRMWARE_KEK` for now.
 
 ## Owned by SIM
 

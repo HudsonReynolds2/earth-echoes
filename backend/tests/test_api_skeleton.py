@@ -41,6 +41,7 @@ def make_settings() -> Settings:
         database_url="postgresql+psycopg://nobody:x@localhost:9/nowhere",
         session_secret="test-secret",
         kek=make_kek(),
+        firmware_kek=make_kek(),
         cors_origins=ALLOWED_ORIGIN,
     )
 

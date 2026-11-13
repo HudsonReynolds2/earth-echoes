@@ -32,6 +32,7 @@ def audit_app(pg_url):  # noqa: F811
             database_url=pg_url,
             session_secret="gate8-test-secret",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
         )
     )

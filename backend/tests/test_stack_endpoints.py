@@ -58,6 +58,7 @@ def app(pg_url, factory):
             database_url=pg_url,
             session_secret="e510-test-secret",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
         )
     )

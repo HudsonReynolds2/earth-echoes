@@ -395,6 +395,30 @@ class MockListener:
         )
 
 
+def _collect_disconnect_error(client: aiomqtt.Client) -> None:
+    """Mark the client's "unexpected disconnection" error as retrieved,
+    whenever it arrives.
+
+    After `kill()`, paho notices the dead socket and aiomqtt stores
+    `MqttCodeError(128, "Unexpected disconnection")` on its private
+    `_disconnected` future. The reader task would normally collect it, but
+    `disconnect()` cancels the reader first, and aiomqtt's `__aexit__` returns
+    early on a future that is already done without retrieving it. Nothing then
+    retrieves it, asyncio logs "Future exception was never retrieved", and
+    anyio's test runner raises that as a failure in whichever test was running.
+    The timing depends on when paho's callback lands, so it failed
+    `test_the_disconnect_scenario_lands_as_an_lwt_offline` once in four CI runs
+    (D172). A done-callback covers both orders: an error already stored, and
+    one stored after the bounded teardown below has given up waiting.
+
+    Private attribute, the same boundary `kill()` already crosses for the
+    socket: the platform is not touched, and no MQTT library has a public API
+    for "the harness killed this on purpose".
+    """
+    future: asyncio.Future[None] = client._disconnected  # noqa: SLF001  (see docstring)
+    future.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+
+
 class MockAggregator:
     """One simulated Aggregator, holding one MQTT session (spec 6.4).
 
@@ -651,8 +675,9 @@ class MockAggregator:
                     await task
         self._reader = self._sweeper = None
         stack, self._stack = self._stack, None
-        self._client = None
+        client, self._client = self._client, None
         self._connected_at = None
+        _collect_disconnect_error(client)
         if stack is not None:
             # Bounded: after a kill the client is holding a socket that will
             # never answer, and an unbounded teardown would hang the fleet

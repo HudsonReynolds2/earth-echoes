@@ -74,6 +74,7 @@ def test_fresh_environment_to_logged_in_owner_in_one_command():
                 database_url=url,
                 session_secret=session_secret,
                 kek=kek,
+                firmware_kek=make_kek(),
                 cors_origins="",
             )
         )

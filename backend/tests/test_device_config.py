@@ -4,7 +4,10 @@ addendum PHASE4-2-02; D166).
 What is pinned, and why each one is a test rather than a code-review item:
 
 1. **The bytes.** `golden/device_config_v1.yaml` is the renderer's output for
-   `SAMPLE`, byte for byte. A change to the on-card format must be a
+   `SAMPLE` with the fixed `SEALED` block, byte for byte. E4.5 moved it
+   deliberately to add `secrets:` (PHASE4-2-02); the sealed values are fixed
+   strings here because real ones are random, and the crypto itself is pinned
+   in `test_firmware_envelope.py`. A change to the on-card format must be a
    deliberate act that edits that file in the same commit, because every card
    already written was written in the old bytes.
 2. **Every emitted key is a catalog key**, asserted against `CATALOG` by
@@ -27,6 +30,7 @@ from app.provisioning.device_config import (
     DeviceConfigError,
     render_device_config_v1,
 )
+from app.provisioning.envelope import SealedSecrets
 
 GOLDEN = Path(__file__).parent / "golden" / "device_config_v1.yaml"
 
@@ -53,6 +57,17 @@ SAMPLE: dict[str, object] = {entry.key: entry.default for entry in CATALOG} | {
     "upload.s3_secret_key": PLANTED_S3_CREDENTIAL,
     "upload.s3_bucket": "aggregator-only-bucket",
 }
+
+#: A `secrets:` block with fixed stand-in blobs: the golden file pins its
+#: shape and field order, never real ciphertext.
+SEALED = SealedSecrets(
+    key_version=1,
+    wrapped_dek="V1JBUFBFRC1ERUstU1RBTkQtSU4=",
+    values={
+        "wifi_password": "U0VBTEVELVBTSy1TVEFORC1JTg==",
+        "stream_key": "U0VBTEVELVNUUkVBTS1LRVk=",
+    },
+)
 
 #: Spec 5.4, transcribed: "MAC, name, sample rate, bit depth, capture settings,
 #: SD buffering, log verbosity, Aggregator IP, and stream endpoint", plus the
@@ -91,7 +106,21 @@ def _flatten(document: dict) -> dict[str, object]:
 
 
 def test_output_matches_the_golden_file_byte_for_byte():
-    assert render_device_config_v1(SAMPLE) == GOLDEN.read_bytes()
+    assert render_device_config_v1(SAMPLE, sealed=SEALED) == GOLDEN.read_bytes()
+
+
+def test_the_secrets_block_is_last_with_a_fixed_field_order():
+    document = yaml.safe_load(render_device_config_v1(SAMPLE, sealed=SEALED))
+    assert list(document)[-1] == "secrets"
+    assert list(document["secrets"]) == [
+        "format",
+        "algorithm",
+        "key_version",
+        "wrapped_dek",
+        "stream_key",
+        "wifi_password",
+    ]
+    assert document["secrets"]["algorithm"] == "AES-256-GCM"
 
 
 def test_rendering_is_deterministic():
@@ -109,8 +138,8 @@ def test_no_secret_value_appears_anywhere_in_the_bytes():
     rendered = render_device_config_v1(SAMPLE)
     for planted in (PLANTED_PSK, PLANTED_STREAM_KEY, PLANTED_S3_CREDENTIAL):
         assert planted.encode() not in rendered
-    # The secret KEY names are absent too: v1 carries no secret slot at all
-    # (PHASE4-2-02). E4.5 adds the encrypted block and moves the golden file.
+    # Without a sealed block the secret KEY names are absent too: plaintext
+    # secrets have no slot anywhere outside `secrets:`.
     for entry in CATALOG:
         if entry.secret:
             assert entry.key.split(".", 1)[1].encode() not in rendered, entry.key

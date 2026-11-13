@@ -1,5 +1,105 @@
 # Project Updates
 
+## 2026-11-13: E4.5 — the firmware envelope; every card's secrets are ciphertext (Gate 73 GREEN)
+
+- **Tasks closed:** E4.5, spec 8.4 and phase-4 fixed choice 3. `app/provisioning/envelope.py`:
+  - The firmware KEK wraps a fresh per-Pod-per-export DEK, and the DEK seals the WiFi password
+    and stream key.
+  - AES-256-GCM throughout. Each blob is `base64(nonce||ciphertext||tag)`, and the AAD binds it
+    to its field.
+  - Every generated card ends with a `secrets:` block (`format`, `algorithm`, `key_version`,
+    `wrapped_dek`, sealed values). The golden file moved by exactly that block.
+
+  `EOE_FIRMWARE_KEK` is required by `create_app` and refused fail-loud by name, never by value.
+  `EOE_FIRMWARE_KEY_VERSION` is optional. Both are wired into the compose `api` service,
+  `.env.example`, `qa-stack.ps1`, the compose test environment and 34 test `Settings(...)`
+  sites. `INTERFACES.md` publishes the envelope as **a wire contract firmware must parse**.
+  `getting-started.md` covers generating and backing up the key. Decisions in **D175**. Spec 17
+  item 7 (KEK custody) stays open.
+- **Gate:** 73, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1204 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1447 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +16 is `test_firmware_envelope.py` (15) plus the
+  secrets-block field-order test. Backend stage **232.98s**, sim-protocol **188.11s**, wall
+  clock **7m43s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:**
+  - On a scratch `postgres:16-alpine`, a real card was generated for `Pod 01 · Alder Creek` with
+    a fresh `openssl rand -base64 32` firmware key. It was then decrypted by an **independent**
+    implementation written from the INTERFACES contract alone (raw `cryptography` AESGCM, no app
+    code), which recovered both planted values exactly. The card file was deleted afterwards.
+  - `docker compose config` with every variable but `EOE_FIRMWARE_KEK` refused:
+    `required variable EOE_FIRMWARE_KEK is missing a value`.
+  - The scratch container was removed.
+- **Operator note:** a `deploy/.env` written before this task lacks `EOE_FIRMWARE_KEK`, so
+  compose now stops at that line until one is added.
+
+## 2026-11-13: E4.4 — per-listener files, mixed mode, and Deployment bundles (Gate 72 GREEN)
+
+- **Tasks closed:** E4.4, spec 8.2 mode 2 plus mixed. In `app/provisioning/generate.py`:
+  - `generate_for_pod` covers `per_pod`, `per_listener` and `mixed`.
+  - `generate_listener_file` resolves at the Listener and blanks nothing.
+  - `generate_for_deployment` builds a per-Pod plan confined to its own Deployment.
+  - Named MACs outside the Pod and mode/list mismatches are refused at generation.
+  - Every Listener gets exactly one card.
+  - Per-listener filenames use dashes for Windows field laptops.
+
+  Choices in **D174**; the `INTERFACES.md` contract was extended.
+- **Gate:** 72, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1188 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1431 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +13 is `test_listener_file_generation.py`. Backend
+  stage **238.20s**, sim-protocol **189.02s**, wall clock **7m54s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` with the demo seed and network
+  values set on `Pod 01 · Alder Creek`, mixed mode naming its first two Listeners produced
+  `device_config.yaml` → 6 cards, `listeners/02-EE-0E-01-01-01.yaml` → 1 card and
+  `listeners/02-EE-0E-01-01-02.yaml` → 1 card (8 Listeners, 8 cards). The planted PSK was
+  absent from every file. The scratch container was removed.
+
+## 2026-11-13: E4.3 — per-pod file generation (Gate 71 GREEN)
+
+- **Tasks closed:** E4.3, spec 8.2 mode 1. `app/provisioning/generate.py::generate_pod_file`:
+  - resolves the Pod's config via `effective_resolved` **at the Pod**, so every card gets
+    identical bytes by construction;
+  - blanks the catalog's `resolution="inventory"` keys;
+  - refuses a Pod with unset network values, naming them (the WiFi password is exempt on
+    `OPEN`), and refuses a Pod with no Aggregator;
+  - plans one record per Listener, embedding its latest revision without ever creating one.
+
+  Choices recorded in **D173**; `INTERFACES.md` gains the per-pod generation contract.
+- **Gate:** 71, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1175 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1418 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +8 is `test_pod_file_generation.py`. Backend stage
+  **227.54s**, sim-protocol **187.04s**, wall clock **7m32s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` with the demo seed:
+  - Generating for `Pod 01 · Alder Creek` was refused with "cannot join its network: set
+    network.wifi_ssid, network.wifi_password, network.stream_key, network.aggregator_ip,
+    network.stream_endpoint" (the demo seed sets none).
+  - After setting those through `put_overrides`, it generated
+    `pods/<pod_id>/device_config.yaml` with 8 Listener records. The network block carried the
+    SSID, IP and endpoint, `identity.*` and `location.*` were null, and the planted PSK was absent
+    from the bytes.
+  - The scratch container was removed.
+
+## 2026-11-13: SIM teardown race — a killed mock's disconnect error is always collected (Gate 70 GREEN)
+
+- **What closed:** D172. `sim/device.py::MockAggregator.disconnect` attaches
+  `_collect_disconnect_error` to aiomqtt's `_disconnected` future, so the `MqttCodeError(128)`
+  stored after `kill()` is retrieved whenever it lands. Previously, if paho's callback came after
+  the reader task was cancelled, nothing retrieved it, and anyio failed whichever test was
+  running. That happened once in PR #22's CI
+  (`test_scenario_outcomes.py::test_the_disconnect_scenario_lands_as_an_lwt_offline`,
+  `aiomqtt.exceptions.MqttCodeError: [code:128] Unspecified error`); PR #22 merged after a rerun
+  of only that job, with the analysis recorded in D172. New `sim/tests/test_device_teardown.py`
+  (3 tests): both orderings, plus a control proving the unfixed state is what asyncio reports.
+- **Gate:** 70, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1167 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1410 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **228.46s**, sim-protocol **187.20s**,
+  wall clock **7m37s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** the CI-failing scenario module plus the new tests, run together in
+  isolation: 9 passed. The D171 record scans were rerun after this entry was written.
+
 ## 2026-11-13: Batch 1 records fix — a quoted scanner failure tripped the scanner in CI (Gate 69 GREEN)
 
 - **What closed:** PR #22's CI went red on `test_repo_layout.py::test_no_committed_secret_patterns`

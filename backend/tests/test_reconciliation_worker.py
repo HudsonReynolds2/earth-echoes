@@ -793,6 +793,7 @@ def api_app(database):
             database_url=url,
             session_secret="gate45-test-secret",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
         )
     )
@@ -841,6 +842,7 @@ def test_the_api_starts_even_when_the_broker_rows_cannot_be_read(database, monke
             database_url=url,
             session_secret="gate45-lifespan-secret",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
             publish_enabled=True,
         )

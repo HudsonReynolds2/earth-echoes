@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     database_url: str = Field(validation_alias="DATABASE_URL")
     session_secret: str = Field(validation_alias="EOE_SESSION_SECRET")
     kek: str = Field(validation_alias="EOE_KEK")
+    # E4.5 (spec 8.4; phase-4 fixed choice 3; D175): the FIRMWARE key-encryption
+    # key that wraps each Pod's data key on a provisioning card. Optional HERE
+    # and required by `create_app`: only the API generates bundles, and the
+    # worker, the seed CLI and the devbroker CLI also build Settings without
+    # ever touching a card. A missing or malformed value fails the API at
+    # construction, naming the variable and never echoing it.
+    firmware_kek: str | None = Field(default=None, validation_alias="EOE_FIRMWARE_KEK")
+    # Which firmware KEK a card was wrapped under, written into every card's
+    # `secrets.key_version`. Rotation of the KEK itself is spec 17 item 7 (open).
+    firmware_key_version: int = Field(default=1, validation_alias="EOE_FIRMWARE_KEY_VERSION")
     redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
     cors_origins: str = Field(default="", validation_alias="EOE_CORS_ORIGINS")
     build_sha: str = Field(default="dev", validation_alias="EOE_BUILD_SHA")
