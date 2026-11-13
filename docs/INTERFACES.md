@@ -1906,6 +1906,22 @@ firmware-agreed schema arrives as an **additive v2 renderer**, and v1 is never e
 - **Pinned by** `tests/golden/device_config_v1.yaml`, byte for byte: changing the card format
   means editing that file in the same commit.
 
+### Per-pod generation (E4.3; spec 8.2 mode 1; D173)
+
+`app/provisioning/generate.py::generate_pod_file(db, secret_store, pod_id, *,
+exclude_macs=frozenset()) -> GeneratedFile(path, content, records)`.
+
+- **Values:** `effective_resolved` at the **Pod**. It is the only plaintext accessor allowed
+  here, and its output never reaches a response.
+- **Content:** `render_device_config_v1` with `blank=INVENTORY_KEYS` (derived from the
+  catalog). The bytes are identical for every card in the Pod.
+- **Path:** `pods/<pod_id>/device_config.yaml`.
+- **Records:** one `PlannedRecord` per Listener not in `exclude_macs`, `file_kind="pod_file"`,
+  embedding the device's latest revision or NULLs. No revision is ever created. Records are
+  persisted by E4.8.
+- **Raises:** `GenerationError` (`.missing` = unset network keys; the WiFi password is exempt
+  when security is `OPEN`) or `LookupError` for an unknown Pod.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

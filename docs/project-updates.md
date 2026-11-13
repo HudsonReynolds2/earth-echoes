@@ -1,5 +1,31 @@
 # Project Updates
 
+## 2026-11-13: E4.3 — per-pod file generation (Gate 71 GREEN)
+
+- **Tasks closed:** E4.3, spec 8.2 mode 1. `app/provisioning/generate.py::generate_pod_file`:
+  - resolves the Pod's config via `effective_resolved` **at the Pod**, so every card gets
+    identical bytes by construction;
+  - blanks the catalog's `resolution="inventory"` keys;
+  - refuses a Pod with unset network values, naming them (the WiFi password is exempt on
+    `OPEN`), and refuses a Pod with no Aggregator;
+  - plans one record per Listener, embedding its latest revision without ever creating one.
+
+  Choices recorded in **D173**; `INTERFACES.md` gains the per-pod generation contract.
+- **Gate:** 71, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1175 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1418 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +8 is `test_pod_file_generation.py`. Backend stage
+  **227.54s**, sim-protocol **187.04s**, wall clock **7m32s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` with the demo seed:
+  - Generating for `Pod 01 · Alder Creek` was refused with "cannot join its network: set
+    network.wifi_ssid, network.wifi_password, network.stream_key, network.aggregator_ip,
+    network.stream_endpoint" (the demo seed sets none).
+  - After setting those through `put_overrides`, it generated
+    `pods/<pod_id>/device_config.yaml` with 8 Listener records. The network block carried the
+    SSID, IP and endpoint, `identity.*` and `location.*` were null, and the planted PSK was absent
+    from the bytes.
+  - The scratch container was removed.
+
 ## 2026-11-13: SIM teardown race — a killed mock's disconnect error is always collected (Gate 70 GREEN)
 
 - **What closed:** D172. `sim/device.py::MockAggregator.disconnect` attaches

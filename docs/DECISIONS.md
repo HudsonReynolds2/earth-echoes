@@ -4,6 +4,29 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D173 (2026-11-13): E4.3's choices — Pod-level resolution, which revision a card embeds, and when a Pod is refused
+
+- **Decision:**
+  1. **The per-pod file resolves at the POD** (`effective_resolved(db, "pod", …)`), never per
+     Listener. Identical bytes for every card then hold by construction, and a Listener-level
+     override cannot leak into a shared file (asserted). Devices that need their own first-boot
+     values take a per-listener file (E4.4).
+  2. **A card embeds its device's latest `config_revision` by `(created_at, id)`, in any
+     state**: the same total order E3's `publisher.newest_revision_for_target` uses, so "current"
+     means one thing across the codebase. A device with no revision is recorded with NULLs. The
+     generator never creates a revision (phase-4 §2). Whether a NULL can later reach `confirmed`
+     is E4.9's question.
+  3. **Refusal.** A Pod is refused (`GenerationError`, with `missing` naming the keys) when any
+     `network.*` key is unset or empty. The single exception is `network.wifi_password` when
+     `network.wifi_security` is `OPEN`. A Pod with no Aggregator is also refused: spec 8.5 makes
+     the Aggregator the card's target slot, and its Listeners have nothing to stream to.
+  4. **Only Listener cards get records in E4.3.** The Aggregator's record belongs with its
+     `settings.yaml`, which is E4.6's file; a record pointing at a file that does not exist yet
+     would make E4.7's both-directions manifest check false.
+  5. **Archive layout:** `pods/<pod_id>/device_config.yaml`. Pod names contain spaces and `·`,
+     so the stable id names the folder, and E4.7's README maps ids to names.
+- **Reference:** spec 8.2, 8.5; phase-4 E4.3; D53, D55, D166; `test_pod_file_generation.py`.
+
 ## D172 (2026-11-13): A killed mock device's disconnect error was never retrieved, and failed whichever test was running
 
 - **Decision:** `sim/device.py::MockAggregator.disconnect` now attaches
