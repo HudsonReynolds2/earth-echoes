@@ -171,6 +171,11 @@ E0_ROUTES = {
     # choice 7).
     ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack"),
     ("GET", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/download"),
+    # E4.8 (gate 76): the spec 13 provisioning bundle surface.
+    ("POST", f"{API_PREFIX}/provisioning/bundles"),
+    ("GET", f"{API_PREFIX}/provisioning/bundles"),
+    ("GET", f"{API_PREFIX}/provisioning/bundles/{{bundle_id}}"),
+    ("GET", f"{API_PREFIX}/provisioning/bundles/{{bundle_id}}/download"),
     ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/rotate"),
     # E5.6, spec 16.4: one Aggregator's own broker login. `MANAGE_SERVICES` to
     # mint and revoke because a broker credential is a grant on the

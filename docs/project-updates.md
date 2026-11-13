@@ -1,5 +1,46 @@
 # Project Updates
 
+## 2026-11-13: E4.8 — the export archive and the bundle API; a bundle can be generated and downloaded (Gate 76 GREEN)
+
+- **Tasks closed:** E4.8 (spec 8.3, 13; fixed choice 4).
+  - `app/provisioning/archive.py`: a deterministic plain zip.
+  - `app/provisioning/service.py::create_bundle`:
+    1. generate every card;
+    2. generate each Pod's `settings.yaml` (so no login is minted before every card is known
+       good);
+    3. assemble the members and run `verify_members`;
+    4. zip, and store the zip **encrypted in SecretStore** as `bundle:{id}:archive`;
+    5. write the bundle and record rows, deleting the stored archive if that write fails.
+  - `app/api/provisioning.py`: `POST /provisioning/bundles`, `GET /provisioning/bundles` (D7),
+    `GET …/{id}`, and `GET …/{id}/download` (**MANAGE_PROVISIONING**), all audited, scoped and
+    D35-404'd. `E0_ROUTES` gained the four routes.
+
+  Decisions in **D178**, including why the archive is stored rather than re-rendered.
+- **Gate:** 76, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1257 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1500 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +14 is `test_provisioning_api.py`, whose
+  suite-wide collector scans every response in the module (archives decompressed) for the
+  planted PSK and stream key. Backend stage **252.35s**, sim-protocol **190.77s**, wall clock
+  **8m22s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Found while testing:** a deflated zip hides plaintext from a raw byte search. Measured: the
+  planted PSK was absent from the compressed bytes and present after decompression. A naive
+  leak scan of downloads would therefore pass a leaking archive. The collector decompresses
+  first, and was shown to catch a planted leak.
+- **Manual verification, over real HTTP:**
+  - Setup: a scratch `postgres:16-alpine`, then `python -m app.seed --demo` exactly as an
+    operator runs it, then one Pod's network configured, the broker row registered and the
+    deployment verified. A real `uvicorn --factory app.main:create_app` ran with a freshly
+    generated `EOE_FIRMWARE_KEK` and `EOE_BOOTSTRAP_CREDENTIALS=false` (the real dynsec provider
+    needs a live broker; the credentials-on path is covered by the suites).
+  - With curl: login 200, `POST /provisioning/bundles` 201 (9 records: `pod_file` and
+    `settings_yaml`), download 200 `application/zip`, list 200.
+  - `python -m zipfile -e` produced exactly `README.md`, `manifest.json`,
+    `pods/<pod>/aggregator/settings.yaml` and `pods/<pod>/device_config.yaml`.
+  - A recursive grep found neither planted secret anywhere on disk. `settings.yaml` listed
+    `missing: [mqtt.username, mqtt.password]`.
+  - The scratch container, server and files were removed.
+
 ## 2026-11-13: E4.7 — the manifest and README; the fourth test-critical suite is locked (Gate 75 GREEN)
 
 - **Tasks closed:** E4.7 (spec 8.3, 14.5). `app/provisioning/manifest.py`:

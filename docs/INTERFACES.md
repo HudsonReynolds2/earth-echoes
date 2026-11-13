@@ -2004,6 +2004,23 @@ sha256, expected_contents}`. The `kind` vocabulary is `RECORD_FILE_KINDS` plus `
 Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 `tests/test_provisioning_manifest.py` is the locked suite: extend it, never weaken it.
 
+### The bundle endpoints (E4.8; spec 13; D178)
+
+| Route | Permission | Notes |
+|---|---|---|
+| `POST /provisioning/bundles` | `MANAGE_PROVISIONING` in the body's deployment | 201 `BundleDetailOut`. Body `{deployment_id, scope, pods[]}`. 422 (`detail.missing` / `detail.deployment`), 404 (D35), 503. Audited `provisioning.bundle.generate`. |
+| `GET /provisioning/bundles` | `VIEW_PROVISIONING`, scoped | D7 envelope of `BundleOut` (no records), filter `deployment_id`, sort `generated_at` (default newest first). |
+| `GET /provisioning/bundles/{id}` | `VIEW_PROVISIONING` | `BundleDetailOut`: the bundle plus its `records[]` (status and history). |
+| `GET /provisioning/bundles/{id}/download` | **`MANAGE_PROVISIONING`** | `application/zip`, the stored archive, verified against `archive_checksum`. Audited `provisioning.bundle.download`; the detail is the byte count only. |
+
+- **Bundles are immutable.** Regenerating makes a new row, and the old archive still downloads
+  byte for byte.
+- **The archive is stored in SecretStore** as `bundle:{id}:archive`. No response except the
+  download carries file contents, and the download is the only place an Aggregator's
+  plaintext login leaves the platform.
+- `app/provisioning/service.py::create_bundle` is the orchestration that E4.10's UI calls through
+  this API.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

@@ -4,6 +4,41 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D178 (2026-11-13): E4.8 — the archive is stored encrypted, download needs MANAGE, and no login is minted before every card generates
+
+- **Decision:**
+  1. **The archive is stored, not re-rendered.** E5's stack bundle re-renders on download
+     because it is a pure function of stored rows. A provisioning archive is not: every export
+     draws a fresh DEK and nonces (D175), so a re-render would be a DIFFERENT bundle from the one
+     whose `archive_checksum` the row records, and possibly from cards already written. The zip
+     is stored base64 in **SecretStore** under the reserved `bundle:{id}:archive` name, because
+     it holds each Aggregator's plaintext broker login. `load_archive` refuses an archive that is
+     missing or no longer matches the recorded checksum.
+  2. **Order and compensation:** generate → `verify_members` (a bundle failing its own
+     manifest is never recorded) → zip → SecretStore put → bundle and record rows → commit. If
+     the row write fails, the stored archive is deleted, because SecretStore commits on its own
+     session (D143).
+  3. **No broker login is minted until every card in the bundle has generated.** All card files
+     come first (where every operator-facing refusal lives), then each Pod's `settings.yaml`.
+     Minting lands on the broker and in SecretStore outside the transaction, so this order means
+     a Deployment bundle refused at its third Pod leaves no orphaned login for its first.
+  4. **Download requires `MANAGE_PROVISIONING`**, not `VIEW_PROVISIONING`. This follows E5's
+     stack-download precedent: the archive carries usable broker logins. VIEW reads bundles and
+     records; a missing or out-of-scope bundle (or deployment, on POST) is the D35 identical 404.
+  5. **Request shape:** `{deployment_id, scope: pod|deployment, pods: [{pod_id, mode,
+     listener_macs}]}`. A `deployment` scope covers every Pod that has an Aggregator, defaulting
+     each to `per_pod`. MACs are normalized by the inventory's `normalize_mac`. Refusals map to
+     `GenerationError` → 422 with `detail.missing`, `BootstrapRefused` → 422 with
+     `detail.deployment`, unknown or foreign → 404, and a broker credential failure → 503
+     `service_unavailable`.
+  6. **Deterministic zip framing** (sorted members, fixed 1980 timestamp, 0644); only the
+     members' crypto varies.
+- **Found while testing:** a deflated zip hides plaintext from a raw byte search (measured: the
+  planted PSK was invisible in the compressed bytes). The suite-wide leak collector therefore
+  scans decompressed members, and that was shown to catch a planted leak.
+- **Reference:** spec 8.3, 8.5, 13, 14.1, 16.4; phase-4 E4.8, fixed choice 4; D35, D143, D158,
+  D175, D177; `test_provisioning_api.py`.
+
 ## D177 (2026-11-13): The manifest suite is locked (spec 14.5), and what the manifest may and may not say
 
 - **Decision:** `backend/tests/test_provisioning_manifest.py` is **the** test-critical suite for
