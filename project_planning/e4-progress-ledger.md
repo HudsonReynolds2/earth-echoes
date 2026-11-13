@@ -21,7 +21,7 @@ here.
 | Task | Status | Gate | Tag | Decisions | Notes |
 |---|---|---|---|---|---|
 | E4.0 Phase document and records | **gate green** | 66 | gate-66 | D166, D167, D168 | Phase doc, this ledger, project-changes entry, plan §3 addendum, spec §13 addendum. Docs only; the gate is a regression check. |
-| E4.1 Bundle and record data model | not started | — | — | — | `provisioning_bundle`, `device_provisioning_record`, spec 8.5 statuses as a CHECK, un-FK'd evidence columns (D33/D55 precedent). |
+| E4.1 Bundle and record data model | **gate green** | 67 | gate-67 | D169, D170 | Migration `48467572e941`. `provisioning_bundle` (scope_type/scope_id + per-Pod `plan` JSONB, D170) and `device_provisioning_record` (`(target_type, target_id)` keyed like `config_revision`, `file_kind`/`file_path`, append-only `status_history`). Only `bundle_id` and `generated_by` are FKs. Vocabularies in `app.models`, re-exported from `app.provisioning`. `test_provisioning_model.py` 9 passed. D169: `test_migrations`' autogenerate check now imports `app.models` itself. |
 | E4.2 Versioned device config template | not started | — | — | D166 | `device_config` v1, YAML, `schema_version: 1`, DRAFT-marked in three places. Golden-file pinned. **Emits no secret key** — E4.5 adds the encrypted block and moves the golden (PHASE4-2-02). |
 | E4.3 Per-pod file generation | not started | — | — | — | Spec 8.2 mode 1. Byte-identical across the Pod; blanks derived from the catalog's `resolution="inventory"` keys. |
 | E4.4 Per-listener file generation | not started | — | — | — | Spec 8.2 mode 2 plus mixed mode. |

@@ -245,6 +245,12 @@ E0_TABLES = {
     # a Pi is exactly when its credential must be destroyed and an unreachable
     # broker means that destruction is retried later (D133).
     "broker_credential",
+    # E4.1 (gate 67): one row per provisioning export and one per
+    # device-to-card assignment inside it (spec 8.5). Evidence about what was
+    # prepared, so every reference out of a record except its bundle is
+    # un-FK'd (D33/D55): records outlive the devices they describe.
+    "provisioning_bundle",
+    "device_provisioning_record",
 }
 
 

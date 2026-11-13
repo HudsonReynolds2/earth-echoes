@@ -1,5 +1,30 @@
 # Project Updates
 
+## 2026-11-13: E4.1 — the provisioning bundle and record tables (Gate 67 GREEN)
+
+- **Tasks closed:** E4.1. Migration **`48467572e941`** adds `provisioning_bundle` and
+  `device_provisioning_record` (spec 8.5). The status vocabulary is spec 8.5's five, rendered
+  into a CHECK from `models.RECORD_STATUSES`. Records are keyed `(target_type, target_id)` like
+  `config_revision` (D75), and everything except `bundle_id` and `generated_by` is un-FK'd
+  (D33/D55). The per-Pod `plan` JSONB and the rest of the shape are **D170**. `app/provisioning/`
+  is created (vocabulary re-exports). `INTERFACES.md` gains an **Owned by E4** section. Both
+  tables are registered in `test_e0_readiness.py`.
+- **Test fix (D169):** `test_migrations.py::test_autogenerate_diff_is_empty_at_head` imported
+  only `app.db.Base`, so it compared a complete metadata only when another module in the same
+  worker had imported `app.models`. Run alone, it listed every table for removal. It now imports
+  the models itself, as `alembic/env.py` does.
+- **Gate:** 67, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1154 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1394 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +9 is `test_provisioning_model.py`. Backend stage
+  **227.69s**, sim-protocol **187.09s**, wall clock **7m28s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** by hand against a scratch `postgres:16-alpine`: `alembic upgrade
+  head`, `downgrade -1`, `upgrade head`, then `current` reported `48467572e941 (head)`.
+  `\d device_provisioning_record` showed the three named CHECKs (`status_vocab`,
+  `target_type_vocab`, `file_kind_vocab`), `uq_device_provisioning_record_bundle_id`, the
+  `(target_type, target_id)` index, and exactly one foreign key (to `provisioning_bundle`,
+  `ON DELETE CASCADE`). The scratch container was removed.
+
 ## 2026-11-13: E4.0 — the provisioning epic's records, and four owner decisions written down (Gate 66 GREEN)
 
 - **Tasks closed:** E4.0 (docs only; the gate is a regression check). project-changes

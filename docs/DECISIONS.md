@@ -4,6 +4,37 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D170 (2026-11-13): E4.1's table shape — scoped bundles with a per-Pod plan, and records keyed like revisions
+
+- **Decision:** `provisioning_bundle` carries `scope_type` (`pod`/`deployment`) + `scope_id`
+  and a `plan` JSONB of per-Pod `{mode, listener_macs}`, rather than one `mode` and one `pod_id`.
+  `device_provisioning_record` identifies its device by `(target_type, target_id)`, with the
+  aggregator's platform UUID or the listener's MAC, the exact pair `config_revision` and
+  `device_state` use (D75). It records the card's file as `file_kind` + `file_path`, and its
+  history as an append-only JSONB list on the row.
+- **Why:** the phase document's bundle row has "its pod when pod-scoped" and "its mode", but
+  spec 8.2 lets the operator "pick per Pod, and … mix the two", and E4.10's wizard picks "a Pod
+  or Deployment" and then "the mode per Pod". A Deployment bundle has no single mode, so the
+  choice is recorded per Pod. The record key matches E3's so E4.9 joins on the same pair
+  without translation. History lives on the row because the phase document puts it there and
+  nothing yet queries across histories. A separate event table is an additive change if that
+  ever happens.
+- **What is un-FK'd and why:** everything except `bundle_id` and `generated_by`, per D33/D55.
+  Asserted: deleting a Listener, its Aggregator and its Pod leaves the records intact.
+- **Reference:** spec 8.2, 8.5; phase-4 E4.1; D33, D55, D75; `test_provisioning_model.py`.
+
+## D169 (2026-11-13): The migration suite's autogenerate check depended on import order
+
+- **Decision:** `test_migrations.py::test_autogenerate_diff_is_empty_at_head` now imports
+  `app.models` before comparing, exactly as `alembic/env.py` does.
+- **Why:** it imported only `app.db.Base`. In a full gate some other module in the same xdist
+  worker had always imported `app.models` first, so the metadata was complete and the check
+  was real. Run alone, the metadata was empty and the "diff" listed every table for removal.
+  So the check could not be run in isolation while authoring a migration, which is the moment
+  `docs/migration-conventions.md` step 4 asks for it. This is a test fix under rule R0. It
+  makes the check stricter and independent of scheduling, never weaker.
+- **Reference:** E0.2's migration conventions; found while writing E4.1's migration.
+
 ## D168 (2026-11-13): E4.9's reconciler runs on the worker sweep — the fourth E3-owned edit,
 authorized in advance
 

@@ -1850,6 +1850,39 @@ unchanged.)*
   no "a stack exists here" flag, so a missing stack is reported as a clear 404 message rather
   than guessed at (D156). A later epic wanting a real signal should add a cheap existence
   check, not call `load_generated_stack` on a read every role hits.
+## Owned by E4
+
+### The provisioning tables and the spec 8.5 vocabulary (E4.1; spec 8.5, 8.3; D166, D170)
+
+Two tables, both **evidence**: written once at generation, then only the record's
+`status`/`status_history` move. Vocabularies live in `app.models` beside the CHECKs that render
+them, and are re-exported from `app.provisioning`.
+
+- **`provisioning_bundle`**: one row per export, **never mutated**. Regenerating makes a new
+  row (E4.8). Columns: `id`, `deployment_id` (**un-FK'd**), `scope_type` ∈ `BUNDLE_SCOPES` =
+  (`pod`, `deployment`), `scope_id` (**un-FK'd**: the Pod or Deployment id), `plan` JSONB
+  `{"<pod_id>": {"mode": BUNDLE_MODES, "listener_macs": [...]}}` (mode validated in Python),
+  `template_version`, `firmware_key_version`, `archive_checksum` (`sha256:` + hex, the D52
+  form), `generated_by` (FK `user`, SET NULL), `generated_at`.
+- **`device_provisioning_record`**: one row per device-to-card assignment.
+  - Columns: `bundle_id` (FK, CASCADE), plus `deployment_id`, `pod_id` and `aggregator_uuid`
+    (the target slot, **all un-FK'd**).
+  - Identity is `target_type` ∈ (`aggregator`, `listener`) with `target_id` as the platform
+    UUID or the MAC, **the `config_revision` convention (D75)**, unique per bundle.
+  - `file_kind` ∈ `RECORD_FILE_KINDS` = (`pod_file`, `listener_file`, `settings_yaml`), and
+    `file_path` is the archive member.
+  - `config_revision_id` (**un-FK'd**, NULL if the device had no revision when generated) and
+    `config_checksum`.
+  - `status` ∈ **`RECORD_STATUSES` = (`generated`, `flashed`, `registered`, `confirmed`,
+    `mismatch`)**: spec 8.5 verbatim, pinned by `test_provisioning_model.py`. `status_history`
+    is an append-only JSONB list of `{"status", "at", "actor"}`, where `actor` is a user id
+    string or null for the system.
+  - Indexed `(target_type, target_id)` for E4.9.
+- **Deleting a Listener, Aggregator, Pod or user never deletes a record or a bundle.** Records
+  outlive their devices by design (D33/D55).
+- **Writers:** E4.3-E4.8 create both. Only E4.9's reconciler and the operator's `flashed`
+  action move `status`. E3's tables are read, never written, by this epic.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

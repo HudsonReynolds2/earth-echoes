@@ -156,6 +156,12 @@ def test_full_round_trip(pg_url):
 
 @pytest.mark.integration
 def test_autogenerate_diff_is_empty_at_head(pg_url):
+    # Register every table on Base.metadata exactly as alembic/env.py does.
+    # Without this import the comparison depended on SOME OTHER module in the
+    # same worker having imported app.models first: true in every full gate,
+    # false when this module runs alone, where the metadata was empty and the
+    # diff listed every table for removal (D169).
+    import app.models  # noqa: F401
     from app.db import Base
 
     _alembic(pg_url, "upgrade", "head")
