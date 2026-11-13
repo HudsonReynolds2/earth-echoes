@@ -4,6 +4,37 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D176 (2026-11-13): E4.6's `settings.yaml` — a draft shape, reuse before mint, two refusals, and one known endpoint limitation
+
+- **Decision:**
+  1. **Shape (DRAFT pending aggregator-pi sign-off).** A header comment (plaintext by design,
+     revoke if lost, DRAFT), then `schema_version: 1`, `aggregator_uuid`, and `mqtt:` with
+     `host`, `port`, `tls`, `ca_cert`, `username` and `password`. The field names mirror SIM's
+     `BrokerLogin`, so the mock and a real Aggregator read one shape. With
+     `EOE_BOOTSTRAP_CREDENTIALS` off, `username`/`password` are absent and `missing:` lists
+     them. The aggregator-pi repository's existing file format was not available to this
+     session, so the shape is a draft just as `device_config` v1 is (D166).
+  2. **Reuse before mint.** A `minted` `broker_credential` row is reused, and only an
+     Aggregator without one is minted (`mint_credential`, through `app.state.credential_provider`).
+     Regenerating a bundle must never change a password the card in a deployed Pi depends on.
+  3. **Two refusals, both `BootstrapRefused` naming the deployment** (→ 422 in E4.8):
+     - `services_status != 'verified'` (spec 16.5, D162);
+     - no usable MQTT row (read through `coordinates_for`, which carries D64/D121's skip rules).
+
+     Both are checked before anything is minted.
+  4. **The Aggregator's record** is `target_type="aggregator"`, `target_id=str(aggregator.id)`
+     (D75: the row id, which `config_revision` and `device_state` key on), and
+     `aggregator_uuid` in the slot column, which is the value embedded in the file.
+- **Known limitation, recorded rather than built:** `mqtt.host`/`port` come from the deployment's
+  `deployment_service` row, which is the endpoint **the platform** dials. Where a device needs
+  a different name for the same broker (the SIM walkthrough's `mosquitto:8883` versus
+  `localhost:18883`), the card carries the platform's view. There is no device-facing endpoint
+  column, and adding one is E5's table to change (phase-4 §2: "this phase adds no column to
+  it"). In a real deployment the broker's public hostname normally serves both. A separate
+  device endpoint is a stop-and-ask whenever it is needed.
+- **Reference:** spec 8.2, 16.4, 16.5; phase-4 E4.6, fixed choice 1; D75, D117, D157, D162,
+  D167; `test_bootstrap_settings.py`.
+
 ## D175 (2026-11-13): E4.5's envelope — required at the API only, AAD-bound blobs, one DEK per Pod per export
 
 - **Decision:**

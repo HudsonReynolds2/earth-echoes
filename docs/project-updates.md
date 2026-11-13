@@ -1,5 +1,39 @@
 # Project Updates
 
+## 2026-11-13: E4.6 — the Aggregator's `settings.yaml` and the spec 16.5 gate (Gate 74 GREEN)
+
+- **Tasks closed:** E4.6. `app/provisioning/bootstrap.py::generate_settings_yaml`:
+  - carries the inventory `aggregator_uuid`, plus the broker host, port, TLS expectation and
+    CA, all read through E5's `coordinates_for`;
+  - embeds the device's own broker login in plaintext, by design (spec 16.4). A `minted` login
+    is reused rather than re-minted, so regeneration never strands a deployed Pi;
+  - `EOE_BOOTSTRAP_CREDENTIALS` (new, **default on**, D167) controls the credentials. With it
+    off the file names what is missing;
+  - **enforces spec 16.5**: `BootstrapRefused`, naming the deployment, unless it is `verified`
+    and has an MQTT row;
+  - plans the Aggregator's record, keyed by its row id per D75.
+
+  Shape and the endpoint limitation are in **D176**. The setting is wired through compose,
+  `.env.example` and the compose test environment.
+- **Gate:** 74, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1213 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1456 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +9 is `test_bootstrap_settings.py`. Backend stage
+  **238.09s**, sim-protocol **188.33s**, wall clock **7m51s**.
+- **Two gate runs, both green.** The first was green, and then the manual check below found a
+  readability defect in the CA certificate's rendering. After the fix, the gate was rerun on the
+  final code, and that run is the one tagged.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` with the demo seed and
+  `register_services`:
+  - The as-seeded deployment (`Redwood Coast`, `unconfigured`) was refused with "cannot be
+    provisioned: its services are 'unconfigured', and spec 16.5 requires 'verified'".
+  - Once verified, the file carried `aggregator_uuid: demo-agg-rc-01`, the broker endpoint and
+    the device login.
+  - **Found by this check:** the CA PEM rendered as a single-quoted folded scalar with doubled
+    blank lines. It was valid YAML (so the tests passed) but unrecognisable as a certificate to
+    a person on the Pi. It is now a literal `|` block, pinned by a test.
+  - The scratch container was removed.
+
 ## 2026-11-13: E4.5 — the firmware envelope; every card's secrets are ciphertext (Gate 73 GREEN)
 
 - **Tasks closed:** E4.5, spec 8.4 and phase-4 fixed choice 3. `app/provisioning/envelope.py`:

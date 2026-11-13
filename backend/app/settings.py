@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # Which firmware KEK a card was wrapped under, written into every card's
     # `secrets.key_version`. Rotation of the KEK itself is spec 17 item 7 (open).
     firmware_key_version: int = Field(default=1, validation_alias="EOE_FIRMWARE_KEY_VERSION")
+    # E4.6 (spec 16.4; D167): embed each Aggregator's own broker login in its
+    # settings.yaml. ON by default: dynsec is required for v1 (D116), so a card
+    # without credentials would never reach the broker. Off writes the block
+    # without them, and the file and README name what is missing.
+    bootstrap_credentials: bool = Field(default=True, validation_alias="EOE_BOOTSTRAP_CREDENTIALS")
     redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
     cors_origins: str = Field(default="", validation_alias="EOE_CORS_ORIGINS")
     build_sha: str = Field(default="dev", validation_alias="EOE_BUILD_SHA")

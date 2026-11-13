@@ -37,6 +37,7 @@ only the published host side moved, so the stack coexists with other local servi
 | `EOE_KEK` | yes | base64 platform key-encryption key (SecretStore, E0.11) |
 | `EOE_FIRMWARE_KEK` | yes (API) | base64 **firmware** key-encryption key for provisioning cards (E4.5, D175). Validated fail-loud by `create_app`; the worker and CLIs do not read it. Additive row, owned by E4 |
 | `EOE_FIRMWARE_KEY_VERSION` | no (default `1`) | written into each card's `secrets.key_version` (E4.5). Additive row, owned by E4 |
+| `EOE_BOOTSTRAP_CREDENTIALS` | no (default `true`) | embed each Aggregator's broker login in its `settings.yaml` (E4.6, D167). Additive row, owned by E4 |
 | `REDIS_URL` | no | enables Redis-backed features (E3, E7) |
 | `EOE_CORS_ORIGINS` | no | comma-separated allowed browser origins (D2/D4) |
 | `EOE_PUBLISH_ENABLED` | no | gates publication AND the API's outbound broker connection (D61, D86); default off until E3.13 |
@@ -1967,6 +1968,25 @@ secrets:
 - **Key material:** a fresh DEK per Pod **per export**, shared by every file of that Pod in that
   export. Fresh nonces everywhere.
 - **Key custody (spec 17 item 7) is OPEN.** The KEK comes from `EOE_FIRMWARE_KEK` for now.
+
+### The Aggregator's `settings.yaml` and the bootstrap block (E4.6; spec 16.4, 16.5; D167, D176) — **DRAFT**
+
+`app/provisioning/bootstrap.py::generate_settings_yaml(db, session_factory, secret_store,
+provider, pod_id, *, include_credentials) -> GeneratedFile` (async).
+
+- **Path:** `pods/<pod_id>/aggregator/settings.yaml`.
+- **Format:** a header (PLAINTEXT BY DESIGN, DRAFT), then `schema_version: 1`,
+  `aggregator_uuid` (from inventory, never minted), and `mqtt: {host, port, tls, ca_cert,
+  username, password}`.
+- **Credentials:** `EOE_BOOTSTRAP_CREDENTIALS` (default **on**) embeds the device's login,
+  reusing a `minted` `broker_credential` row before minting one. With the flag off,
+  `username`/`password` are absent and `missing: [mqtt.username, mqtt.password]` is written.
+- **Refusals:** raises `BootstrapRefused(deployment_name=…)` unless
+  `deployment.services_status == 'verified'` **and** a usable MQTT row exists. Both are
+  checked before minting. **This is the one place the spec 16.5 gate is enforced.**
+- **Record:** `target_type="aggregator"`, `target_id=str(aggregator.id)` (D75),
+  `file_kind="settings_yaml"`.
+- The endpoint is the platform's view of the broker (see D176's limitation).
 
 ## Owned by SIM
 
