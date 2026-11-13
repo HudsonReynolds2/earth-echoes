@@ -5,6 +5,61 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #45 (2026-11-13): E4's three owner decisions at plan approval — bootstrap default ON, the reconciler as a sweep, and an E4.2 that carries no secret slot
+
+- **What changed:** `project_planning/phase-4-provisioning.md` §2 gains addendum
+  **PHASE4-2-02** recording three owner decisions taken at E4 plan approval:
+  (1) `EOE_BOOTSTRAP_CREDENTIALS` ships **default ON** (DECISIONS **D167**), which is the flip
+  addendum PHASE4-2-01 named as E4.6's remaining work, and which reverses fixed choice 1's
+  "defaults off" sentence; both flag states stay tested.
+  (2) E4.9's reconciler runs as a **worker sweep** registered in `app/controlplane/runner.py`
+  — the **fourth** E3-owned edit, additive, authorized in advance (DECISIONS **D168**); the
+  "a fourth is still a stop-and-ask" line in the E5 ledger is answered by this entry, for this
+  registration only.
+  (3) E4.2's `device_config` v1 renderer **omits** `network.wifi_password` and
+  `network.stream_key` entirely; E4.5 adds the firmware-encrypted `secrets:` block and moves the
+  golden file deliberately, so the envelope's wire shape is designed by the task that builds the
+  envelope (D166).
+- **Why:** (1) dynsec is required for v1 (D116) and the dynsec provider shipped with E5.6, so a
+  default-off flag would ship every card unable to reach its broker until someone remembered a
+  setting; (2) the phase document says the board "fills in by itself", which a
+  recompute-on-read reconciler only does while someone has the page open; (3) fixing the
+  envelope's YAML shape one task before the code that produces it would publish a wire contract
+  nothing yet honours.
+- **Who approved:** the owner, 2026-11-13, at E4 plan approval.
+- **Affects:** project_planning/phase-4-provisioning.md section 2 (fixed choices)
+- **Addendum:** PHASE4-2-02
+
+## #44 (2026-11-13): Spec 13's "(encrypted archive)" is superseded by a plain zip; archive encryption deferred
+
+- **What changed:** spec §13 gains addendum **SPEC-13-01**: the provisioning download is a
+  plain `.zip` (phase-4 fixed choice 4, DECISIONS **D166**). Archive-level encryption is
+  **deferred — revisit only if a future requirement asks for it.**
+- **Why:** every secret inside the archive is already firmware ciphertext (spec 8.4, phase-4
+  fixed choice 3). Encrypting the archive again would reintroduce the operator-carried
+  passphrase that spec 17 item 7 removed when bundle key escrow was replaced with firmware-side
+  envelope encryption; the §13 wording predates that change. Zip rather than tar.gz because
+  cards are written on Windows field laptops.
+- **Who approved:** the owner, at phase-4 plan approval (fixed choice 4); filed by E4.0 as that
+  document's §4 requires.
+- **Affects:** project_planning/echoes-of-earth-platform-spec-v1.1.md section 13 (API surface)
+- **Addendum:** SPEC-13-01
+
+## #43 (2026-11-13): E4.0 joins the E4 task list, and E4 ships in four batches that wait on each merge
+
+- **What changed:** project plan §3 gains addendum **PLAN-3-04**. E4 carries a twelfth task
+  ahead of the eleven listed, **E4.0 Phase document and records** (the SIM.0/E5.0 precedent),
+  and `project_planning/phase-4-provisioning.md` is binding for the epic, including its four
+  fixed choices (resolving spec 17 items 1 and 7 for this epic only, and the spec 13 archive
+  wording; DECISIONS **D166**). Batching: **B1** = E4.0-E4.2, **B2** = E4.3-E4.5, **B3** =
+  E4.6-E4.8, **B4** = E4.9-E4.11, one branch and PR per batch, each batch branched from `main`
+  only **after the previous batch's PR is merged**. Every task still ends on a full gate (D161).
+- **Why:** the phase document defines E4.0's deliverables but the plan's E4 list predates it;
+  the owner chose sequential batches over stacked branches so each PR reviews against a `main`
+  that already contains its predecessor.
+- **Who approved:** the owner, 2026-11-13, at E4 plan approval.
+- **Affects:** project_planning/echoes-of-earth-project-plan.md section 3 (E4)
+- **Addendum:** PLAN-3-04
 ## #42 (2026-11-13): The generated stack's MinIO images moved to pinned `pgsty/*` rebuilds, because `minio/*` no longer exists
 
 - **What changed:** `project_planning/phase-5-deployment-services.md` §4 gains addendum

@@ -1,5 +1,29 @@
 # Project Updates
 
+## 2026-11-13: E4.0 — the provisioning epic's records, and four owner decisions written down (Gate 66 GREEN)
+
+- **Tasks closed:** E4.0 (docs only; the gate is a regression check). project-changes
+  **#43-#45**, addenda **PLAN-3-04** (E4.0 joins the plan; four batches, each branched after the
+  previous PR merges), **SPEC-13-01** (spec 13's "(encrypted archive)" superseded by a plain
+  zip, with archive encryption deferred) and **PHASE4-2-02**. DECISIONS **D166** (the four fixed
+  choices, with spec 17 items 1 and 7 explicitly still open), **D167**
+  (`EOE_BOOTSTRAP_CREDENTIALS` defaults ON) and **D168** (E4.9's reconciler is a worker sweep,
+  the authorized fourth E3 edit). In the E4 ledger, the stale E4.6 row is corrected (no degraded
+  predicate; gate on `services_status == 'verified'`) and the batch flow is recorded.
+- **Gate:** 66, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1145 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1385 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **228.77s**, sim-protocol **187.12s**,
+  wall clock **7m31s**. Unchanged count: docs only.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Renumbering:** these records were first drafted as #42-#44 / D164-D166, then set aside while
+  hygiene batch 3 (gate 65) took #42 and D164-D165. They were renumbered when restored. Every
+  addendum's back-reference was rechecked and `test_governance.py` passes.
+- **Manual verification:** acceptance checked by hand. Every phase-4 fixed choice appears in
+  D166 or is scheduled onto its task (choice 1 → E4.6 / D167, choice 2 → E4.2, choice 3 →
+  E4.5, choice 4 → E4.8 / SPEC-13-01), and the ledger's twelve rows exist. The three new
+  addenda in the baseline-pinned plan and spec are single-line and strip cleanly
+  (`test_planning_documents_unmodified_except_appended_addenda` green).
+
 ## 2026-11-13: Hygiene batch 3 — MinIO's vanished images replaced with pinned rebuilds, and two D99 paths that could not retry (Gate 65 GREEN)
 
 - **What closed:** hygiene batch 3 (branch `hygiene-batch-3`), the two problems found by the

@@ -4,6 +4,63 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D168 (2026-11-13): E4.9's reconciler runs on the worker sweep — the fourth E3-owned edit,
+authorized in advance
+
+- **Decision:** the provisioning-record reconciler (`app/provisioning/records.py`, E4.9) is
+  registered as a `provisioning-records` sweep in `app/controlplane/runner.py`, beside E5.7b's
+  `service-config` and `broker-credential` registrations and in the same shape. The edit to
+  `runner.py` is **the registration only**: no change to the timeout or drift sweeps, their
+  transactions, or any E3 behaviour. `consumer.py` is still not touched (phase-4 structural
+  choice; rule R2).
+- **Why a sweep and not recompute-on-read:** the phase document's definition of done has the
+  board "fill in by itself" as devices come online. A reconciler driven by GETs only advances
+  while someone is looking, and writes during reads. A sweep is idempotent and restart-safe by
+  construction because the reconciler re-derives status from E3's evidence rows.
+- **Why this needed the owner:** D150 recorded that a fourth discretionary E3 edit is a
+  stop-and-ask. It was asked at plan approval rather than mid-task.
+- **Reference:** project-changes #45; addendum PHASE4-2-02; D137 (E5.7b's registrations), D150.
+
+## D167 (2026-11-13): `EOE_BOOTSTRAP_CREDENTIALS` defaults ON
+
+- **Decision:** E4.6 creates the Settings field `bootstrap_credentials`
+  (`EOE_BOOTSTRAP_CREDENTIALS`) with default **true**. With it on, `settings.yaml` embeds the
+  Aggregator's own broker username and password from `app.state.credential_provider`,
+  reusing an existing `broker_credential` row when one exists and minting through
+  `mint_credential` otherwise, so regenerating a bundle never rotates a login a deployed card
+  already holds. With it off, the block is written without the credential fields and the README
+  and manifest say the device cannot reach the broker until they are filled. **Both states are
+  tested.**
+- **Why:** phase-4 fixed choice 1 had the flag default off because E4 was expected to land
+  before any real provider existed, and named "flip the default" as the follow-up work. E5.6
+  shipped the dynsec provider first and dynsec is required for v1 (D116), so off-by-default
+  would ship every card unable to reach the broker by default. The plaintext block is spec
+  16.4's deliberate decision and the README restates it.
+- **Reference:** project-changes #45; addenda PHASE4-2-01, PHASE4-2-02; D116, D117.
+
+## D166 (2026-11-13): E4's four fixed choices, recorded with their open remainders
+
+- **Decision:** the four owner-fixed choices in `phase-4-provisioning.md` §2, recorded here as
+  rule R1 and E4.0's acceptance require:
+  1. **E4.6 on a provider seam behind a flag** — superseded in direction by D117 (E5.6 defines
+     `BrokerCredentialProvider`; E4.6 imports it) and in default by **D167** (ON).
+  2. **`device_config` v1 is YAML, authored by E4.2, and DRAFT pending firmware sign-off.**
+     A versioned template carrying `schema_version: 1`, built from the catalog keys spec 5.4
+     permits on a card. The DRAFT marker appears in three places: a comment in the generated
+     file, **this entry**, and the bundle README (E4.7). The firmware-agreed schema arrives as an
+     additive v2 renderer, not a rewrite. **Spec 17 item 1 stays open** — this is a draft the
+     firmware team has not signed. Per PHASE4-2-02, v1 as first rendered carries no secret key
+     at all; E4.5 adds the encrypted block.
+  3. **Firmware envelope: env-provided `EOE_FIRMWARE_KEK` and AES-256-GCM throughout** — a
+     fresh per-Pod DEK per export, wrapped by the KEK; the PSK and stream key sealed by the DEK;
+     base64 fields and a `key_version` in the pod file. **Spec 17 item 7 stays open:** KEK
+     custody, backup and org-wide rotation gate production use, not dev implementation. Losing
+     this key strands provisioning of new Pods across the whole Organization; the risk is
+     recorded, not solved.
+  4. **The archive is a plain `.zip`** — spec 13's "(encrypted archive)" is superseded
+     (addendum SPEC-13-01); archive-level encryption is deferred.
+- **Reference:** phase-4 §2; project-changes #43, #44, #45; addenda PLAN-3-04, SPEC-13-01,
+  PHASE4-2-02; D116, D117, D167.
 ## D165 (2026-11-13): Two D99 paths that ended a test instead of taking a new container
 
 - **Decision:** the D99 whole-container remedy now reaches two places it did not.

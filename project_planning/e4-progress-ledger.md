@@ -20,21 +20,23 @@ here.
 
 | Task | Status | Gate | Tag | Decisions | Notes |
 |---|---|---|---|---|---|
-| E4.0 Phase document and records | not started | — | — | — | Phase doc, this ledger, project-changes entry, plan §3 addendum, spec §13 addendum. Docs only; the gate is a regression check. |
+| E4.0 Phase document and records | **gate green** | 66 | gate-66 | D166, D167, D168 | Phase doc, this ledger, project-changes entry, plan §3 addendum, spec §13 addendum. Docs only; the gate is a regression check. |
 | E4.1 Bundle and record data model | not started | — | — | — | `provisioning_bundle`, `device_provisioning_record`, spec 8.5 statuses as a CHECK, un-FK'd evidence columns (D33/D55 precedent). |
-| E4.2 Versioned device config template | not started | — | — | — | `device_config` v1, YAML, `schema_version: 1`, DRAFT-marked in three places. Golden-file pinned. |
+| E4.2 Versioned device config template | not started | — | — | D166 | `device_config` v1, YAML, `schema_version: 1`, DRAFT-marked in three places. Golden-file pinned. **Emits no secret key** — E4.5 adds the encrypted block and moves the golden (PHASE4-2-02). |
 | E4.3 Per-pod file generation | not started | — | — | — | Spec 8.2 mode 1. Byte-identical across the Pod; blanks derived from the catalog's `resolution="inventory"` keys. |
 | E4.4 Per-listener file generation | not started | — | — | — | Spec 8.2 mode 2 plus mixed mode. |
 | E4.5 Device-facing envelope encryption | not started | — | — | — | `EOE_FIRMWARE_KEK` + AES-256-GCM throughout; fresh per-Pod DEK per export; `app/provisioning/envelope.py`. |
-| E4.6 Aggregator `settings.yaml` + bootstrap | not started | — | — | — | `BrokerCredentialProvider` seam, `EOE_BOOTSTRAP_CREDENTIALS` off by default, degraded verified-broker predicate. |
+| E4.6 Aggregator `settings.yaml` + bootstrap | not started | — | — | D167 | Imports E5.6's `BrokerCredentialProvider` via `app.state.credential_provider` (reuse an existing `broker_credential`, else `mint_credential`). `EOE_BOOTSTRAP_CREDENTIALS` **ON by default** (D167), both states tested. Refuses unless `deployment.services_status == 'verified'` (D162) — no degraded predicate. |
 | E4.7 Manifest and README | not started | — | — | — | **TEST-CRITICAL (spec 14.5).** Complete in both directions. Its suite is locked from the moment it lands. |
 | E4.8 Export archive and download | not started | — | — | — | Plain zip; `POST/GET /provisioning/bundles`, `GET .../download`; secret-leak scan over the archive and the responses. |
-| E4.9 Registration matching and transitions | not started | — | — | — | Reconciler over `device_state`/`config_revision`/`quarantined_report`. `confirmed` latches; a later revision is not a mismatch. |
+| E4.9 Registration matching and transitions | not started | — | — | D168 | Reconciler over `device_state`/`config_revision`/`quarantined_report`. `confirmed` latches; a later revision is not a mismatch. Runs as a `provisioning-records` worker sweep — the authorized fourth E3 edit, registration only (D168). |
 | E4.10 Provisioning wizard and tracking UI | not started | — | — | — | S6 layout at v2 values; record status is NOT device status — no `StatusChip`, follow `.outcome-*`. |
 | E4.11 Fill-in-later flow + walkthrough | not started | — | — | — | Spec 8.6 name/GPS via the E1 endpoints; `guide/e4-verification.md` and amendments to earlier walkthroughs. |
 
-Suggested batching, one PR per batch on `e4-batch-N` (rule R3):
+Batching, one PR per batch on `e4-batch-N` (rule R3; project-changes #43):
 **B1** = E4.0-E4.2 · **B2** = E4.3-E4.5 · **B3** = E4.6-E4.8 · **B4** = E4.9-E4.11.
+**Each batch is branched from `main` only after the previous batch's PR is merged** (owner's
+decision at plan approval, 2026-11-13). Every task still ends on a full gate (D161).
 
 ## Notes for whoever picks this up next
 

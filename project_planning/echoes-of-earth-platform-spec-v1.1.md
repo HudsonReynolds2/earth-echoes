@@ -638,6 +638,8 @@ The API is REST over HTTPS with a versioned prefix (`/api/v1`), plus a websocket
 - `GET /provisioning/bundles/{id}`, `GET /provisioning/bundles/{id}/download` (encrypted archive)
 - `GET/PATCH /provisioning/records/{id}` (status transitions: flashed, etc.)
 
+> **Addendum SPEC-13-01 (2026-11-13, ref project-changes #44):** the "(encrypted archive)" wording on the download endpoint above is **superseded: the provisioning archive is a plain `.zip`.** Every secret inside it is already firmware ciphertext under Section 8.4's envelope, so archive-level encryption would reintroduce the operator-carried passphrase that Section 17 item 7 removed when bundle key escrow was replaced with firmware-side envelope encryption; this endpoint's wording predates that change. Archive-level encryption is **deferred — revisit only if a future requirement asks for it.** Zip rather than tar.gz because cards are written on Windows field laptops. Rationale in DECISIONS.md D166.
+
 **Deployment services**
 - `GET/PUT /deployments/{id}/services` (service endpoints and credentials; secret fields are write-only and never echoed back)
 - `POST /deployments/{id}/services/test` (run connection tests, returns per-service pass/fail with detail)
