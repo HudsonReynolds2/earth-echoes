@@ -1070,6 +1070,18 @@ def _start_broker_container(
                 )
                 assert copied.returncode == 0, f"docker cp {source} failed: {copied.stderr}"
             started = docker_retry([docker_cli(), "start", name], env, what="broker start")
+            if started.returncode != 0 and any(f in started.stderr for f in _TRANSIENT_DOCKER):
+                # The forwarder can stay wedged on ONE container's publish for
+                # longer than `docker_retry`'s backoff (seen on Docker Desktop
+                # under WSL at gate 65: all four restarts of the same container
+                # hit `/forwards/expose ... 500`). A new container is this
+                # function's documented remedy, so a still-transient start
+                # failure takes the whole-container retry below instead of
+                # ending the fixture. Anything else still fails right here.
+                last = f"broker {name} would not start: {started.stderr.strip()}"
+                subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
+                print(f"ephemeral broker: wedged forward, new container ({attempt}/{attempts})")
+                continue
             assert started.returncode == 0, f"broker would not start: {started.stderr}"
 
             ports = subprocess.run(
@@ -1363,7 +1375,9 @@ RIG_IMAGES = {
     "influx": "influxdb:3-core",
     "prometheus": "prom/prometheus:v3.5.0",
     "grafana": "grafana/grafana:11.6.0",
-    "minio": "minio/minio:latest",
+    #: Read from the shipped pins, never copied (D144): the rig must run what
+    #: the generated stack runs.
+    "minio": STACK_IMAGES["minio"],
 }
 
 #: Minimal scrape config. Prometheus needs a config file to start at all, and

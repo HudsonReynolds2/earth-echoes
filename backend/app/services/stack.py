@@ -43,11 +43,16 @@ IMAGES = {
     "influx": "influxdb:3-core",
     "prometheus": "prom/prometheus:v3.5.0",
     "grafana": "grafana/grafana:11.6.0",
-    "minio": "minio/minio:latest",
+    #: MinIO stopped publishing community images in October 2025 and archived
+    #: the project in 2026, so `minio/minio` and `minio/mc` no longer pull.
+    #: `pgsty/*` are community rebuilds of the same code, pinned to exact
+    #: release tags like every other image here (D164).
+    "minio": "pgsty/minio:RELEASE.2026-08-04T00-00-00Z",
     #: `mc`, for the one job of creating the bucket. Separate from the server
-    #: image because `minio/minio` carries the server and nothing else — not
-    #: even a shell's worth of utilities to script it (`_minio_init_service`).
-    "minio_client": "minio/mc:latest",
+    #: image because the MinIO server image carries the server and nothing
+    #: else — not even a shell's worth of utilities to script it
+    #: (`_minio_init_service`).
+    "minio_client": "pgsty/mc:RELEASE.2026-10-26T00-00-00Z",
 }
 
 #: Container-side ports. The compose file publishes each on the same host port
@@ -456,7 +461,7 @@ def _minio_init_service(spec: StackSpec) -> dict[str, Any]:
     existing` is what makes a second `docker compose up` a no-op rather than an
     error.
 
-    A sixth image, and worth saying why it is not avoidable: the `minio/minio`
+    A sixth image, and worth saying why it is not avoidable: the MinIO server
     image ships the server only — no `mc`, and no shell utilities to script one.
     """
     return {

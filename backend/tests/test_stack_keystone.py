@@ -156,6 +156,48 @@ def _wait_for_http(label: str, url: str, ok: tuple[int, ...] = (200, 401, 403)) 
     raise AssertionError(f"{label} never answered at {url} in {READY_TIMEOUT}s: {last}")
 
 
+#: How long a published port may refuse before the service is recreated once.
+#: Well past any real startup in this stack (the whole bundle is ready in about
+#: 14s), and short enough that the retry fits inside the test's own timeout.
+FORWARD_PATIENCE = 60
+
+
+def _http_or_recreate(project: str, workdir, service: str, container_port: int, path: str) -> int:
+    """Wait for a service over its PUBLISHED port, and recreate it once if the
+    host is refused. Returns the port finally published.
+
+    Docker Desktop's forwarder can drop a publish under concurrent load (D99):
+    the container runs, `docker compose port` reports a mapping, and the host
+    connection is refused indefinitely. Seen on the keystone's Prometheus at
+    gate 65. A new container is the remedy `_start_ephemeral_postgres` and the
+    broker fixture already use, so the same remedy applies here, ONCE and only
+    for a refused connection. A service that is really broken refuses again
+    after the recreate and fails with its own message, so this cannot hide a
+    defect in the generated stack. An HTTP error status is never retried.
+    """
+    import httpx
+
+    port = _published(project, workdir, service, container_port)
+    url = f"http://127.0.0.1:{port}{path}"
+    deadline = time.time() + FORWARD_PATIENCE
+    while time.time() < deadline:
+        try:
+            httpx.get(url, timeout=5.0)
+            break
+        except httpx.ConnectError:
+            time.sleep(1)
+        except Exception:  # noqa: BLE001 - anything but a refusal is _wait_for_http's to judge
+            break
+    else:
+        recreated = _compose(project, workdir, "up", "-d", "--no-deps", "--force-recreate", service)
+        assert recreated.returncode == 0, f"could not recreate {service}: {recreated.stderr}"
+        print(f"keystone: {service} refused on its published port; recreated once (D99)")
+        port = _published(project, workdir, service, container_port)
+        url = f"http://127.0.0.1:{port}{path}"
+    _wait_for_http(service, url)
+    return port
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
@@ -228,19 +270,20 @@ async def test_the_generated_bundle_comes_up_and_every_tester_passes(tmp_path):
                 up = _compose(project, root, "up", "-d")
                 assert up.returncode == 0, f"the generated stack did not come up:\n{up.stderr}"
 
-                ports = {
-                    "mqtt": _published(project, root, "mosquitto", PORTS["mosquitto"]),
-                    "influx": _published(project, root, "influx", PORTS["influx"]),
-                    "prometheus": _published(project, root, "prometheus", PORTS["prometheus"]),
-                    "grafana": _published(project, root, "grafana", PORTS["grafana"]),
-                    "s3": _published(project, root, "minio", PORTS["minio"]),
-                }
-
+                ports = {"mqtt": _published(project, root, "mosquitto", PORTS["mosquitto"])}
                 _wait_for_port("mosquitto", ports["mqtt"])
-                _wait_for_http("influx", f"http://127.0.0.1:{ports['influx']}/health")
-                _wait_for_http("prometheus", f"http://127.0.0.1:{ports['prometheus']}/-/ready")
-                _wait_for_http("grafana", f"http://127.0.0.1:{ports['grafana']}/api/health")
-                _wait_for_http("minio", f"http://127.0.0.1:{ports['s3']}/minio/health/live")
+                ports["influx"] = _http_or_recreate(
+                    project, root, "influx", PORTS["influx"], "/health"
+                )
+                ports["prometheus"] = _http_or_recreate(
+                    project, root, "prometheus", PORTS["prometheus"], "/-/ready"
+                )
+                ports["grafana"] = _http_or_recreate(
+                    project, root, "grafana", PORTS["grafana"], "/api/health"
+                )
+                ports["s3"] = _http_or_recreate(
+                    project, root, "minio", PORTS["minio"], "/minio/health/live"
+                )
                 _wait_for_init(project, root, "influx-init")
                 _wait_for_init(project, root, "minio-init")
 

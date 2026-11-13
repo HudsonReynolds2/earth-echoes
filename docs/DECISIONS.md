@@ -4,6 +4,53 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D165 (2026-11-13): Two D99 paths that ended a test instead of taking a new container
+
+- **Decision:** the D99 whole-container remedy now reaches two places it did not.
+  (1) **`conftest._start_ephemeral_broker`**: when `docker start` still fails with one of
+  `_TRANSIENT_DOCKER`'s faults after `docker_retry` gives up, the container is removed and the
+  existing outer loop tries a fresh one. Previously an `assert` inside the loop ended the fixture
+  first, so the loop's own documented remedy was unreachable for this fault. (2) **The E5.10
+  keystone** gains `_http_or_recreate`: if a service's published port refuses connections for
+  60s, that one service is recreated (`up -d --no-deps --force-recreate`) and waited for again,
+  **once**.
+- **Why:** gate 65's second run, the first on WSL + Docker Desktop, went red on exactly these
+  two. `test_broker_refresh` errored 11 times because all four `docker start` retries of ONE
+  container hit `/forwards/expose returned unexpected status: 500`. The keystone failed because
+  Prometheus's published port refused the host for 180s. Both suites passed 12/12 in isolation
+  straight afterwards, and the error text names Docker Desktop's forwarder.
+- **Why this does not hide defects (the D150 test):** both paths stay narrow. The broker path
+  retries only `_TRANSIENT_DOCKER` strings; every other start failure still fails immediately
+  with its own message. The keystone retries only a refused connection, never an HTTP status,
+  and only once. A service that is really broken refuses again on the new container and fails as
+  before. `docker_retry` itself is not widened (D99).
+- **Reference:** D99, D141, D150; gate 65's red runs (recorded verbatim in project-updates).
+
+## D164 (2026-11-13): The generated stack's MinIO moves to pinned `pgsty/*` rebuilds; a replacement store is deferred
+
+- **Decision:** `app/services/stack.py::IMAGES` pins `pgsty/minio:RELEASE.2026-08-04T00-00-00Z`
+  and `pgsty/mc:RELEASE.2026-10-26T00-00-00Z`. The test rig (`conftest.RIG_IMAGES`) and
+  `test_tester_s3.py` now **read** those pins instead of carrying their own copies, so the gate
+  runs what ships (the D144 rule, which the MinIO copies had escaped). `test_no_image_is_floating`
+  drops its `FLOATING_BY_NECESSITY` exemption: no image in the stack floats.
+- **Why:** upstream stopped publishing community images in October 2025 and archived the
+  repository in 2026. `minio/mc` no longer exists on Docker Hub and `minio/minio` survives only
+  in local caches. The exemption D144's test granted MinIO because it "publishes only `:latest`"
+  failed in the worst possible way: the floating tag disappeared entirely. The `pgsty` builds
+  are the same code, so the compose file, init script and S3 behaviour are unchanged, and the
+  keystone proves it end to end. Both are multi-arch (amd64/arm64). Checked before pinning:
+  `pgsty/mc` carries `/bin/sh` (the init container needs it) and the server reports its pinned
+  release.
+- **Risk accepted:** the stack now depends on a small third-party rebuild, and upstream MinIO
+  receives no security fixes. That is acceptable for an optional, operator-chosen component at
+  this stage of the project, and it is recorded here rather than hidden.
+- **Deferred:** choosing a maintained object store for Path B (candidates: SeaweedFS; Garage,
+  which lacks bucket policies, so the S3 tester's deny-all test would need redesigning; RustFS,
+  still pre-production). That is a planned change (init container, rig, forbidden-access test
+  and spec 16.3's wording), best taken at E8 hardening, not a hotfix. Path A users with AWS or
+  another S3 endpoint are unaffected either way.
+- **Reference:** project-changes #42; addendum PHASE5-4-09; D144, D147.
+
 ## D163 (2026-08-28): Hygiene batch 2 — two guard tests, one contract refiled, and the tag
 convention from gate-64 on
 

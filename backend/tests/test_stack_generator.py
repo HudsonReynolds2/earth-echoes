@@ -24,7 +24,6 @@ from conftest import REPO_ROOT, docker_cli, docker_env
 
 from app import brokerconfig
 from app.services.stack import (
-    IMAGES,
     INFLUX_ADMIN_MOUNT,
     INFLUX_DATABASE,
     INFLUX_TOKEN_FILE,
@@ -365,13 +364,6 @@ def test_state_lives_in_named_volumes_so_down_does_not_destroy_it(spec):
     assert "mosquitto-data:/mosquitto/data" in compose["services"]["mosquitto"]["volumes"]
 
 
-#: The images allowed to float, by IMAGE and not by service name — MinIO
-#: publishes only `:latest` on Docker Hub, and both its server and its `mc`
-#: client are in that position. Keyed this way so a service that quietly
-#: switched to a floating tag is caught even if it is named `minio-something`.
-FLOATING_BY_NECESSITY = frozenset({IMAGES["minio"], IMAGES["minio_client"]})
-
-
 def test_no_image_is_floating(spec):
     """An operator brings this up months later. `:latest` means a different
     Influx from the one the testers were written against.
@@ -381,12 +373,15 @@ def test_no_image_is_floating(spec):
     fixture floated on `eclipse-mosquitto:2`: the tag moved to a version that
     reads dynsec passwords differently, and the suite went on passing against a
     broker no operator would ever run (D144).
+
+    **No exemptions.** MinIO was once allowed to float because it published
+    only `:latest`; that tag then stopped existing at all (D164), which is the
+    floating tag's failure mode taken to its end. Every image is pinned now.
     """
     for name, service in compose_file(spec)["services"].items():
         image = service["image"]
         assert ":" in image, f"{name} has no tag"
-        if image not in FLOATING_BY_NECESSITY:
-            assert not image.endswith(":latest"), f"{name} is pinned to a floating tag"
+        assert not image.endswith(":latest"), f"{name} is pinned to a floating tag"
 
 
 def test_rendering_is_deterministic(spec):

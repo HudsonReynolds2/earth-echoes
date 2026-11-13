@@ -614,6 +614,14 @@ compose's own `${VAR}` interpolation. Static prose lives in `deploy/stack-templa
 > `test_repo_layout.py::test_runtime_data_files_are_inside_the_image` now fails instead of an
 > operator's download. Found by the first hand-run of `guide/e5-verification.md`, after the C5
 > gate was green (DECISIONS D158).
+
+> **Addendum PHASE5-4-09 (2026-11-13, ref project-changes #42):** "optional MinIO" now ships as
+> **`pgsty/minio`** with **`pgsty/mc`** for bucket creation, both pinned to exact release tags.
+> These are community rebuilds of the same MinIO code. MinIO stopped publishing community images
+> in October 2025 and archived the project in 2026, so the `minio/*` images this unit originally
+> shipped no longer pull. Compose shape, init script, bucket and credentials are unchanged.
+> Choosing a maintained replacement object store is deferred (DECISIONS D164).
+
 *Acceptance:* `docker compose -f <generated> config` exits 0 for both the with-MinIO and
 without-MinIO shapes; every port the README lists is a port the compose file publishes **and
 vice versa**, asserted in both directions; no generated file contains a literal copied from
