@@ -4,6 +4,97 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D178 (2026-11-13): E4.8 — the archive is stored encrypted, download needs MANAGE, and no login is minted before every card generates
+
+- **Decision:**
+  1. **The archive is stored, not re-rendered.** E5's stack bundle re-renders on download
+     because it is a pure function of stored rows. A provisioning archive is not: every export
+     draws a fresh DEK and nonces (D175), so a re-render would be a DIFFERENT bundle from the one
+     whose `archive_checksum` the row records, and possibly from cards already written. The zip
+     is stored base64 in **SecretStore** under the reserved `bundle:{id}:archive` name, because
+     it holds each Aggregator's plaintext broker login. `load_archive` refuses an archive that is
+     missing or no longer matches the recorded checksum.
+  2. **Order and compensation:** generate → `verify_members` (a bundle failing its own
+     manifest is never recorded) → zip → SecretStore put → bundle and record rows → commit. If
+     the row write fails, the stored archive is deleted, because SecretStore commits on its own
+     session (D143).
+  3. **No broker login is minted until every card in the bundle has generated.** All card files
+     come first (where every operator-facing refusal lives), then each Pod's `settings.yaml`.
+     Minting lands on the broker and in SecretStore outside the transaction, so this order means
+     a Deployment bundle refused at its third Pod leaves no orphaned login for its first.
+  4. **Download requires `MANAGE_PROVISIONING`**, not `VIEW_PROVISIONING`. This follows E5's
+     stack-download precedent: the archive carries usable broker logins. VIEW reads bundles and
+     records; a missing or out-of-scope bundle (or deployment, on POST) is the D35 identical 404.
+  5. **Request shape:** `{deployment_id, scope: pod|deployment, pods: [{pod_id, mode,
+     listener_macs}]}`. A `deployment` scope covers every Pod that has an Aggregator, defaulting
+     each to `per_pod`. MACs are normalized by the inventory's `normalize_mac`. Refusals map to
+     `GenerationError` → 422 with `detail.missing`, `BootstrapRefused` → 422 with
+     `detail.deployment`, unknown or foreign → 404, and a broker credential failure → 503
+     `service_unavailable`.
+  6. **Deterministic zip framing** (sorted members, fixed 1980 timestamp, 0644); only the
+     members' crypto varies.
+- **Found while testing:** a deflated zip hides plaintext from a raw byte search (measured: the
+  planted PSK was invisible in the compressed bytes). The suite-wide leak collector therefore
+  scans decompressed members, and that was shown to catch a planted leak.
+- **Reference:** spec 8.3, 8.5, 13, 14.1, 16.4; phase-4 E4.8, fixed choice 4; D35, D143, D158,
+  D175, D177; `test_provisioning_api.py`.
+
+## D177 (2026-11-13): The manifest suite is locked (spec 14.5), and what the manifest may and may not say
+
+- **Decision:** `backend/tests/test_provisioning_manifest.py` is **the** test-critical suite for
+  the "provisioning manifest (E4.7)" component already listed in `.claude/rules/project-rules.json`
+  R0. From gate 75 on, it is locked documentation: later sessions extend it and never weaken it,
+  and any change to it gets a DECISIONS entry. (The rules JSON needed no edit: E0 listed the
+  component in advance, and the governance test pins the count at four.)
+- **What the manifest says** (spec 8.3), per entry: `path`, `kind`, `pod`, the `cards` that take
+  it (each with its `revision_id`/`revision_checksum` as embedded in its record), `sha256`, and
+  `expected_contents`, which is the parsed file with secret values replaced by markers. Bundle
+  level: `manifest_version`, `bundle_id`, `deployment`, the per-Pod `plan`, `template_version`,
+  `envelope` (format, algorithm, key version), `bootstrap_credentials`, and `excludes`.
+- **The one exclusion is named, not implied:** `manifest.json` cannot list its own checksum, so
+  `excludes: ["manifest.json"]` says so, and `verify_members` requires `excludes` to be exactly
+  that. `README.md` is listed like any card, so "every member is listed" has no other exception.
+- **No secret value in the manifest or README** (asserted). Card secrets become
+  `<sealed: …>` and the Aggregator's password becomes `<plaintext in file by design, spec 16.4>`.
+  The manifest sits beside the cards, and printing the plaintext there would void the envelope.
+- **`verify_members`** is production code, not a test helper: E4.8 runs it on every archive
+  before the bundle is recorded. The locked suite proves it bites (tampered, missing, stray,
+  duplicate), so a checker that always passed could not pass this suite.
+- **The README** is the third place the DRAFT marker appears (D166). It also restates the
+  plaintext bootstrap block and warns, under "ACTION NEEDED", when credentials are absent.
+- **Reference:** spec 8.3, 14.5; phase-4 E4.7; rule R0 test-critical suites; D166, D176.
+
+## D176 (2026-11-13): E4.6's `settings.yaml` — a draft shape, reuse before mint, two refusals, and one known endpoint limitation
+
+- **Decision:**
+  1. **Shape (DRAFT pending aggregator-pi sign-off).** A header comment (plaintext by design,
+     revoke if lost, DRAFT), then `schema_version: 1`, `aggregator_uuid`, and `mqtt:` with
+     `host`, `port`, `tls`, `ca_cert`, `username` and `password`. The field names mirror SIM's
+     `BrokerLogin`, so the mock and a real Aggregator read one shape. With
+     `EOE_BOOTSTRAP_CREDENTIALS` off, `username`/`password` are absent and `missing:` lists
+     them. The aggregator-pi repository's existing file format was not available to this
+     session, so the shape is a draft just as `device_config` v1 is (D166).
+  2. **Reuse before mint.** A `minted` `broker_credential` row is reused, and only an
+     Aggregator without one is minted (`mint_credential`, through `app.state.credential_provider`).
+     Regenerating a bundle must never change a password the card in a deployed Pi depends on.
+  3. **Two refusals, both `BootstrapRefused` naming the deployment** (→ 422 in E4.8):
+     - `services_status != 'verified'` (spec 16.5, D162);
+     - no usable MQTT row (read through `coordinates_for`, which carries D64/D121's skip rules).
+
+     Both are checked before anything is minted.
+  4. **The Aggregator's record** is `target_type="aggregator"`, `target_id=str(aggregator.id)`
+     (D75: the row id, which `config_revision` and `device_state` key on), and
+     `aggregator_uuid` in the slot column, which is the value embedded in the file.
+- **Known limitation, recorded rather than built:** `mqtt.host`/`port` come from the deployment's
+  `deployment_service` row, which is the endpoint **the platform** dials. Where a device needs
+  a different name for the same broker (the SIM walkthrough's `mosquitto:8883` versus
+  `localhost:18883`), the card carries the platform's view. There is no device-facing endpoint
+  column, and adding one is E5's table to change (phase-4 §2: "this phase adds no column to
+  it"). In a real deployment the broker's public hostname normally serves both. A separate
+  device endpoint is a stop-and-ask whenever it is needed.
+- **Reference:** spec 8.2, 16.4, 16.5; phase-4 E4.6, fixed choice 1; D75, D117, D157, D162,
+  D167; `test_bootstrap_settings.py`.
+
 ## D175 (2026-11-13): E4.5's envelope — required at the API only, AAD-bound blobs, one DEK per Pod per export
 
 - **Decision:**

@@ -23,6 +23,7 @@ services:
       # never generates a bundle (D175).
       EOE_FIRMWARE_KEK: ${EOE_FIRMWARE_KEK:?set in deploy/.env, see .env.example}
       EOE_FIRMWARE_KEY_VERSION: ${EOE_FIRMWARE_KEY_VERSION:-1}
+      EOE_BOOTSTRAP_CREDENTIALS: ${EOE_BOOTSTRAP_CREDENTIALS:-true}
       REDIS_URL: ${REDIS_URL:-}
       EOE_CORS_ORIGINS: ${EOE_CORS_ORIGINS:-http://localhost:15173}
       EOE_PUBLISH_ENABLED: ${EOE_PUBLISH_ENABLED:-true}

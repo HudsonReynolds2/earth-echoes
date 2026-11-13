@@ -37,6 +37,7 @@ only the published host side moved, so the stack coexists with other local servi
 | `EOE_KEK` | yes | base64 platform key-encryption key (SecretStore, E0.11) |
 | `EOE_FIRMWARE_KEK` | yes (API) | base64 **firmware** key-encryption key for provisioning cards (E4.5, D175). Validated fail-loud by `create_app`; the worker and CLIs do not read it. Additive row, owned by E4 |
 | `EOE_FIRMWARE_KEY_VERSION` | no (default `1`) | written into each card's `secrets.key_version` (E4.5). Additive row, owned by E4 |
+| `EOE_BOOTSTRAP_CREDENTIALS` | no (default `true`) | embed each Aggregator's broker login in its `settings.yaml` (E4.6, D167). Additive row, owned by E4 |
 | `REDIS_URL` | no | enables Redis-backed features (E3, E7) |
 | `EOE_CORS_ORIGINS` | no | comma-separated allowed browser origins (D2/D4) |
 | `EOE_PUBLISH_ENABLED` | no | gates publication AND the API's outbound broker connection (D61, D86); default off until E3.13 |
@@ -1967,6 +1968,58 @@ secrets:
 - **Key material:** a fresh DEK per Pod **per export**, shared by every file of that Pod in that
   export. Fresh nonces everywhere.
 - **Key custody (spec 17 item 7) is OPEN.** The KEK comes from `EOE_FIRMWARE_KEK` for now.
+
+### The Aggregator's `settings.yaml` and the bootstrap block (E4.6; spec 16.4, 16.5; D167, D176) — **DRAFT**
+
+`app/provisioning/bootstrap.py::generate_settings_yaml(db, session_factory, secret_store,
+provider, pod_id, *, include_credentials) -> GeneratedFile` (async).
+
+- **Path:** `pods/<pod_id>/aggregator/settings.yaml`.
+- **Format:** a header (PLAINTEXT BY DESIGN, DRAFT), then `schema_version: 1`,
+  `aggregator_uuid` (from inventory, never minted), and `mqtt: {host, port, tls, ca_cert,
+  username, password}`.
+- **Credentials:** `EOE_BOOTSTRAP_CREDENTIALS` (default **on**) embeds the device's login,
+  reusing a `minted` `broker_credential` row before minting one. With the flag off,
+  `username`/`password` are absent and `missing: [mqtt.username, mqtt.password]` is written.
+- **Refusals:** raises `BootstrapRefused(deployment_name=…)` unless
+  `deployment.services_status == 'verified'` **and** a usable MQTT row exists. Both are
+  checked before minting. **This is the one place the spec 16.5 gate is enforced.**
+- **Record:** `target_type="aggregator"`, `target_id=str(aggregator.id)` (D75),
+  `file_kind="settings_yaml"`.
+- The endpoint is the platform's view of the broker (see D176's limitation).
+
+### `manifest.json` and `README.md` (E4.7; spec 8.3, 14.5; D177) — **TEST-CRITICAL, locked**
+
+`app/provisioning/manifest.py`:
+- `bundle_members(meta, files) -> {path: bytes}` returns the card files plus `README.md` and
+  `manifest.json`. Duplicate paths are refused.
+- `verify_members(members) -> list[str]` checks completeness in both directions plus every
+  checksum. `[]` means sound.
+
+Manifest shape (`manifest_version: 1`): `bundle_id`, `deployment{id,name}`, `plan`,
+`template_version`, `envelope{format,algorithm,key_version}`, `bootstrap_credentials`,
+`excludes: ["manifest.json"]`, and `files[]` of
+`{path, kind, pod, cards[{target_type,target_id,aggregator_uuid,revision_id,revision_checksum}],
+sha256, expected_contents}`. The `kind` vocabulary is `RECORD_FILE_KINDS` plus `readme`.
+Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
+`tests/test_provisioning_manifest.py` is the locked suite: extend it, never weaken it.
+
+### The bundle endpoints (E4.8; spec 13; D178)
+
+| Route | Permission | Notes |
+|---|---|---|
+| `POST /provisioning/bundles` | `MANAGE_PROVISIONING` in the body's deployment | 201 `BundleDetailOut`. Body `{deployment_id, scope, pods[]}`. 422 (`detail.missing` / `detail.deployment`), 404 (D35), 503. Audited `provisioning.bundle.generate`. |
+| `GET /provisioning/bundles` | `VIEW_PROVISIONING`, scoped | D7 envelope of `BundleOut` (no records), filter `deployment_id`, sort `generated_at` (default newest first). |
+| `GET /provisioning/bundles/{id}` | `VIEW_PROVISIONING` | `BundleDetailOut`: the bundle plus its `records[]` (status and history). |
+| `GET /provisioning/bundles/{id}/download` | **`MANAGE_PROVISIONING`** | `application/zip`, the stored archive, verified against `archive_checksum`. Audited `provisioning.bundle.download`; the detail is the byte count only. |
+
+- **Bundles are immutable.** Regenerating makes a new row, and the old archive still downloads
+  byte for byte.
+- **The archive is stored in SecretStore** as `bundle:{id}:archive`. No response except the
+  download carries file contents, and the download is the only place an Aggregator's
+  plaintext login leaves the platform.
+- `app/provisioning/service.py::create_bundle` is the orchestration that E4.10's UI calls through
+  this API.
 
 ## Owned by SIM
 

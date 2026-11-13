@@ -1,5 +1,122 @@
 # Project Updates
 
+## 2026-11-13: E4.8 — the export archive and the bundle API; a bundle can be generated and downloaded (Gate 76 GREEN)
+
+- **Tasks closed:** E4.8 (spec 8.3, 13; fixed choice 4).
+  - `app/provisioning/archive.py`: a deterministic plain zip.
+  - `app/provisioning/service.py::create_bundle`:
+    1. generate every card;
+    2. generate each Pod's `settings.yaml` (so no login is minted before every card is known
+       good);
+    3. assemble the members and run `verify_members`;
+    4. zip, and store the zip **encrypted in SecretStore** as `bundle:{id}:archive`;
+    5. write the bundle and record rows, deleting the stored archive if that write fails.
+  - `app/api/provisioning.py`: `POST /provisioning/bundles`, `GET /provisioning/bundles` (D7),
+    `GET …/{id}`, and `GET …/{id}/download` (**MANAGE_PROVISIONING**), all audited, scoped and
+    D35-404'd. `E0_ROUTES` gained the four routes.
+
+  Decisions in **D178**, including why the archive is stored rather than re-rendered.
+- **Gate:** 76, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1257 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1500 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +14 is `test_provisioning_api.py`, whose
+  suite-wide collector scans every response in the module (archives decompressed) for the
+  planted PSK and stream key. Backend stage **252.35s**, sim-protocol **190.77s**, wall clock
+  **8m22s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Found while testing:** a deflated zip hides plaintext from a raw byte search. Measured: the
+  planted PSK was absent from the compressed bytes and present after decompression. A naive
+  leak scan of downloads would therefore pass a leaking archive. The collector decompresses
+  first, and was shown to catch a planted leak.
+- **Manual verification, over real HTTP:**
+  - Setup: a scratch `postgres:16-alpine`, then `python -m app.seed --demo` exactly as an
+    operator runs it, then one Pod's network configured, the broker row registered and the
+    deployment verified. A real `uvicorn --factory app.main:create_app` ran with a freshly
+    generated `EOE_FIRMWARE_KEK` and `EOE_BOOTSTRAP_CREDENTIALS=false` (the real dynsec provider
+    needs a live broker; the credentials-on path is covered by the suites).
+  - With curl: login 200, `POST /provisioning/bundles` 201 (9 records: `pod_file` and
+    `settings_yaml`), download 200 `application/zip`, list 200.
+  - `python -m zipfile -e` produced exactly `README.md`, `manifest.json`,
+    `pods/<pod>/aggregator/settings.yaml` and `pods/<pod>/device_config.yaml`.
+  - A recursive grep found neither planted secret anywhere on disk. `settings.yaml` listed
+    `missing: [mqtt.username, mqtt.password]`.
+  - The scratch container, server and files were removed.
+
+## 2026-11-13: E4.7 — the manifest and README; the fourth test-critical suite is locked (Gate 75 GREEN)
+
+- **Tasks closed:** E4.7 (spec 8.3, 14.5). `app/provisioning/manifest.py`:
+  - **`manifest.json`** gives every file with its kind, Pod, cards (each with its embedded
+    revision), sha256 and secret-redacted expected contents, plus an explicit
+    `excludes: ["manifest.json"]`.
+  - **`README.md`** covers what goes where, the two DRAFT notes, the plaintext-by-design
+    bootstrap block, and an ACTION NEEDED section when credentials are off.
+  - **`verify_members`** is the both-directions checker E4.8 will run on every archive.
+
+  **`tests/test_provisioning_manifest.py` is locked from this gate** as the "provisioning
+  manifest (E4.7)" test-critical suite the R0 rules already name (D177). It is table-driven over
+  per-pod, per-listener, mixed, a Deployment mixing all three, and credentials-off, with
+  negative tests proving the checker catches tampered, missing, stray and duplicate members.
+- **Gate:** 75, GREEN on the third run. The entire accumulated suite, no filters.
+- **Tests:** **1243 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1486 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +30 is the manifest suite. Backend stage
+  **248.35s**, sim-protocol **190.47s**, wall clock **8m16s**.
+- **The two red runs (rule R0):**
+  - **Run 1** failed backend-tests on one test, `test_repo_layout.py::test_no_committed_secret_patterns`,
+    which reported a possible committed secret in `backend/tests/test_provisioning_manifest.py`.
+    A planted fake device login was assigned to a constant whose name ended in the word the
+    scanner keys on. This repeats gate 68's slip. The constant was renamed `DEVICE_LOGIN_MARKER`,
+    the scanner's pattern was run over every E4 test file (nothing else matched), and
+    `test_repo_layout.py` now joins every targeted run that adds test constants.
+  - **Run 2** passed backend (1243) but failed **sim-protocol** with 6 setup errors in
+    `sim/tests/test_scenario_outcomes.py`. Docker Desktop's port forwarder returned
+    `/forwards/expose returned unexpected status: 500` on all 15 broker start attempts:
+    D165's 3 fresh containers × 4 retries each. The retry path worked as designed, and the
+    forwarder stayed wedged longer than its window. Right afterwards, 5 of 5 published-port
+    `docker run`s succeeded and no test container had leaked. This is the second forwarder
+    outage on this host (the first was gate 65). Another recurrence goes to the owner as an
+    infrastructure question rather than another rerun.
+  - **Run 3** was green, on unchanged code.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine`, a real mixed-mode bundle was built
+  for `Pod 01 · Alder Creek` (one Listener named, plus the Aggregator's `settings.yaml`).
+  `verify_members` reported it sound. No planted secret appeared in `manifest.json` or
+  `README.md`. The README named all three files and who takes each (the Aggregator, 7 shared
+  cards, 1 own card), and the manifest's card counts matched. The scratch container was
+  removed.
+
+## 2026-11-13: E4.6 — the Aggregator's `settings.yaml` and the spec 16.5 gate (Gate 74 GREEN)
+
+- **Tasks closed:** E4.6. `app/provisioning/bootstrap.py::generate_settings_yaml`:
+  - carries the inventory `aggregator_uuid`, plus the broker host, port, TLS expectation and
+    CA, all read through E5's `coordinates_for`;
+  - embeds the device's own broker login in plaintext, by design (spec 16.4). A `minted` login
+    is reused rather than re-minted, so regeneration never strands a deployed Pi;
+  - `EOE_BOOTSTRAP_CREDENTIALS` (new, **default on**, D167) controls the credentials. With it
+    off the file names what is missing;
+  - **enforces spec 16.5**: `BootstrapRefused`, naming the deployment, unless it is `verified`
+    and has an MQTT row;
+  - plans the Aggregator's record, keyed by its row id per D75.
+
+  Shape and the endpoint limitation are in **D176**. The setting is wired through compose,
+  `.env.example` and the compose test environment.
+- **Gate:** 74, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1213 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1456 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +9 is `test_bootstrap_settings.py`. Backend stage
+  **238.09s**, sim-protocol **188.33s**, wall clock **7m51s**.
+- **Two gate runs, both green.** The first was green, and then the manual check below found a
+  readability defect in the CA certificate's rendering. After the fix, the gate was rerun on the
+  final code, and that run is the one tagged.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` with the demo seed and
+  `register_services`:
+  - The as-seeded deployment (`Redwood Coast`, `unconfigured`) was refused with "cannot be
+    provisioned: its services are 'unconfigured', and spec 16.5 requires 'verified'".
+  - Once verified, the file carried `aggregator_uuid: demo-agg-rc-01`, the broker endpoint and
+    the device login.
+  - **Found by this check:** the CA PEM rendered as a single-quoted folded scalar with doubled
+    blank lines. It was valid YAML (so the tests passed) but unrecognisable as a certificate to
+    a person on the Pi. It is now a literal `|` block, pinned by a test.
+  - The scratch container was removed.
+
 ## 2026-11-13: E4.5 — the firmware envelope; every card's secrets are ciphertext (Gate 73 GREEN)
 
 - **Tasks closed:** E4.5, spec 8.4 and phase-4 fixed choice 3. `app/provisioning/envelope.py`:

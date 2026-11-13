@@ -37,6 +37,7 @@ from app.api.imports import router as imports_router
 from app.api.listeners import router as listeners_router
 from app.api.organizations import router as organizations_router
 from app.api.pods import router as pods_router
+from app.api.provisioning import router as provisioning_router
 from app.api.revisions import router as revisions_router
 from app.api.selections import router as selections_router
 from app.api.services import router as services_router
@@ -241,6 +242,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api_router.include_router(entity_config_router)
     api_router.include_router(selections_router)
     api_router.include_router(services_router)
+    api_router.include_router(provisioning_router)
     api_router.include_router(revisions_router)
     api_router.include_router(timeline_router)
     api_router.include_router(ws_router)
