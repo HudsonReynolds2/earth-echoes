@@ -1,5 +1,47 @@
 # Project Updates
 
+## 2026-11-13: E4.7 — the manifest and README; the fourth test-critical suite is locked (Gate 75 GREEN)
+
+- **Tasks closed:** E4.7 (spec 8.3, 14.5). `app/provisioning/manifest.py`:
+  - **`manifest.json`** gives every file with its kind, Pod, cards (each with its embedded
+    revision), sha256 and secret-redacted expected contents, plus an explicit
+    `excludes: ["manifest.json"]`.
+  - **`README.md`** covers what goes where, the two DRAFT notes, the plaintext-by-design
+    bootstrap block, and an ACTION NEEDED section when credentials are off.
+  - **`verify_members`** is the both-directions checker E4.8 will run on every archive.
+
+  **`tests/test_provisioning_manifest.py` is locked from this gate** as the "provisioning
+  manifest (E4.7)" test-critical suite the R0 rules already name (D177). It is table-driven over
+  per-pod, per-listener, mixed, a Deployment mixing all three, and credentials-off, with
+  negative tests proving the checker catches tampered, missing, stray and duplicate members.
+- **Gate:** 75, GREEN on the third run. The entire accumulated suite, no filters.
+- **Tests:** **1243 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1486 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +30 is the manifest suite. Backend stage
+  **248.35s**, sim-protocol **190.47s**, wall clock **8m16s**.
+- **The two red runs (rule R0):**
+  - **Run 1** failed backend-tests on one test, `test_repo_layout.py::test_no_committed_secret_patterns`,
+    which reported a possible committed secret in `backend/tests/test_provisioning_manifest.py`.
+    A planted fake device login was assigned to a constant whose name ended in the word the
+    scanner keys on. This repeats gate 68's slip. The constant was renamed `DEVICE_LOGIN_MARKER`,
+    the scanner's pattern was run over every E4 test file (nothing else matched), and
+    `test_repo_layout.py` now joins every targeted run that adds test constants.
+  - **Run 2** passed backend (1243) but failed **sim-protocol** with 6 setup errors in
+    `sim/tests/test_scenario_outcomes.py`. Docker Desktop's port forwarder returned
+    `/forwards/expose returned unexpected status: 500` on all 15 broker start attempts:
+    D165's 3 fresh containers × 4 retries each. The retry path worked as designed, and the
+    forwarder stayed wedged longer than its window. Right afterwards, 5 of 5 published-port
+    `docker run`s succeeded and no test container had leaked. This is the second forwarder
+    outage on this host (the first was gate 65). Another recurrence goes to the owner as an
+    infrastructure question rather than another rerun.
+  - **Run 3** was green, on unchanged code.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine`, a real mixed-mode bundle was built
+  for `Pod 01 · Alder Creek` (one Listener named, plus the Aggregator's `settings.yaml`).
+  `verify_members` reported it sound. No planted secret appeared in `manifest.json` or
+  `README.md`. The README named all three files and who takes each (the Aggregator, 7 shared
+  cards, 1 own card), and the manifest's card counts matched. The scratch container was
+  removed.
+
 ## 2026-11-13: E4.6 — the Aggregator's `settings.yaml` and the spec 16.5 gate (Gate 74 GREEN)
 
 - **Tasks closed:** E4.6. `app/provisioning/bootstrap.py::generate_settings_yaml`:

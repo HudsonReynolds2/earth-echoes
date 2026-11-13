@@ -4,6 +4,31 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D177 (2026-11-13): The manifest suite is locked (spec 14.5), and what the manifest may and may not say
+
+- **Decision:** `backend/tests/test_provisioning_manifest.py` is **the** test-critical suite for
+  the "provisioning manifest (E4.7)" component already listed in `.claude/rules/project-rules.json`
+  R0. From gate 75 on, it is locked documentation: later sessions extend it and never weaken it,
+  and any change to it gets a DECISIONS entry. (The rules JSON needed no edit: E0 listed the
+  component in advance, and the governance test pins the count at four.)
+- **What the manifest says** (spec 8.3), per entry: `path`, `kind`, `pod`, the `cards` that take
+  it (each with its `revision_id`/`revision_checksum` as embedded in its record), `sha256`, and
+  `expected_contents`, which is the parsed file with secret values replaced by markers. Bundle
+  level: `manifest_version`, `bundle_id`, `deployment`, the per-Pod `plan`, `template_version`,
+  `envelope` (format, algorithm, key version), `bootstrap_credentials`, and `excludes`.
+- **The one exclusion is named, not implied:** `manifest.json` cannot list its own checksum, so
+  `excludes: ["manifest.json"]` says so, and `verify_members` requires `excludes` to be exactly
+  that. `README.md` is listed like any card, so "every member is listed" has no other exception.
+- **No secret value in the manifest or README** (asserted). Card secrets become
+  `<sealed: …>` and the Aggregator's password becomes `<plaintext in file by design, spec 16.4>`.
+  The manifest sits beside the cards, and printing the plaintext there would void the envelope.
+- **`verify_members`** is production code, not a test helper: E4.8 runs it on every archive
+  before the bundle is recorded. The locked suite proves it bites (tampered, missing, stray,
+  duplicate), so a checker that always passed could not pass this suite.
+- **The README** is the third place the DRAFT marker appears (D166). It also restates the
+  plaintext bootstrap block and warns, under "ACTION NEEDED", when credentials are absent.
+- **Reference:** spec 8.3, 14.5; phase-4 E4.7; rule R0 test-critical suites; D166, D176.
+
 ## D176 (2026-11-13): E4.6's `settings.yaml` — a draft shape, reuse before mint, two refusals, and one known endpoint limitation
 
 - **Decision:**

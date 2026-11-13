@@ -1988,6 +1988,22 @@ provider, pod_id, *, include_credentials) -> GeneratedFile` (async).
   `file_kind="settings_yaml"`.
 - The endpoint is the platform's view of the broker (see D176's limitation).
 
+### `manifest.json` and `README.md` (E4.7; spec 8.3, 14.5; D177) — **TEST-CRITICAL, locked**
+
+`app/provisioning/manifest.py`:
+- `bundle_members(meta, files) -> {path: bytes}` returns the card files plus `README.md` and
+  `manifest.json`. Duplicate paths are refused.
+- `verify_members(members) -> list[str]` checks completeness in both directions plus every
+  checksum. `[]` means sound.
+
+Manifest shape (`manifest_version: 1`): `bundle_id`, `deployment{id,name}`, `plan`,
+`template_version`, `envelope{format,algorithm,key_version}`, `bootstrap_credentials`,
+`excludes: ["manifest.json"]`, and `files[]` of
+`{path, kind, pod, cards[{target_type,target_id,aggregator_uuid,revision_id,revision_checksum}],
+sha256, expected_contents}`. The `kind` vocabulary is `RECORD_FILE_KINDS` plus `readme`.
+Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
+`tests/test_provisioning_manifest.py` is the locked suite: extend it, never weaken it.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform
