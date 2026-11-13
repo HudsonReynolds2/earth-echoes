@@ -4,6 +4,35 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D172 (2026-11-13): A killed mock device's disconnect error was never retrieved, and failed whichever test was running
+
+- **Decision:** `sim/device.py::MockAggregator.disconnect` now attaches
+  `_collect_disconnect_error` to the aiomqtt client's private `_disconnected` future. A
+  done-callback marks its `MqttCodeError` retrieved whenever it is stored, before or after the
+  bounded teardown. `sim/tests/test_device_teardown.py` pins both orderings, plus a control
+  showing the same state without the collector is what asyncio reports.
+- **The bug:**
+  1. After `kill()`, paho notices the dead socket and aiomqtt stores `MqttCodeError(128,
+     "Unexpected disconnection")` on `_disconnected`.
+  2. `disconnect()` cancels the reader task (the usual collector) first, and aiomqtt's
+     `__aexit__` returns early on a future that is already done.
+  3. Nobody retrieves the error. asyncio logs "Future exception was never retrieved", and
+     anyio's test runner raises it.
+
+  Whether it fires depends on when paho's callback lands. It failed
+  `test_the_disconnect_scenario_lands_as_an_lwt_offline` in one of PR #22's two CI runs, on code
+  batch 1 never touched, and has not been seen locally.
+- **Why it is a fix and not a flake (the D150 test):** the cause was traced to a specific
+  unretrieved future before anything changed, and the control test reproduces the exact state
+  deterministically. Nothing was loosened: no retry, no timeout change, no suppression wider than
+  "this one future's error is collected".
+- **PR #22 was merged after rerunning only its failed job**, once this analysis showed the
+  failure was in SIM-owned teardown that batch 1 does not touch. The fix lands here, gated (70),
+  as the first commit of batch 2.
+- **Boundary:** a private aiomqtt attribute, the same library boundary `kill()` already
+  crosses for the socket. The platform is not touched.
+- **Reference:** D150, D158; PR #22's CI; SIM.1's `MockAggregator`.
+
 ## D171 (2026-11-13): Post-gate records are scanned before they are committed
 
 - **Decision:** after a green gate, once the project-updates entry and ledger row are written

@@ -1,5 +1,24 @@
 # Project Updates
 
+## 2026-11-13: SIM teardown race — a killed mock's disconnect error is always collected (Gate 70 GREEN)
+
+- **What closed:** D172. `sim/device.py::MockAggregator.disconnect` attaches
+  `_collect_disconnect_error` to aiomqtt's `_disconnected` future, so the `MqttCodeError(128)`
+  stored after `kill()` is retrieved whenever it lands. Previously, if paho's callback came after
+  the reader task was cancelled, nothing retrieved it, and anyio failed whichever test was
+  running. That happened once in PR #22's CI
+  (`test_scenario_outcomes.py::test_the_disconnect_scenario_lands_as_an_lwt_offline`,
+  `aiomqtt.exceptions.MqttCodeError: [code:128] Unspecified error`); PR #22 merged after a rerun
+  of only that job, with the analysis recorded in D172. New `sim/tests/test_device_teardown.py`
+  (3 tests): both orderings, plus a control proving the unfixed state is what asyncio reports.
+- **Gate:** 70, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1167 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1410 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **228.46s**, sim-protocol **187.20s**,
+  wall clock **7m37s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** the CI-failing scenario module plus the new tests, run together in
+  isolation: 9 passed. The D171 record scans were rerun after this entry was written.
+
 ## 2026-11-13: Batch 1 records fix — a quoted scanner failure tripped the scanner in CI (Gate 69 GREEN)
 
 - **What closed:** PR #22's CI went red on `test_repo_layout.py::test_no_committed_secret_patterns`
