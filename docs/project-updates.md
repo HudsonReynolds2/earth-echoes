@@ -1,5 +1,38 @@
 # Project Updates
 
+## 2026-11-13: E4.2 — the on-card `device_config` v1 file, DRAFT (Gate 68 GREEN)
+
+- **Tasks closed:** E4.2. `app/provisioning/device_config.py`:
+  - `render_device_config_v1(values, *, blank)` is a pure, deterministic YAML renderer, marked
+    **DRAFT pending firmware sign-off** on the file's second line (spec 17 item 1 stays open,
+    D166).
+  - `CARD_KEYS` is derived from `CATALOG`, not listed by hand. It yields spec 5.4's set plus the
+    Pod network block.
+  - **No secret key is written in v1** (PHASE4-2-02); E4.5 adds the encrypted block.
+  - Pinned byte for byte by `tests/golden/device_config_v1.yaml`. `INTERFACES.md` documents the
+    format as an E4 contract.
+- **Gate:** 68, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1167 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1407 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +13 is `test_device_config.py`. Backend stage
+  **226.64s**, sim-protocol **187.04s**, wall clock **7m28s**.
+- **The red run (rule R0):** the first gate-68 run failed **backend-tests** on exactly one test,
+  `test_repo_layout.py::test_no_committed_secret_patterns`: `possible committed secret in
+  backend/tests/test_device_config.py: 'SECRET = "planted-s3-secret-9d2e77-never'`. The value
+  was a deliberately fake planted marker, but the constant's NAME matched the scanner's
+  `SECRET… = "<20+ chars>"` pattern. The constant was renamed `PLANTED_S3_CREDENTIAL`; the
+  scanner is unchanged. Everything else in that run was green (1166 backend).
+- **Falsifiability:** the byte-scan leak test was run against a renderer patched in memory to
+  emit the secret keys, and it failed, so it is not vacuous. An all-digit MAC
+  (`12:34:56:12:34:56`, a YAML 1.1 base-60 integer) is asserted to round-trip as a string.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` at head with the demo hierarchy
+  seeded, Listener `02:EE:0E:01:01:01` (`alder-creek-01`) had its effective config resolved by
+  the merge engine (`effective_for`) and rendered. The output was the expected nested v1 file
+  with real identity and GPS (`47.6`, `-121.88`). The per-pod form blanked exactly `identity.*`
+  and `location.*`. Observation carried into the ledger: the demo seed sets no `network.*`
+  values, so `wifi_ssid`/`aggregator_ip`/`stream_endpoint` render `null`, which E4.3 must
+  refuse. The scratch container was removed.
+
 ## 2026-11-13: E4.1 — the provisioning bundle and record tables (Gate 67 GREEN)
 
 - **Tasks closed:** E4.1. Migration **`48467572e941`** adds `provisioning_bundle` and

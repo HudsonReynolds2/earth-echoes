@@ -1883,6 +1883,29 @@ them, and are re-exported from `app.provisioning`.
 - **Writers:** E4.3-E4.8 create both. Only E4.9's reconciler and the operator's `flashed`
   action move `status`. E3's tables are read, never written, by this epic.
 
+### `device_config` v1, the on-card file (E4.2; spec 5.4, 8.2; fixed choice 2; D166) — **DRAFT**
+
+`app/provisioning/device_config.py::render_device_config_v1(values, *, blank=frozenset()) ->
+bytes`, a pure function. **DRAFT pending firmware sign-off: spec 17 item 1 is still open.** The
+firmware-agreed schema arrives as an **additive v2 renderer**, and v1 is never edited in place.
+`TEMPLATE_VERSION = 1` is recorded on every bundle.
+
+- **Format:** a `#` comment header (the DRAFT marker is line 2), then YAML with
+  `schema_version: 1`, `template: device_config`, and one mapping per key group in catalog
+  order (`audio`, `capture`, `buffering`, `logging`, `network`, `identity`, `location`).
+  Blanks are explicit `null` and mean "filled in later from the cloud" (spec 8.6). There are no
+  timestamps, so identical input gives identical bytes. Strings a YAML 1.1 reader could misread
+  (`on`/`off`, all-digit MACs) are quoted.
+- **Keys:** `CARD_KEYS` is derived from `CATALOG` (`lowest_level` ∈ pod/listener/any and not
+  `write_restricted`). That is spec 5.4's list plus the Pod network block. **v1 writes no secret
+  key** (`PLAINTEXT_CARD_KEYS`); `network.wifi_password` and `network.stream_key` arrive with
+  E4.5's encrypted block (PHASE4-2-02).
+- **Contract with callers:** `values` may be a whole effective config; keys not on a card are
+  ignored. A plaintext card key that is neither present nor blanked raises `DeviceConfigError`
+  rather than emitting a silent `null`. `blank` may only name plaintext card keys.
+- **Pinned by** `tests/golden/device_config_v1.yaml`, byte for byte: changing the card format
+  means editing that file in the same commit.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform
