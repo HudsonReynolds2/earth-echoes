@@ -20,13 +20,13 @@ network block, which spec 8.2 says the per-pod file carries. It excludes
 `listener.wake_grace_seconds` and `analysis.*` (Aggregator-side) and every
 `upload.*` / `telemetry.*` / `services.*` key (post-connect only, spec 16.4).
 
-**v1 emits no secret key at all** (addendum PHASE4-2-02). `network.wifi_password`
-and `network.stream_key` reach a card only as firmware ciphertext (spec 8.4),
-and the envelope that produces that ciphertext is E4.5's. Until then they are
-dropped even if the caller passes their plaintext, which E4.3 will, because
-`effective_resolved` is the generator's only accessor. The test suite proves
-the drop by scanning the output BYTES for planted values, not by reading this
-code.
+**Secrets never appear in plaintext** (spec 5.4, 8.4). `network.wifi_password`
+and `network.stream_key` reach a card only as firmware ciphertext, in a
+top-level `secrets:` block built by `app.provisioning.envelope` (E4.5,
+addendum PHASE4-2-02) and passed in as `sealed`. Their plaintext is dropped
+even though the caller passes it, because `effective_resolved` is the
+generator's only accessor. The test suite proves the drop by scanning the
+output BYTES for planted values, not by reading this code.
 
 ## Shape
 
@@ -44,6 +44,7 @@ from typing import Any
 import yaml
 
 from app.config.catalog import CATALOG, CatalogEntry
+from app.provisioning.envelope import SealedSecrets
 
 #: Bumped only by a NEW renderer. Recorded on every bundle.
 TEMPLATE_VERSION = 1
@@ -77,7 +78,10 @@ class DeviceConfigError(ValueError):
 
 
 def render_device_config_v1(
-    values: Mapping[str, Any], *, blank: frozenset[str] = frozenset()
+    values: Mapping[str, Any],
+    *,
+    blank: frozenset[str] = frozenset(),
+    sealed: SealedSecrets | None = None,
 ) -> bytes:
     """Render one card file from a device's resolved effective config.
 
@@ -89,6 +93,11 @@ def render_device_config_v1(
 
     `blank` names card keys to write as `null` whatever `values` says: E4.3
     passes the catalog's `resolution="inventory"` keys for a per-pod file.
+
+    `sealed` is the Pod's firmware-encrypted secrets (E4.5). It is written as
+    the final top-level `secrets:` block. Every generated card carries one;
+    the parameter is optional only so the plaintext part of the format can be
+    tested on its own.
     """
     unknown = sorted(blank - set(PLAINTEXT_CARD_KEYS))
     if unknown:
@@ -101,6 +110,8 @@ def render_device_config_v1(
     for key in PLAINTEXT_CARD_KEYS:
         group, name = key.split(".", 1)
         document.setdefault(group, {})[name] = None if key in blank else values[key]
+    if sealed is not None:
+        document["secrets"] = sealed.as_block()
 
     body = yaml.safe_dump(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True, width=1000

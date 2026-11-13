@@ -74,6 +74,7 @@ function Initialize-EnvFile {
         "DATABASE_URL=postgresql+psycopg://eoe:$pgPassword@postgres:5432/eoe"
         "EOE_SESSION_SECRET=$(New-RandomBase64)"
         "EOE_KEK=$(New-RandomBase64)"
+        "EOE_FIRMWARE_KEK=$(New-RandomBase64)"
         "REDIS_URL=redis://redis:6379/0"
         "EOE_CORS_ORIGINS=http://localhost:15173"
         "EOE_FRONTEND_API_URL=http://localhost:18000"

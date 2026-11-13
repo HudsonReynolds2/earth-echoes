@@ -55,6 +55,7 @@ from app.middleware import (
     configure_logging,
     install_root_handler,
 )
+from app.provisioning.envelope import FirmwareKey
 from app.secrets import SecretStore
 from app.services.credentials import default_provider
 from app.settings import Settings
@@ -195,6 +196,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db_engine = engine
     app.state.session_factory = session_factory
     app.state.secret_store = SecretStore(session_factory, resolved.kek)
+    # E4.5: the firmware KEK, validated here so a bad one stops the API before
+    # it serves a request, exactly as `SecretStore` does for EOE_KEK (D175).
+    app.state.firmware_key = FirmwareKey.from_base64(
+        resolved.firmware_kek, resolved.firmware_key_version
+    )
     # E5.6: how per-device broker credentials are minted and revoked. On
     # `app.state` rather than imported at each call site so a test can
     # substitute one without a broker, exactly as `secret_store` and `mqtt`

@@ -72,6 +72,8 @@ def compose_env() -> dict[str, str]:
         "DATABASE_URL": f"postgresql+psycopg://eoe:{password}@postgres:5432/eoe",
         "EOE_SESSION_SECRET": uuid.uuid4().hex,
         "EOE_KEK": make_kek(),  # must be base64 of 32 bytes (E0.11 validates at startup)
+        "EOE_FIRMWARE_KEK": make_kek(),  # E4.5: the API refuses to start without it
+        "EOE_FIRMWARE_KEY_VERSION": "1",
         "REDIS_URL": "redis://redis:6379/0",
         # E3.7's knobs, pinned to the documented defaults. E3.13 flips
         # EOE_PUBLISH_ENABLED on; this line is where that change lands for the

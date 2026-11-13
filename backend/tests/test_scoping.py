@@ -42,6 +42,7 @@ def scope_app(pg_url):  # noqa: F811
             database_url=pg_url,
             session_secret="gate21-scope-secret",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
         )
     )

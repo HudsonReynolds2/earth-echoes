@@ -15,10 +15,10 @@ cp deploy/.env.example deploy/.env
 ```
 
 Open `deploy/.env` and fill in **every** value. Each variable is documented in the file
-itself. Three of them are secrets you generate:
+itself. Four of them are secrets you generate:
 
 ```
-openssl rand -base64 32     # use separate outputs for EOE_SESSION_SECRET and EOE_KEK
+openssl rand -base64 32     # separate outputs for EOE_SESSION_SECRET, EOE_KEK and EOE_FIRMWARE_KEK
 openssl rand -hex 16        # a fine POSTGRES_PASSWORD
 ```
 
@@ -26,6 +26,12 @@ openssl rand -hex 16        # a fine POSTGRES_PASSWORD
 secret the platform stores (service credentials, TOTP secrets, and later the device
 provisioning secrets). Losing it makes stored secrets unrecoverable; leaking it undermines
 their encryption. Store it in a password manager or secret manager, not just in `.env`.
+
+**`EOE_FIRMWARE_KEK` is just as important, and it is a different key.** It wraps the WiFi
+password and stream key on every provisioning card, and every Listener's firmware must be
+built with the same value, or no card can be read. Losing it means no new Pod can be
+provisioned until every Listener is reflashed. Back it up the same way. (Its long-term custody
+is still an open project question, spec 17 item 7.)
 
 ## 2. Launch
 
@@ -84,6 +90,9 @@ then removes it. See [Verify your deployment](verify-deployment.md).
   start if a required variable is missing from `deploy/.env`; the error names the variable.
 - **`EOE_KEK must decode to 32 bytes`** — the KEK must be base64 of exactly 32 random
   bytes; regenerate with `openssl rand -base64 32`.
+- **`EOE_FIRMWARE_KEK is required`** or **`must decode to 32 bytes`** — the API will not start
+  without a valid firmware key. Generate one the same way. A `.env` written before E4.5 lacks
+  this variable, so add it.
 - **The frontend loads but shows "API unreachable"** — the browser reaches the API at
   `http://localhost:18000` by default; if your API is elsewhere, set `EOE_FRONTEND_API_URL`
   in `deploy/.env` and restart the frontend service.

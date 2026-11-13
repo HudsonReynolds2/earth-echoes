@@ -267,6 +267,7 @@ def app(pg_url):
             database_url=pg_url,
             session_secret="gate13-readiness",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
         )
     )
@@ -441,6 +442,7 @@ def test_redis_stays_optional_until_e3():
         database_url="postgresql+psycopg://x:x@localhost:9/x",
         session_secret="s",
         kek=make_kek(),
+        firmware_kek=make_kek(),
     )
     assert settings.redis_url is None  # absent-safe; E3.12/E7.3 turn it on
 

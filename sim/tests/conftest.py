@@ -275,6 +275,7 @@ def platform_stack(out: Path, port: int, **settings: Any):
                     # manager survives by design and which would make every
                     # test quietly prove nothing.
                     kek=kek,
+                    firmware_kek=make_kek(),
                     session_secret="sim-session-secret",
                     cors_origins="",
                     **settings,

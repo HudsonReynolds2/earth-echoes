@@ -285,6 +285,7 @@ def api_app(database):
             database_url=url,
             session_secret="gate49-test-secret",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
         )
     )

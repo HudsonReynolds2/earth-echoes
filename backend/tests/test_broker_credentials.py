@@ -197,6 +197,7 @@ def app(pg_url, broker):
             database_url=pg_url,
             session_secret="e56-test-secret",
             kek=make_kek(),
+            firmware_kek=make_kek(),
             cors_origins="",
             publish_enabled=False,
         )

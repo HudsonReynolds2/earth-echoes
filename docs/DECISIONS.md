@@ -4,6 +4,36 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D175 (2026-11-13): E4.5's envelope — required at the API only, AAD-bound blobs, one DEK per Pod per export
+
+- **Decision:**
+  1. **`EOE_FIRMWARE_KEK` is required by `create_app`, not by `Settings`.** `Settings.firmware_kek`
+     is optional and `FirmwareKey.from_base64` refuses a missing or malformed value when the API
+     is built. The message names the variable, gives a fingerprint for a wrong-length key, and
+     never echoes the value. Phase-4 fixed choice 3 says "validated fail-loud at app
+     construction exactly as EOE_KEK is", and that is honored. But the worker, the seed CLI and
+     the devbroker CLI also build `Settings` and never touch a card, so a Settings-level
+     requirement would have forced an unused secret into every one of those processes. In
+     compose, the `api` service fail-fast interpolates it and the `worker` does not receive it.
+  2. **`EOE_FIRMWARE_KEY_VERSION`** (optional, default 1) is a second, additive variable. It
+     supplies the `key_version` fixed choice 3 asks for. Without it the field would be a
+     constant that a future KEK rotation could not change.
+  3. **Encoding:** `base64(nonce || ciphertext || tag)`. The AAD binds each blob to its role
+     (`eoe-dek:v1`, `eoe-secret:v1:<catalog key>`), so swapping blobs between fields fails
+     authentication (asserted). The block also carries `format` and `algorithm`, so a firmware
+     parser can refuse what it does not understand rather than misread it.
+  4. **One fresh DEK per Pod per export,** shared by that Pod's shared and per-listener files
+     ("a fresh per-Pod DEK per export"). Every nonce is fresh. As a consequence, two exports of
+     one Pod differ in their `secrets:` block; E4.3's tests compare cards with that block set
+     aside.
+  5. **An OPEN network's card has no `wifi_password` field** rather than an encrypted empty
+     string.
+  6. **Golden file moved deliberately.** It gained exactly the seven-line `secrets:` block
+     (fixed stand-in blobs), and nothing else on the card changed.
+- **Still open:** spec 17 item 7 (KEK custody, backup, Organization-wide rotation). Losing the
+  key strands provisioning of new Pods; the getting-started guide now says so.
+- **Reference:** spec 8.4; phase-4 fixed choice 3, E4.5; D166; `test_firmware_envelope.py`.
+
 ## D174 (2026-11-13): E4.4's choices — Windows-safe card names, strict mode/list agreement, and per-Pod modes in a Deployment bundle
 
 - **Decision:**

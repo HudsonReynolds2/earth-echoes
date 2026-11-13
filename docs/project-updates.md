@@ -1,5 +1,38 @@
 # Project Updates
 
+## 2026-11-13: E4.5 — the firmware envelope; every card's secrets are ciphertext (Gate 73 GREEN)
+
+- **Tasks closed:** E4.5, spec 8.4 and phase-4 fixed choice 3. `app/provisioning/envelope.py`:
+  - The firmware KEK wraps a fresh per-Pod-per-export DEK, and the DEK seals the WiFi password
+    and stream key.
+  - AES-256-GCM throughout. Each blob is `base64(nonce||ciphertext||tag)`, and the AAD binds it
+    to its field.
+  - Every generated card ends with a `secrets:` block (`format`, `algorithm`, `key_version`,
+    `wrapped_dek`, sealed values). The golden file moved by exactly that block.
+
+  `EOE_FIRMWARE_KEK` is required by `create_app` and refused fail-loud by name, never by value.
+  `EOE_FIRMWARE_KEY_VERSION` is optional. Both are wired into the compose `api` service,
+  `.env.example`, `qa-stack.ps1`, the compose test environment and 34 test `Settings(...)`
+  sites. `INTERFACES.md` publishes the envelope as **a wire contract firmware must parse**.
+  `getting-started.md` covers generating and backing up the key. Decisions in **D175**. Spec 17
+  item 7 (KEK custody) stays open.
+- **Gate:** 73, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1204 backend / 163 vitest / 4 Playwright / 76 `/sim`**, 1447 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +16 is `test_firmware_envelope.py` (15) plus the
+  secrets-block field-order test. Backend stage **232.98s**, sim-protocol **188.11s**, wall
+  clock **7m43s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:**
+  - On a scratch `postgres:16-alpine`, a real card was generated for `Pod 01 · Alder Creek` with
+    a fresh `openssl rand -base64 32` firmware key. It was then decrypted by an **independent**
+    implementation written from the INTERFACES contract alone (raw `cryptography` AESGCM, no app
+    code), which recovered both planted values exactly. The card file was deleted afterwards.
+  - `docker compose config` with every variable but `EOE_FIRMWARE_KEK` refused:
+    `required variable EOE_FIRMWARE_KEK is missing a value`.
+  - The scratch container was removed.
+- **Operator note:** a `deploy/.env` written before this task lacks `EOE_FIRMWARE_KEK`, so
+  compose now stops at that line until one is added.
+
 ## 2026-11-13: E4.4 — per-listener files, mixed mode, and Deployment bundles (Gate 72 GREEN)
 
 - **Tasks closed:** E4.4, spec 8.2 mode 2 plus mixed. In `app/provisioning/generate.py`:

@@ -35,6 +35,8 @@ only the published host side moved, so the stack coexists with other local servi
 | `DATABASE_URL` | yes | Postgres connection URL |
 | `EOE_SESSION_SECRET` | yes | signs session cookies |
 | `EOE_KEK` | yes | base64 platform key-encryption key (SecretStore, E0.11) |
+| `EOE_FIRMWARE_KEK` | yes (API) | base64 **firmware** key-encryption key for provisioning cards (E4.5, D175). Validated fail-loud by `create_app`; the worker and CLIs do not read it. Additive row, owned by E4 |
+| `EOE_FIRMWARE_KEY_VERSION` | no (default `1`) | written into each card's `secrets.key_version` (E4.5). Additive row, owned by E4 |
 | `REDIS_URL` | no | enables Redis-backed features (E3, E7) |
 | `EOE_CORS_ORIGINS` | no | comma-separated allowed browser origins (D2/D4) |
 | `EOE_PUBLISH_ENABLED` | no | gates publication AND the API's outbound broker connection (D61, D86); default off until E3.13 |
@@ -1939,6 +1941,32 @@ exclude_macs=frozenset()) -> GeneratedFile(path, content, records)`.
   `pods/<pod_id>/listeners/<MAC with dashes>.yaml`, which is Windows-legal.
 - **`generate_for_deployment(db, store, deployment_id, {pod_id: (mode, macs)})`** builds a
   Deployment bundle. Every Pod must belong to that Deployment.
+
+### The firmware envelope — **a wire contract firmware must parse** (E4.5; spec 8.4; fixed choice 3; D175)
+
+Published the moment it merges, like `contracts/mqtt.py`. `app/provisioning/envelope.py`;
+`ENVELOPE_FORMAT = 1`. Every generated card ends with this top-level block:
+
+```yaml
+secrets:
+  format: 1                 # ENVELOPE_FORMAT; bumped only by an incompatible change
+  algorithm: AES-256-GCM
+  key_version: 1            # which firmware KEK (EOE_FIRMWARE_KEY_VERSION)
+  wrapped_dek: <base64>     # the Pod's DEK, sealed under the firmware KEK
+  stream_key: <base64>      # sealed under the DEK
+  wifi_password: <base64>   # sealed under the DEK; ABSENT on an OPEN network
+```
+
+- **Blob encoding:** `base64(nonce[12] || ciphertext || tag[16])`, AES-256-GCM. Keys are 32
+  bytes.
+- **AAD:** the wrapped DEK uses `b"eoe-dek:v1"`. A sealed value uses
+  `b"eoe-secret:v1:" + <full catalog key>` (e.g. `network.wifi_password`), so a blob moved to
+  another field fails authentication.
+- **Boot sequence:** unwrap the DEK with the KEK, then unseal each present field under the DEK.
+  `tests/test_firmware_envelope.py::firmware_boot` is the reference implementation.
+- **Key material:** a fresh DEK per Pod **per export**, shared by every file of that Pod in that
+  export. Fresh nonces everywhere.
+- **Key custody (spec 17 item 7) is OPEN.** The KEK comes from `EOE_FIRMWARE_KEK` for now.
 
 ## Owned by SIM
 

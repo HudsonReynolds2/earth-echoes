@@ -53,7 +53,12 @@ from sqlalchemy.orm import Session
 from app.config.catalog import CATALOG
 from app.config.service import effective_resolved
 from app.models import BUNDLE_MODES, Aggregator, ConfigRevision, Listener, Pod
-from app.provisioning.device_config import render_device_config_v1
+from app.provisioning.device_config import (
+    CARD_KEYS,
+    PLAINTEXT_CARD_KEYS,
+    render_device_config_v1,
+)
+from app.provisioning.envelope import FirmwareKey, SealedSecrets, new_dek, seal_secrets
 from app.secrets import SecretStore
 
 #: Spec 8.2: "The unique per-listener data … is left blank on the card." Derived
@@ -67,6 +72,9 @@ INVENTORY_KEYS: frozenset[str] = frozenset(
 NETWORK_KEYS: tuple[str, ...] = tuple(
     entry.key for entry in CATALOG if entry.key.startswith("network.")
 )
+
+#: The card keys that travel only as firmware ciphertext (spec 8.4).
+SECRET_CARD_KEYS: tuple[str, ...] = tuple(k for k in CARD_KEYS if k not in PLAINTEXT_CARD_KEYS)
 
 #: `network.wifi_password` is the one network key an OPEN network does not need.
 OPEN_SECURITY = "OPEN"
@@ -146,6 +154,13 @@ def resolved_values(
     return {key: item.value for key, item in resolved.items()}
 
 
+def sealed_for(firmware_key: FirmwareKey, dek: bytes, values: Mapping[str, Any]) -> SealedSecrets:
+    """The card's `secrets:` block: this Pod's DEK wrapped under the firmware
+    KEK, and each secret sealed under the DEK (E4.5, spec 8.4). The plaintext
+    goes no further than this call."""
+    return seal_secrets(firmware_key, dek, {key: values.get(key) for key in SECRET_CARD_KEYS})
+
+
 def _pod_with_aggregator(db: Session, pod_id: uuid.UUID) -> tuple[Pod, Aggregator]:
     pod = db.get(Pod, pod_id)
     if pod is None:
@@ -193,6 +208,8 @@ def generate_pod_file(
     secret_store: SecretStore,
     pod_id: uuid.UUID,
     *,
+    firmware_key: FirmwareKey,
+    dek: bytes | None = None,
     exclude_macs: frozenset[str] = frozenset(),
 ) -> GeneratedFile:
     """Spec 8.2 mode 1: the Pod's one shared card file and a record per card.
@@ -200,6 +217,11 @@ def generate_pod_file(
     `exclude_macs` leaves Listeners out of this file's records because they
     take a per-listener file instead (mixed mode, E4.4). The file's BYTES do
     not change: it is the Pod's file either way.
+
+    `dek` is the Pod's data key for THIS export. `generate_for_pod` passes one
+    so a Pod's shared and per-listener files share it; called alone, a fresh
+    one is drawn. Either way it is new per export, which is what makes per-Pod
+    rotation meaningful (spec 8.4).
     """
     pod, aggregator = _pod_with_aggregator(db, pod_id)
     values = resolved_values(db, secret_store, "pod", str(pod.id))
@@ -211,7 +233,8 @@ def generate_pod_file(
             missing=missing,
         )
 
-    content = render_device_config_v1(values, blank=INVENTORY_KEYS)
+    sealed = sealed_for(firmware_key, dek if dek is not None else new_dek(), values)
+    content = render_device_config_v1(values, blank=INVENTORY_KEYS, sealed=sealed)
     path = pod_file_path(pod.id)
     records = tuple(
         listener_record(
@@ -242,6 +265,9 @@ def generate_listener_file(
     listener: Listener,
     pod_id: uuid.UUID,
     aggregator_uuid: str,
+    *,
+    firmware_key: FirmwareKey,
+    dek: bytes,
 ) -> GeneratedFile:
     """Spec 8.2 mode 2: one Listener's own card, resolved AT THE LISTENER.
 
@@ -258,7 +284,8 @@ def generate_listener_file(
         )
     path = listener_file_path(pod_id, listener.mac)
     record = listener_record(db, listener, pod_id, aggregator_uuid, kind="listener_file", path=path)
-    return GeneratedFile(path=path, content=render_device_config_v1(values), records=(record,))
+    content = render_device_config_v1(values, sealed=sealed_for(firmware_key, dek, values))
+    return GeneratedFile(path=path, content=content, records=(record,))
 
 
 def generate_for_pod(
@@ -267,6 +294,8 @@ def generate_for_pod(
     pod_id: uuid.UUID,
     mode: str,
     listener_macs: frozenset[str] = frozenset(),
+    *,
+    firmware_key: FirmwareKey,
 ) -> list[GeneratedFile]:
     """Every card file for one Pod in the chosen mode.
 
@@ -295,12 +324,32 @@ def generate_for_pod(
     if mode == "mixed" and not listener_macs:
         raise GenerationError("mode 'mixed' needs at least one listener; otherwise use 'per_pod'")
 
+    # One fresh data key per Pod per export (spec 8.4), shared by every file
+    # this Pod contributes, so one card's KEK unwrap serves the whole Pod.
+    dek = new_dek()
     files: list[GeneratedFile] = []
     if mode in ("per_pod", "mixed"):
-        files.append(generate_pod_file(db, secret_store, pod.id, exclude_macs=listener_macs))
+        files.append(
+            generate_pod_file(
+                db,
+                secret_store,
+                pod.id,
+                firmware_key=firmware_key,
+                dek=dek,
+                exclude_macs=listener_macs,
+            )
+        )
     chosen = listeners if mode == "per_listener" else [in_pod[mac] for mac in sorted(listener_macs)]
     files.extend(
-        generate_listener_file(db, secret_store, listener, pod.id, aggregator.aggregator_uuid)
+        generate_listener_file(
+            db,
+            secret_store,
+            listener,
+            pod.id,
+            aggregator.aggregator_uuid,
+            firmware_key=firmware_key,
+            dek=dek,
+        )
         for listener in chosen
     )
     return files
@@ -311,6 +360,8 @@ def generate_for_deployment(
     secret_store: SecretStore,
     deployment_id: uuid.UUID,
     plan: Mapping[uuid.UUID, tuple[str, frozenset[str]]],
+    *,
+    firmware_key: FirmwareKey,
 ) -> list[GeneratedFile]:
     """A Deployment bundle: each named Pod in its own mode (spec 8.2, "Operators
     pick per Pod"). `plan` maps pod id → (mode, listener MACs). Every Pod must
@@ -328,5 +379,7 @@ def generate_for_deployment(
     files: list[GeneratedFile] = []
     for pod_id in sorted(plan, key=str):
         mode, macs = plan[pod_id]
-        files.extend(generate_for_pod(db, secret_store, pod_id, mode, macs))
+        files.extend(
+            generate_for_pod(db, secret_store, pod_id, mode, macs, firmware_key=firmware_key)
+        )
     return files

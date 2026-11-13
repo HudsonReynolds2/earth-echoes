@@ -110,6 +110,7 @@ def platform(tmp_path_factory):
                     # which the manager survives by design and which would
                     # make this test quietly prove nothing.
                     kek=kek,
+                    firmware_kek=make_kek(),
                     cors_origins="",
                 )
             )

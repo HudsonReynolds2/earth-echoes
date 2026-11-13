@@ -31,3 +31,10 @@ identity:
 location:
   gps_lat: 41.7756
   gps_lon: -124.1987
+secrets:
+  format: 1
+  algorithm: AES-256-GCM
+  key_version: 1
+  wrapped_dek: V1JBUFBFRC1ERUstU1RBTkQtSU4=
+  stream_key: U0VBTEVELVNUUkVBTS1LRVk=
+  wifi_password: U0VBTEVELVBTSy1TVEFORC1JTg==

@@ -28,6 +28,7 @@ from app.config.catalog import CATALOG
 from app.config.overrides import put_overrides
 from app.db import create_session_factory
 from app.models import Aggregator, ConfigRevision, Deployment, Listener, Pod
+from app.provisioning.envelope import FirmwareKey
 from app.provisioning.generate import (
     INVENTORY_KEYS,
     GenerationError,
@@ -38,6 +39,9 @@ from app.secrets import SecretStore
 from app.seed import seed_demo_hierarchy
 
 pytestmark = pytest.mark.integration
+
+#: E4.5: every generated card is sealed under a firmware key.
+FIRMWARE = FirmwareKey.from_base64(make_kek(), key_version=1)
 
 PSK = "e43-planted-psk-c81f02-never-on-a-card"
 STREAM = "e43-planted-stream-0b77e4-never-on-a-card"
@@ -80,6 +84,13 @@ def _configured_pod(factory, store, index: int = 0) -> uuid.UUID:
         return pod.id
 
 
+def _without_secrets(content: bytes) -> dict:
+    """A card minus its per-export `secrets:` block."""
+    document = yaml.safe_load(content)
+    document.pop("secrets")
+    return document
+
+
 def _listeners(db, pod_id) -> list[Listener]:
     aggregator = db.scalar(select(Aggregator).where(Aggregator.pod_id == pod_id))
     return list(
@@ -103,10 +114,14 @@ def test_the_file_is_byte_identical_for_every_listener_in_the_pod(env):
         put_overrides(db, store, "listener", listeners[0].mac, {"audio.sample_rate_hz": 96000})
         db.commit()
 
-        first = generate_pod_file(db, store, pod_id)
-        second = generate_pod_file(db, store, pod_id)
+        first = generate_pod_file(db, store, pod_id, firmware_key=FIRMWARE)
+        second = generate_pod_file(db, store, pod_id, firmware_key=FIRMWARE)
 
-    assert first.content == second.content
+    # Each export draws a fresh DEK and fresh nonces (E4.5), so two exports
+    # differ in their `secrets:` block by design. Everything else is identical,
+    # and within ONE export a single file serves every card.
+    assert _without_secrets(first.content) == _without_secrets(second.content)
+    assert "secrets" in yaml.safe_load(first.content)
     assert {record.file_path for record in first.records} == {pod_file_path(pod_id)}
     assert {record.target_id for record in first.records} == {
         listener.mac for listener in listeners
@@ -118,7 +133,9 @@ def test_the_blanks_are_exactly_the_catalogs_inventory_keys(env):
     factory, store = env
     pod_id = _configured_pod(factory, store, 0)
     with factory() as db:
-        document = yaml.safe_load(generate_pod_file(db, store, pod_id).content)
+        document = yaml.safe_load(
+            generate_pod_file(db, store, pod_id, firmware_key=FIRMWARE).content
+        )
 
     blank = {
         f"{group}.{name}"
@@ -138,7 +155,7 @@ def test_network_values_reach_the_card_and_secrets_do_not(env):
     factory, store = env
     pod_id = _configured_pod(factory, store, 0)
     with factory() as db:
-        content = generate_pod_file(db, store, pod_id).content
+        content = generate_pod_file(db, store, pod_id, firmware_key=FIRMWARE).content
 
     network = yaml.safe_load(content)["network"]
     assert network["wifi_ssid"] == "alder-creek-halow"
@@ -155,7 +172,7 @@ def test_a_pod_with_unset_network_values_is_refused_naming_them(env):
     with factory() as db:
         pod = _pod(db, 1)  # the demo seed sets no network values at all
         with pytest.raises(GenerationError) as refused:
-            generate_pod_file(db, store, pod.id)
+            generate_pod_file(db, store, pod.id, firmware_key=FIRMWARE)
 
     assert set(refused.value.missing) == {
         "network.wifi_ssid",
@@ -177,7 +194,7 @@ def test_an_open_network_needs_no_password(env):
             db, store, "pod", str(pod.id), open_network | {"network.wifi_security": "OPEN"}
         )
         db.commit()
-        generated = generate_pod_file(db, store, pod.id)
+        generated = generate_pod_file(db, store, pod.id, firmware_key=FIRMWARE)
     assert yaml.safe_load(generated.content)["network"]["wifi_security"] == "OPEN"
 
 
@@ -189,7 +206,7 @@ def test_a_pod_without_an_aggregator_is_refused(env):
         db.add(lonely)
         db.commit()
         with pytest.raises(GenerationError, match="no aggregator"):
-            generate_pod_file(db, store, lonely.id)
+            generate_pod_file(db, store, lonely.id, firmware_key=FIRMWARE)
 
 
 # --- 3. Records embed the current revision and never create one ---------------
@@ -223,7 +240,10 @@ def test_each_card_records_the_devices_latest_revision_without_creating_one(env)
         before = db.scalar(select(ConfigRevision.id).order_by(ConfigRevision.id).limit(1))
         count_before = len(db.scalars(select(ConfigRevision.id)).all())
 
-        records = {r.target_id: r for r in generate_pod_file(db, store, pod_id).records}
+        records = {
+            r.target_id: r
+            for r in generate_pod_file(db, store, pod_id, firmware_key=FIRMWARE).records
+        }
 
         assert len(db.scalars(select(ConfigRevision.id)).all()) == count_before
         assert before is not None
@@ -241,8 +261,10 @@ def test_excluded_macs_take_no_pod_file_record_and_the_bytes_do_not_change(env):
     pod_id = _configured_pod(factory, store, 0)
     with factory() as db:
         listeners = _listeners(db, pod_id)
-        full = generate_pod_file(db, store, pod_id)
-        partial = generate_pod_file(db, store, pod_id, exclude_macs=frozenset({listeners[0].mac}))
+        full = generate_pod_file(db, store, pod_id, firmware_key=FIRMWARE)
+        partial = generate_pod_file(
+            db, store, pod_id, exclude_macs=frozenset({listeners[0].mac}), firmware_key=FIRMWARE
+        )
 
-    assert partial.content == full.content
+    assert _without_secrets(partial.content) == _without_secrets(full.content)
     assert {r.target_id for r in partial.records} == {listener.mac for listener in listeners[1:]}
