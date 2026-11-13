@@ -5,6 +5,25 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #42 (2026-11-13): The generated stack's MinIO images moved to pinned `pgsty/*` rebuilds, because `minio/*` no longer exists
+
+- **What changed:** `project_planning/phase-5-deployment-services.md` §4 gains addendum
+  **PHASE5-4-09** on E5.8b's "optional MinIO": the generated stack (and the test rig, which reads
+  the same pins) now runs **`pgsty/minio:RELEASE.2026-08-04T00-00-00Z`** and
+  **`pgsty/mc:RELEASE.2026-10-26T00-00-00Z`** instead of `minio/minio:latest` and
+  `minio/mc:latest`. `test_no_image_is_floating` loses its MinIO exemption: every image in the
+  stack is now pinned (DECISIONS **D164**).
+- **Why:** MinIO stopped publishing community-edition images in October 2025 and archived the
+  project in 2026. `minio/mc` no longer pulls from Docker Hub (`pull access denied ...
+  repository does not exist`), and `minio/minio` resolves only from a local cache. So every
+  operator who generated a Path B stack with object storage got a `docker compose up` that
+  failed, and every fresh machine's gate failed the S3 tester and the E5.10 keystone.
+- **How it was found:** gate 65's first run on a WSL + Docker Desktop host with no cached
+  `minio/mc` (2026-11-13). Gate 64 passed only because its host had both images cached.
+- **Who approved:** the owner, 2026-11-13. The replacement object store is deferred (D164).
+- **Affects:** project_planning/phase-5-deployment-services.md section 4 (the task list)
+- **Addendum:** PHASE5-4-09
+
 ## #41 (2026-08-28): The E4 phase document's provenance and the E4-after-E5 sequencing, recorded
 
 - **What changed:** `project_planning/phase-4-provisioning.md` §1 gains addendum **PHASE4-1-01**

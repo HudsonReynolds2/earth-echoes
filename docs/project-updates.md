@@ -1,5 +1,45 @@
 # Project Updates
 
+## 2026-11-13: Hygiene batch 3 — MinIO's vanished images replaced with pinned rebuilds, and two D99 paths that could not retry (Gate 65 GREEN)
+
+- **What closed:** hygiene batch 3 (branch `hygiene-batch-3`), the two problems found by the
+  first gate attempt on a WSL + Docker Desktop host. DECISIONS **D164-D165**, project-changes
+  **#42**, addendum **PHASE5-4-09**. (1) The generated stack and the test rig move from
+  `minio/minio:latest` / `minio/mc:latest` (MinIO stopped publishing community images in
+  October 2025, so `minio/mc` no longer pulls) to **`pgsty/minio:RELEASE.2026-08-04T00-00-00Z`**
+  and **`pgsty/mc:RELEASE.2026-10-26T00-00-00Z`**. The rig and the S3 test now read the shipped
+  pins instead of copying them, and `test_no_image_is_floating` loses its MinIO exemption.
+  (2) D165: the broker fixture's whole-container retry now actually reaches a still-transient
+  `docker start` failure, and the keystone recreates a service once if its published port
+  refuses for 60s.
+- **Gate:** 65, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1145 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1385 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **227.26s**, sim-protocol **187.35s**,
+  wall clock **7m27s**. Same count as gate 64: this batch changed tests but added none.
+- **Command:** `make gate`, run directly in WSL2 Ubuntu against Docker Desktop's engine (WSL
+  integration). This is the first gate on that path; gate 64 used a runner container.
+- **The red runs, verbatim in substance (rule R0):**
+  - **Run 1** (on the E4.0 branch, docs only) failed **backend-tests** (2:
+    `test_tester_s3::test_a_bucket_that_denies_the_key_fails_forbidden_and_not_not_found` and the
+    keystone, both `pull access denied for minio/mc, repository does not exist`) and failed
+    **frontend-quality / frontend-tests / frontend-e2e**. Those were 15 vitest files plus 4
+    Playwright tests, all from `@tanstack/react-table` and `@testing-library/user-event` missing
+    from this clone's `node_modules`. `npm ci` fixed them and is environment, not code.
+  - **Run 2** (this batch, before D165) failed **backend-tests only**: 11 setup errors in
+    `test_broker_refresh` (`ports are not available: exposing port TCP 127.0.0.1:60141 ->
+    127.0.0.1:0: /forwards/expose returned unexpected status: 500`, after all four `docker_retry`
+    attempts) and the keystone (`prometheus never answered at http://127.0.0.1:32776/-/ready in
+    180s: ConnectError('[Errno 111] Connection refused')`). Both suites then passed 12/12 in
+    isolation. D165 explains why the fix cannot hide a real defect.
+- **Environment note:** this WSL clone also lacked the repo-local `commit.template =
+  .gitmessage` that E0.0 wires, which `test_gitmessage_template_matches_r3` checks. It was set
+  locally; nothing committed changes.
+- **Manual verification:** pulled both pinned images and confirmed `pgsty/mc` carries
+  `/bin/sh` (the init container's entrypoint) and the server reports
+  `RELEASE.2026-08-04T00-00-00Z`. `stack.IMAGES` resolves to the two pins. The keystone, which
+  generates, unpacks and `compose up`s a real bundle with object storage and runs all five
+  testers against it, passed in isolation and in the gate.
+
 ## 2026-08-28: Hygiene batch 2 — the audit's record gaps closed, two guard tests, and the gate's Windows story told straight (Gate 64 GREEN)
 
 - **What closed:** hygiene batch 2 (branch `hygiene-batch-2`, the batch-1 precedent #12/D29):

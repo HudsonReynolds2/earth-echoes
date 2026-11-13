@@ -23,6 +23,7 @@ from conftest import (
 )
 
 from app.services.clients.s3 import SELFTEST_PREFIX, S3Client
+from app.services.stack import IMAGES as STACK_IMAGES
 from app.services.testers.base import ServiceCredentials
 from app.services.testers.s3 import S3Tester
 
@@ -131,7 +132,7 @@ def test_a_bucket_that_denies_the_key_fails_forbidden_and_not_not_found(rig):
                 "host",
                 "--entrypoint",
                 "sh",
-                "minio/mc:latest",
+                STACK_IMAGES["minio_client"],
                 "-c",
                 " && ".join(
                     [
