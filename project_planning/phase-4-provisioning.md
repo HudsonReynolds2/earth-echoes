@@ -198,6 +198,19 @@ Plus two structural choices, which are this document's rather than the owner's:
   restart-safe and idempotent by construction, and costs E3 nothing. **A task that appears to
   need a `consumer.py` edit is a stop-and-ask** (rule R2).
 
+> **Addendum PHASE4-2-02 (2026-11-13, ref project-changes #45):** three owner decisions taken
+> at E4 plan approval. **(1) `EOE_BOOTSTRAP_CREDENTIALS` ships default ON** — fixed choice 1's
+> "defaults off" sentence is superseded; this is the flip addendum PHASE4-2-01 called E4.6's
+> remaining work, made by E4.6 itself because the setting does not exist yet. Both flag states
+> stay tested and the section 5 bullet "off by default and both states are tested" now reads
+> "on by default". See DECISIONS D167. **(2) E4.9's reconciler is a worker sweep** registered in
+> `app/controlplane/runner.py` beside E5.7b's — the fourth E3-owned edit, additive and limited
+> to that registration, authorized in advance (D168). The structural choice above still holds:
+> the reconciler reads E3's tables and never edits `consumer.py`. **(3) E4.2's renderer emits no
+> secret key at all** — not a placeholder, not a slot. E4.5 adds the firmware-encrypted
+> `secrets:` block and moves E4.2's golden file deliberately, so the envelope's on-card shape is
+> designed by the task that builds the envelope (D166).
+
 ## 3. Out of scope
 
 Per-device broker credential minting and the Mosquitto dynsec path, including the manual-install

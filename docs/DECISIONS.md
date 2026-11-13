@@ -4,6 +4,108 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D171 (2026-11-13): Post-gate records are scanned before they are committed
+
+- **Decision:** after a green gate, once the project-updates entry and ledger row are written
+  and before the commit, rerun `tests/test_repo_layout.py` (the committed-secret scan) and
+  `tests/test_governance.py` (record and addendum format). These are the two suites that read
+  committed text, and the gate never sees records written after it.
+- **Why:** gate 68 was green, but its project-updates entry quoted a scanner failure word for
+  word, and the quote itself matched the secret pattern. CI went red on PR #22
+  (`test_no_committed_secret_patterns` flagged `docs/project-updates.md`), so the tagged
+  gate-68 commit is red under CI. R3 forbids amending a tagged gate commit, so the fix is a new
+  commit with its own gate (69). The scanner was not loosened: quoting a failure is a record's
+  job, and paraphrasing it costs nothing.
+- **Reference:** R0, R1, R3; PR #22's CI run; gate 69.
+
+## D170 (2026-11-13): E4.1's table shape — scoped bundles with a per-Pod plan, and records keyed like revisions
+
+- **Decision:** `provisioning_bundle` carries `scope_type` (`pod`/`deployment`) + `scope_id`
+  and a `plan` JSONB of per-Pod `{mode, listener_macs}`, rather than one `mode` and one `pod_id`.
+  `device_provisioning_record` identifies its device by `(target_type, target_id)`, with the
+  aggregator's platform UUID or the listener's MAC, the exact pair `config_revision` and
+  `device_state` use (D75). It records the card's file as `file_kind` + `file_path`, and its
+  history as an append-only JSONB list on the row.
+- **Why:** the phase document's bundle row has "its pod when pod-scoped" and "its mode", but
+  spec 8.2 lets the operator "pick per Pod, and … mix the two", and E4.10's wizard picks "a Pod
+  or Deployment" and then "the mode per Pod". A Deployment bundle has no single mode, so the
+  choice is recorded per Pod. The record key matches E3's so E4.9 joins on the same pair
+  without translation. History lives on the row because the phase document puts it there and
+  nothing yet queries across histories. A separate event table is an additive change if that
+  ever happens.
+- **What is un-FK'd and why:** everything except `bundle_id` and `generated_by`, per D33/D55.
+  Asserted: deleting a Listener, its Aggregator and its Pod leaves the records intact.
+- **Reference:** spec 8.2, 8.5; phase-4 E4.1; D33, D55, D75; `test_provisioning_model.py`.
+
+## D169 (2026-11-13): The migration suite's autogenerate check depended on import order
+
+- **Decision:** `test_migrations.py::test_autogenerate_diff_is_empty_at_head` now imports
+  `app.models` before comparing, exactly as `alembic/env.py` does.
+- **Why:** it imported only `app.db.Base`. In a full gate some other module in the same xdist
+  worker had always imported `app.models` first, so the metadata was complete and the check
+  was real. Run alone, the metadata was empty and the "diff" listed every table for removal.
+  So the check could not be run in isolation while authoring a migration, which is the moment
+  `docs/migration-conventions.md` step 4 asks for it. This is a test fix under rule R0. It
+  makes the check stricter and independent of scheduling, never weaker.
+- **Reference:** E0.2's migration conventions; found while writing E4.1's migration.
+
+## D168 (2026-11-13): E4.9's reconciler runs on the worker sweep — the fourth E3-owned edit,
+authorized in advance
+
+- **Decision:** the provisioning-record reconciler (`app/provisioning/records.py`, E4.9) is
+  registered as a `provisioning-records` sweep in `app/controlplane/runner.py`, beside E5.7b's
+  `service-config` and `broker-credential` registrations and in the same shape. The edit to
+  `runner.py` is **the registration only**: no change to the timeout or drift sweeps, their
+  transactions, or any E3 behaviour. `consumer.py` is still not touched (phase-4 structural
+  choice; rule R2).
+- **Why a sweep and not recompute-on-read:** the phase document's definition of done has the
+  board "fill in by itself" as devices come online. A reconciler driven by GETs only advances
+  while someone is looking, and writes during reads. A sweep is idempotent and restart-safe by
+  construction because the reconciler re-derives status from E3's evidence rows.
+- **Why this needed the owner:** D150 recorded that a fourth discretionary E3 edit is a
+  stop-and-ask. It was asked at plan approval rather than mid-task.
+- **Reference:** project-changes #45; addendum PHASE4-2-02; D137 (E5.7b's registrations), D150.
+
+## D167 (2026-11-13): `EOE_BOOTSTRAP_CREDENTIALS` defaults ON
+
+- **Decision:** E4.6 creates the Settings field `bootstrap_credentials`
+  (`EOE_BOOTSTRAP_CREDENTIALS`) with default **true**. With it on, `settings.yaml` embeds the
+  Aggregator's own broker username and password from `app.state.credential_provider`,
+  reusing an existing `broker_credential` row when one exists and minting through
+  `mint_credential` otherwise, so regenerating a bundle never rotates a login a deployed card
+  already holds. With it off, the block is written without the credential fields and the README
+  and manifest say the device cannot reach the broker until they are filled. **Both states are
+  tested.**
+- **Why:** phase-4 fixed choice 1 had the flag default off because E4 was expected to land
+  before any real provider existed, and named "flip the default" as the follow-up work. E5.6
+  shipped the dynsec provider first and dynsec is required for v1 (D116), so off-by-default
+  would ship every card unable to reach the broker by default. The plaintext block is spec
+  16.4's deliberate decision and the README restates it.
+- **Reference:** project-changes #45; addenda PHASE4-2-01, PHASE4-2-02; D116, D117.
+
+## D166 (2026-11-13): E4's four fixed choices, recorded with their open remainders
+
+- **Decision:** the four owner-fixed choices in `phase-4-provisioning.md` §2, recorded here as
+  rule R1 and E4.0's acceptance require:
+  1. **E4.6 on a provider seam behind a flag** — superseded in direction by D117 (E5.6 defines
+     `BrokerCredentialProvider`; E4.6 imports it) and in default by **D167** (ON).
+  2. **`device_config` v1 is YAML, authored by E4.2, and DRAFT pending firmware sign-off.**
+     A versioned template carrying `schema_version: 1`, built from the catalog keys spec 5.4
+     permits on a card. The DRAFT marker appears in three places: a comment in the generated
+     file, **this entry**, and the bundle README (E4.7). The firmware-agreed schema arrives as an
+     additive v2 renderer, not a rewrite. **Spec 17 item 1 stays open** — this is a draft the
+     firmware team has not signed. Per PHASE4-2-02, v1 as first rendered carries no secret key
+     at all; E4.5 adds the encrypted block.
+  3. **Firmware envelope: env-provided `EOE_FIRMWARE_KEK` and AES-256-GCM throughout** — a
+     fresh per-Pod DEK per export, wrapped by the KEK; the PSK and stream key sealed by the DEK;
+     base64 fields and a `key_version` in the pod file. **Spec 17 item 7 stays open:** KEK
+     custody, backup and org-wide rotation gate production use, not dev implementation. Losing
+     this key strands provisioning of new Pods across the whole Organization; the risk is
+     recorded, not solved.
+  4. **The archive is a plain `.zip`** — spec 13's "(encrypted archive)" is superseded
+     (addendum SPEC-13-01); archive-level encryption is deferred.
+- **Reference:** phase-4 §2; project-changes #43, #44, #45; addenda PLAN-3-04, SPEC-13-01,
+  PHASE4-2-02; D116, D117, D167.
 ## D165 (2026-11-13): Two D99 paths that ended a test instead of taking a new container
 
 - **Decision:** the D99 whole-container remedy now reaches two places it did not.

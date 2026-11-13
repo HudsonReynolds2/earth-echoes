@@ -153,6 +153,8 @@ Cross-epic constraint: E4.6 (bootstrap block) consumes per-device broker credent
 10. **E4.10 Provisioning wizard and tracking UI.** Mode selection per Pod, generation flow, record status board. (Follows DES.6 wireframes if available.)
 11. **E4.11 Fill-in-later flow.** Cloud-side editing of name and GPS for registered Listeners (spec 8.6).
 
+> **Addendum PLAN-3-04 (2026-11-13, ref project-changes #43):** E4's phase document is `project_planning/phase-4-provisioning.md` and is binding for the epic, including its four owner-fixed choices (DECISIONS D166). It adds a twelfth task ahead of the eleven above, **E4.0 Phase document and records**. The cross-epic constraint above has resolved in the other direction: E5 was built first (D160), so E4.6 consumes E5.6's shipped `BrokerCredentialProvider` and gates on E5.5's `deployment.services_status` directly, and the bootstrap block ships with its flag ON (D167). E4 lands in four batches (E4.0-E4.2, E4.3-E4.5, E4.6-E4.8, E4.9-E4.11), one PR each, each batch branched from `main` only after the previous PR merges; every task still ends on a full gate.
+
 ### E5: Deployment services onboarding
 
 Goal: spec Section 16 end to end: both paths, connection tests, credential delivery.

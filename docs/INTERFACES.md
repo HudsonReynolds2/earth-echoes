@@ -1850,6 +1850,62 @@ unchanged.)*
   no "a stack exists here" flag, so a missing stack is reported as a clear 404 message rather
   than guessed at (D156). A later epic wanting a real signal should add a cheap existence
   check, not call `load_generated_stack` on a read every role hits.
+## Owned by E4
+
+### The provisioning tables and the spec 8.5 vocabulary (E4.1; spec 8.5, 8.3; D166, D170)
+
+Two tables, both **evidence**: written once at generation, then only the record's
+`status`/`status_history` move. Vocabularies live in `app.models` beside the CHECKs that render
+them, and are re-exported from `app.provisioning`.
+
+- **`provisioning_bundle`**: one row per export, **never mutated**. Regenerating makes a new
+  row (E4.8). Columns: `id`, `deployment_id` (**un-FK'd**), `scope_type` ∈ `BUNDLE_SCOPES` =
+  (`pod`, `deployment`), `scope_id` (**un-FK'd**: the Pod or Deployment id), `plan` JSONB
+  `{"<pod_id>": {"mode": BUNDLE_MODES, "listener_macs": [...]}}` (mode validated in Python),
+  `template_version`, `firmware_key_version`, `archive_checksum` (`sha256:` + hex, the D52
+  form), `generated_by` (FK `user`, SET NULL), `generated_at`.
+- **`device_provisioning_record`**: one row per device-to-card assignment.
+  - Columns: `bundle_id` (FK, CASCADE), plus `deployment_id`, `pod_id` and `aggregator_uuid`
+    (the target slot, **all un-FK'd**).
+  - Identity is `target_type` ∈ (`aggregator`, `listener`) with `target_id` as the platform
+    UUID or the MAC, **the `config_revision` convention (D75)**, unique per bundle.
+  - `file_kind` ∈ `RECORD_FILE_KINDS` = (`pod_file`, `listener_file`, `settings_yaml`), and
+    `file_path` is the archive member.
+  - `config_revision_id` (**un-FK'd**, NULL if the device had no revision when generated) and
+    `config_checksum`.
+  - `status` ∈ **`RECORD_STATUSES` = (`generated`, `flashed`, `registered`, `confirmed`,
+    `mismatch`)**: spec 8.5 verbatim, pinned by `test_provisioning_model.py`. `status_history`
+    is an append-only JSONB list of `{"status", "at", "actor"}`, where `actor` is a user id
+    string or null for the system.
+  - Indexed `(target_type, target_id)` for E4.9.
+- **Deleting a Listener, Aggregator, Pod or user never deletes a record or a bundle.** Records
+  outlive their devices by design (D33/D55).
+- **Writers:** E4.3-E4.8 create both. Only E4.9's reconciler and the operator's `flashed`
+  action move `status`. E3's tables are read, never written, by this epic.
+
+### `device_config` v1, the on-card file (E4.2; spec 5.4, 8.2; fixed choice 2; D166) — **DRAFT**
+
+`app/provisioning/device_config.py::render_device_config_v1(values, *, blank=frozenset()) ->
+bytes`, a pure function. **DRAFT pending firmware sign-off: spec 17 item 1 is still open.** The
+firmware-agreed schema arrives as an **additive v2 renderer**, and v1 is never edited in place.
+`TEMPLATE_VERSION = 1` is recorded on every bundle.
+
+- **Format:** a `#` comment header (the DRAFT marker is line 2), then YAML with
+  `schema_version: 1`, `template: device_config`, and one mapping per key group in catalog
+  order (`audio`, `capture`, `buffering`, `logging`, `network`, `identity`, `location`).
+  Blanks are explicit `null` and mean "filled in later from the cloud" (spec 8.6). There are no
+  timestamps, so identical input gives identical bytes. Strings a YAML 1.1 reader could misread
+  (`on`/`off`, all-digit MACs) are quoted.
+- **Keys:** `CARD_KEYS` is derived from `CATALOG` (`lowest_level` ∈ pod/listener/any and not
+  `write_restricted`). That is spec 5.4's list plus the Pod network block. **v1 writes no secret
+  key** (`PLAINTEXT_CARD_KEYS`); `network.wifi_password` and `network.stream_key` arrive with
+  E4.5's encrypted block (PHASE4-2-02).
+- **Contract with callers:** `values` may be a whole effective config; keys not on a card are
+  ignored. A plaintext card key that is neither present nor blanked raises `DeviceConfigError`
+  rather than emitting a silent `null`. `blank` may only name plaintext card keys.
+- **Pinned by** `tests/golden/device_config_v1.yaml`, byte for byte: changing the card format
+  means editing that file in the same commit.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

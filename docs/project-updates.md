@@ -1,5 +1,108 @@
 # Project Updates
 
+## 2026-11-13: Batch 1 records fix — a quoted scanner failure tripped the scanner in CI (Gate 69 GREEN)
+
+- **What closed:** PR #22's CI went red on `test_repo_layout.py::test_no_committed_secret_patterns`
+  against `docs/project-updates.md`. The gate-68 entry had quoted the scanner's failure message
+  verbatim, and the quote itself matches the secret pattern. The gate could not see it, because
+  R1 writes that entry after the gate. The tagged gate-68 commit is therefore red under CI. R3
+  forbids amending it, so this commit corrects it: the gate-68 entry now paraphrases the message,
+  and **D171** adds a step after every gate. Once the records are written and before the commit,
+  rerun `test_repo_layout.py` and `test_governance.py`, the two suites that read committed text.
+  The scanner is unchanged.
+- **Gate:** 69, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1167 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1407 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **229.86s**, sim-protocol **187.34s**,
+  wall clock **7m35s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** after this entry was written, `test_repo_layout.py` (15) and
+  `test_governance.py` were rerun green against the final tree (the D171 step, applied to its own
+  record).
+
+## 2026-11-13: E4.2 — the on-card `device_config` v1 file, DRAFT (Gate 68 GREEN)
+
+- **Tasks closed:** E4.2. `app/provisioning/device_config.py`:
+  - `render_device_config_v1(values, *, blank)` is a pure, deterministic YAML renderer, marked
+    **DRAFT pending firmware sign-off** on the file's second line (spec 17 item 1 stays open,
+    D166).
+  - `CARD_KEYS` is derived from `CATALOG`, not listed by hand. It yields spec 5.4's set plus the
+    Pod network block.
+  - **No secret key is written in v1** (PHASE4-2-02); E4.5 adds the encrypted block.
+  - Pinned byte for byte by `tests/golden/device_config_v1.yaml`. `INTERFACES.md` documents the
+    format as an E4 contract.
+- **Gate:** 68, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1167 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1407 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +13 is `test_device_config.py`. Backend stage
+  **226.64s**, sim-protocol **187.04s**, wall clock **7m28s**.
+- **The red run (rule R0):** the first gate-68 run failed **backend-tests** on exactly one test,
+  `test_repo_layout.py::test_no_committed_secret_patterns`, reporting a possible committed
+  secret in `backend/tests/test_device_config.py`. The flagged line assigned the planted fake S3
+  marker to a constant whose name ended in the word the scanner keys on, followed by a quoted
+  value over 20 characters. The value was deliberately fake, but the pattern matched. The
+  constant was renamed `PLANTED_S3_CREDENTIAL`; the scanner is unchanged. Everything else in that
+  run was green (1166 backend). (The scanner's message is paraphrased here on purpose: quoted
+  verbatim, it matches the scanner again. See the next entry.)
+- **Falsifiability:** the byte-scan leak test was run against a renderer patched in memory to
+  emit the secret keys, and it failed, so it is not vacuous. An all-digit MAC
+  (`12:34:56:12:34:56`, a YAML 1.1 base-60 integer) is asserted to round-trip as a string.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** on a scratch `postgres:16-alpine` at head with the demo hierarchy
+  seeded, Listener `02:EE:0E:01:01:01` (`alder-creek-01`) had its effective config resolved by
+  the merge engine (`effective_for`) and rendered. The output was the expected nested v1 file
+  with real identity and GPS (`47.6`, `-121.88`). The per-pod form blanked exactly `identity.*`
+  and `location.*`. Observation carried into the ledger: the demo seed sets no `network.*`
+  values, so `wifi_ssid`/`aggregator_ip`/`stream_endpoint` render `null`, which E4.3 must
+  refuse. The scratch container was removed.
+
+## 2026-11-13: E4.1 — the provisioning bundle and record tables (Gate 67 GREEN)
+
+- **Tasks closed:** E4.1. Migration **`48467572e941`** adds `provisioning_bundle` and
+  `device_provisioning_record` (spec 8.5). The status vocabulary is spec 8.5's five, rendered
+  into a CHECK from `models.RECORD_STATUSES`. Records are keyed `(target_type, target_id)` like
+  `config_revision` (D75), and everything except `bundle_id` and `generated_by` is un-FK'd
+  (D33/D55). The per-Pod `plan` JSONB and the rest of the shape are **D170**. `app/provisioning/`
+  is created (vocabulary re-exports). `INTERFACES.md` gains an **Owned by E4** section. Both
+  tables are registered in `test_e0_readiness.py`.
+- **Test fix (D169):** `test_migrations.py::test_autogenerate_diff_is_empty_at_head` imported
+  only `app.db.Base`, so it compared a complete metadata only when another module in the same
+  worker had imported `app.models`. Run alone, it listed every table for removal. It now imports
+  the models itself, as `alembic/env.py` does.
+- **Gate:** 67, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1154 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1394 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +9 is `test_provisioning_model.py`. Backend stage
+  **227.69s**, sim-protocol **187.09s**, wall clock **7m28s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** by hand against a scratch `postgres:16-alpine`: `alembic upgrade
+  head`, `downgrade -1`, `upgrade head`, then `current` reported `48467572e941 (head)`.
+  `\d device_provisioning_record` showed the three named CHECKs (`status_vocab`,
+  `target_type_vocab`, `file_kind_vocab`), `uq_device_provisioning_record_bundle_id`, the
+  `(target_type, target_id)` index, and exactly one foreign key (to `provisioning_bundle`,
+  `ON DELETE CASCADE`). The scratch container was removed.
+
+## 2026-11-13: E4.0 — the provisioning epic's records, and four owner decisions written down (Gate 66 GREEN)
+
+- **Tasks closed:** E4.0 (docs only; the gate is a regression check). project-changes
+  **#43-#45**, addenda **PLAN-3-04** (E4.0 joins the plan; four batches, each branched after the
+  previous PR merges), **SPEC-13-01** (spec 13's "(encrypted archive)" superseded by a plain
+  zip, with archive encryption deferred) and **PHASE4-2-02**. DECISIONS **D166** (the four fixed
+  choices, with spec 17 items 1 and 7 explicitly still open), **D167**
+  (`EOE_BOOTSTRAP_CREDENTIALS` defaults ON) and **D168** (E4.9's reconciler is a worker sweep,
+  the authorized fourth E3 edit). In the E4 ledger, the stale E4.6 row is corrected (no degraded
+  predicate; gate on `services_status == 'verified'`) and the batch flow is recorded.
+- **Gate:** 66, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1145 backend / 163 vitest / 4 Playwright / 73 `/sim`**, 1385 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **228.77s**, sim-protocol **187.12s**,
+  wall clock **7m31s**. Unchanged count: docs only.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Renumbering:** these records were first drafted as #42-#44 / D164-D166, then set aside while
+  hygiene batch 3 (gate 65) took #42 and D164-D165. They were renumbered when restored. Every
+  addendum's back-reference was rechecked and `test_governance.py` passes.
+- **Manual verification:** acceptance checked by hand. Every phase-4 fixed choice appears in
+  D166 or is scheduled onto its task (choice 1 → E4.6 / D167, choice 2 → E4.2, choice 3 →
+  E4.5, choice 4 → E4.8 / SPEC-13-01), and the ledger's twelve rows exist. The three new
+  addenda in the baseline-pinned plan and spec are single-line and strip cleanly
+  (`test_planning_documents_unmodified_except_appended_addenda` green).
+
 ## 2026-11-13: Hygiene batch 3 — MinIO's vanished images replaced with pinned rebuilds, and two D99 paths that could not retry (Gate 65 GREEN)
 
 - **What closed:** hygiene batch 3 (branch `hygiene-batch-3`), the two problems found by the

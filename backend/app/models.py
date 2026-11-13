@@ -1044,3 +1044,124 @@ class ReconciliationEvent(Base):
     diff: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     #: Device- or worker-supplied. Key NAMES on a mismatch, never values.
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+
+
+# --- Provisioning (E4.1; spec 8.5) -----------------------------------------
+
+#: Spec 8.5's record statuses, verbatim and in its order. `flashed` is the only
+#: one a person sets; the rest are re-derived from E3's evidence by E4.9.
+RECORD_STATUSES: tuple[str, ...] = ("generated", "flashed", "registered", "confirmed", "mismatch")
+
+#: Spec 8.2's two modes plus the mix it permits per Pod.
+BUNDLE_MODES: tuple[str, ...] = ("per_pod", "per_listener", "mixed")
+
+#: What a bundle was generated for: one Pod, or a whole Deployment's Pods.
+BUNDLE_SCOPES: tuple[str, ...] = ("pod", "deployment")
+
+#: The file a record's card takes. `settings_yaml` is the Aggregator's (spec
+#: 8.3); the other two are spec 8.2's Listener files.
+RECORD_FILE_KINDS: tuple[str, ...] = ("pod_file", "listener_file", "settings_yaml")
+
+
+class ProvisioningBundle(Base):
+    """One export (task E4.1; spec 8.5, 8.3; D166).
+
+    **Never mutated after it is written.** Regenerating for the same Pod makes
+    a NEW row (E4.8 acceptance), because the old one describes cards that may
+    already be in the field — this row is evidence of what was prepared.
+
+    `deployment_id` and `scope_id` are deliberately un-FK'd (the D33/D55
+    precedent): a bundle must stay readable after its Pod or Deployment is
+    deleted, and must never block that deletion.
+
+    `plan` records the per-Pod choice the operator made, because spec 8.2 lets
+    modes differ Pod by Pod inside one Deployment bundle:
+    `{"<pod_id>": {"mode": "per_pod" | "per_listener" | "mixed",
+    "listener_macs": [...]}}`, with `listener_macs` naming the per-listener
+    files (empty for `per_pod`). The mode vocabulary is `BUNDLE_MODES` and is
+    validated where the plan is built (E4.3/E4.4), not by a CHECK: Postgres
+    cannot constrain values nested inside JSONB without a function.
+    """
+
+    __tablename__ = "provisioning_bundle"
+    __table_args__ = (
+        CheckConstraint(_in_vocab("scope_type", BUNDLE_SCOPES), name="scope_type_vocab"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    deployment_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    scope_type: Mapped[str] = mapped_column(String(20))
+    scope_id: Mapped[uuid.UUID] = mapped_column()
+    plan: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    #: The `device_config` template version the cards carry (E4.2).
+    template_version: Mapped[int] = mapped_column()
+    #: The firmware KEK's `key_version` the envelope used (E4.5).
+    firmware_key_version: Mapped[int] = mapped_column()
+    #: `sha256:` + hex over the archive bytes, the D52 checksum form.
+    archive_checksum: Mapped[str] = mapped_column(String(80))
+    generated_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user.id", ondelete="SET NULL"), default=None
+    )
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class DeviceProvisioningRecord(Base):
+    """One device-to-card assignment inside a bundle (task E4.1; spec 8.5).
+
+    **Evidence about what was prepared, so it outlives the device it
+    describes** — including a device that never existed in inventory. Every
+    reference out of it except `bundle_id` is un-FK'd (D33/D55): deleting a
+    Listener or an Aggregator leaves its records intact and readable.
+
+    Identity follows the `config_revision` convention exactly (D75):
+    `target_type` is `aggregator` or `listener`, and `target_id` is the
+    aggregator's platform UUID or the listener's MAC. So E4.9 joins records to
+    `device_state` and `config_revision` on the same pair those tables use.
+
+    `config_revision_id` / `config_checksum` are the revision that was current
+    for this device when the bundle was generated. This phase never creates a
+    revision (phase-4 §2), so they are NULL for a device that had none.
+
+    `status_history` is append-only: one `{"status", "at", "actor"}` entry per
+    transition, `actor` a user id string or None for the system (the
+    `reconciliation_event.actor_user_id` convention).
+    """
+
+    __tablename__ = "device_provisioning_record"
+    __table_args__ = (
+        UniqueConstraint("bundle_id", "target_type", "target_id"),
+        CheckConstraint("target_type IN ('aggregator','listener')", name="target_type_vocab"),
+        CheckConstraint(_in_vocab("status", RECORD_STATUSES), name="status_vocab"),
+        CheckConstraint(_in_vocab("file_kind", RECORD_FILE_KINDS), name="file_kind_vocab"),
+        # E4.9's lookup: every record for one device, across bundles.
+        Index("ix_device_provisioning_record_target", "target_type", "target_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    bundle_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("provisioning_bundle.id", ondelete="CASCADE"), index=True
+    )
+    deployment_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    #: The target slot (spec 8.5): the Pod the card belongs to, and its
+    #: Aggregator's platform UUID. Both un-FK'd.
+    pod_id: Mapped[uuid.UUID] = mapped_column()
+    aggregator_uuid: Mapped[str] = mapped_column(String(64))
+    target_type: Mapped[str] = mapped_column(String(20))
+    target_id: Mapped[str] = mapped_column(String(100))
+    file_kind: Mapped[str] = mapped_column(String(20))
+    #: The archive member this card takes, as the manifest names it.
+    file_path: Mapped[str] = mapped_column(String(300))
+    config_revision_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    config_checksum: Mapped[str | None] = mapped_column(String(80), default=None)
+    status: Mapped[str] = mapped_column(
+        String(20), default="generated", server_default=text("'generated'"), index=True
+    )
+    status_history: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
