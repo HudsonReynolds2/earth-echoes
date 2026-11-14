@@ -1383,6 +1383,14 @@ reimplement their logic.** Signatures, verbatim:
   for the six real states and a muted dash for `unknown`. The honesty guard now asserts that
   status renders only where the API reported one, and that config routes still show none.
 - **Frontend:** `lib/useLiveUpdates.ts`, mounted once in `Shell`. One socket per tab.
+- **E6.6 amendment (D201):** both channels also invalidate the map, **coalesced**:
+  `createCoalescer(action, MAP_COALESCE_MS = 2000)` runs at once, folds anything inside the
+  window into one trailing run, so the map refetches at most once per window per tab.
+  `isLiveMapQuery` matches every `["map", …]` query except `["map", "config"]`. The map's
+  queries (layer, detail, `["map","device",…]`) also poll every `MAP_POLL_MS` (30 s, in
+  `lib/map.ts`) for the two inputs that emit no event: `services_status` and
+  `inventory_alert`. **E7's `alerts` channel should call the same coalescer and retire the
+  alert half of the poll.**
 - **Suites:** `backend/tests/test_websockets.py` (gate 50, including the two-scope
   acceptance and the commit-only bus property), `frontend/tests/live-updates.test.ts`.
 

@@ -6,7 +6,7 @@
  * outcomes are colored words, NOT device states — the closed six-state
  * vocabulary cannot express valid/invalid, and no seventh glyph exists.
  */
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -24,6 +24,7 @@ export function ImportPage() {
   const [autoSuffix, setAutoSuffix] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [acceptPartial, setAcceptPartial] = useState(false);
+  const queryClient = useQueryClient();
 
   const run = useMutation({
     mutationFn: (partial: boolean) =>
@@ -33,6 +34,9 @@ export function ImportPage() {
     onSuccess: (result) => {
       setReport(result);
       setAcceptPartial(false);
+      // E6.6: imported rows (and their coordinates) belong on the map now,
+      // and on every inventory table, not after the next poll.
+      if (result.committed) void queryClient.invalidateQueries();
     },
   });
 

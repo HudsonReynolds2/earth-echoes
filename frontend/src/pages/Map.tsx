@@ -46,6 +46,7 @@ import {
   DrawerPanel,
   DrawerTarget,
   MapDeployment,
+  MAP_POLL_MS,
   MapDeploymentDetail,
   formatDrawerTarget,
   getMapConfig,
@@ -184,11 +185,13 @@ export function Map() {
     queryKey: mapKeys.deployments,
     queryFn: getMapDeployments,
     enabled: activeDeployment === undefined && podId === undefined,
+    refetchInterval: MAP_POLL_MS,
   });
   const detail = useQuery({
     queryKey: mapKeys.deployment(activeDeployment ?? ""),
     queryFn: () => getMapDeployment(activeDeployment!),
     enabled: activeDeployment !== undefined,
+    refetchInterval: MAP_POLL_MS,
   });
 
   const crumbs: Crumb[] = [{ label: "Organization", to: "/map" }];

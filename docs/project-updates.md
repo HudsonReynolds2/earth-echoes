@@ -1,5 +1,33 @@
 # Project Updates
 
+## 2026-11-14: E6.6 — live map updates; batch 3 is built (Gate 88 GREEN)
+
+- **What changed:**
+  - **Live events.** `useLiveUpdates` now refreshes the map on `device_status` and
+    `reconciliation` events, coalesced by `createCoalescer`: one refetch at once, then at most
+    one per 2 s window. The basemap configuration is never refetched.
+  - **Polling and mutations.** The three map reads poll every 30 s, as an interim for services
+    and alerts, which emit no event. A committed bulk import and a services test now refresh
+    the map in the same tab.
+  - **Decisions (D201):** leading-and-trailing coalescing, the config exclusion, and why the
+    drawer survives an update by construction.
+- **Gate:** 88, GREEN on its first run. The entire accumulated suite, no filters.
+- **Tests:** **1389 backend / 268 vitest / 10 Playwright / 79 `/sim`**, 1746 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `map-live.test.tsx` (6), `test_map_live.py` (1).
+- **Command:** `make gate`
+- **Manual verification:** on the QA project `eoe-e6`, end to end, signed in as a temporary
+  verification owner (deactivated afterwards; its password was never written to the repo).
+  - **Endpoints.** `GET /map/devices/listener/02-ee-0e-01-01-01` returned alder-creek-01 with
+    the default 30 s grace. The records filter returned 0, and an unknown Pod returned 404.
+  - **Fleet.** A 2 × 3 SIM fleet was provisioned, then run with `--scenario disconnect`.
+  - **Live update.** Headless Chromium had the fleet's Deployment open, with a page-lifetime
+    marker set in `window`. Without a reload (the marker survived), both Pods moved from "No
+    status yet" to SIM Pod 000 **Offline** and SIM Pod 001 **Streaming** within 31 s. The
+    fleet log shows sim-000 was killed without a DISCONNECT, so its offline came from the will.
+  - **Observed, not changed.** Pod 000's Listeners still read Streaming after their Aggregator
+    died. A Listener's status is the liveness its Aggregator last reported (E3.9). Raised to
+    the owner at the combined CP2+CP3.
+
 ## 2026-11-14: E6.5 — the device drawer (Gate 87 GREEN)
 
 - **What changed:**

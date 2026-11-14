@@ -10,6 +10,14 @@ import { request, writeHeaders } from "./http";
 
 export { ApiError } from "./http";
 
+/**
+ * E6.6: how often the map re-reads on its own. Two inputs to a marker emit no
+ * live event today: `deployment.services_status` (E5.5's tester writes it)
+ * and `inventory_alert` (E1.5). **Interim:** E7's `alerts` channel replaces
+ * the alert half; services stay on this poll until something emits for them.
+ */
+export const MAP_POLL_MS = 30_000;
+
 export const mapKeys = {
   config: ["map", "config"] as const,
   deployments: ["map", "deployments"] as const,

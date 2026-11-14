@@ -12,8 +12,16 @@
  *
  * That also makes the reconnect story simple: on open, invalidate everything
  * this socket feeds. Whatever was missed is picked up in one round trip.
+ *
+ * **E6.6: the map is coalesced.** A fleet coming back online is hundreds of
+ * `device_status` events in a few seconds, and each map read rolls up every
+ * device in a Deployment. So the map refetches at most once per
+ * `MAP_COALESCE_MS`: the first event refetches at once, and anything arriving
+ * inside the window is folded into ONE refetch at its end. Nothing is lost:
+ * the trailing refetch reads the server's state after the whole burst.
  */
 import { useQueryClient } from "@tanstack/react-query";
+import type { Query } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { apiBaseUrl } from "./api";
@@ -27,6 +35,47 @@ export interface LiveEvent {
   entity_id: string;
   data: Record<string, unknown>;
   at: string;
+}
+
+/** E6.6: at most one map refetch per window, per tab. */
+export const MAP_COALESCE_MS = 2_000;
+
+/**
+ * Leading-and-trailing coalescing: `fire()` runs `action` at once if the
+ * window is closed, otherwise remembers that it is owed one, and pays it when
+ * the window closes (which opens the next). However many calls arrive, the
+ * action runs at most once per window and always once after the last call.
+ */
+export function createCoalescer(action: () => void, windowMs: number) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let owed = false;
+  const close = () => {
+    timer = null;
+    if (owed) {
+      owed = false;
+      fire();
+    }
+  };
+  const fire = () => {
+    if (timer !== null) {
+      owed = true;
+      return;
+    }
+    action();
+    timer = setTimeout(close, windowMs);
+  };
+  const cancel = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    owed = false;
+  };
+  return { fire, cancel };
+}
+
+/** Every map query except the basemap configuration, which no device event
+ * can change and whose refetch would only re-ask for the same sources. */
+export function isLiveMapQuery(query: Query): boolean {
+  return query.queryKey[0] === "map" && query.queryKey[1] !== "config";
 }
 
 /** RFC 6455 policy violation: the server said "not you", not "try again". */
@@ -53,6 +102,10 @@ export function useLiveUpdates(enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return;
     let closed = false;
+    const map = createCoalescer(
+      () => void queryClient.invalidateQueries({ predicate: isLiveMapQuery }),
+      MAP_COALESCE_MS,
+    );
 
     const invalidate = (event: LiveEvent) => {
       // Coarse on purpose. A device status change moves the inventory tables,
@@ -65,12 +118,14 @@ export function useLiveUpdates(enabled: boolean): void {
         void queryClient.invalidateQueries({ queryKey: ["pods"] });
         void queryClient.invalidateQueries({ queryKey: ["deployments"] });
         void queryClient.invalidateQueries({ queryKey: ["hierarchy"] });
+        map.fire();
       }
       if (event.channel === "reconciliation") {
         void queryClient.invalidateQueries({ queryKey: ["timeline"] });
         void queryClient.invalidateQueries({ queryKey: ["revisions"] });
         void queryClient.invalidateQueries({ queryKey: ["aggregators"] });
         void queryClient.invalidateQueries({ queryKey: ["listeners"] });
+        map.fire();
       }
     };
 
@@ -118,6 +173,7 @@ export function useLiveUpdates(enabled: boolean): void {
     connect();
     return () => {
       closed = true;
+      map.cancel();
       if (retryRef.current !== null) window.clearTimeout(retryRef.current);
       socketRef.current?.close();
       socketRef.current = null;

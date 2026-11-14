@@ -80,6 +80,9 @@ export function ServicesPage() {
     Promise.all([
       queryClient.invalidateQueries({ queryKey: servicesKey(deploymentId) }),
       queryClient.invalidateQueries({ queryKey: servicesStatusKey(deploymentId) }),
+      // E6.6: a test result moves `services_status`, which the Deployment's
+      // marker chip shows; no live event carries it today.
+      queryClient.invalidateQueries({ queryKey: ["map"] }),
     ]);
 
   const save = useMutation({

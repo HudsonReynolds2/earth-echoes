@@ -36,6 +36,7 @@ import {
   DeviceKind,
   DrawerPanel,
   DrawerTarget,
+  MAP_POLL_MS,
   MapAggregator,
   MapAlert,
   MapDevice,
@@ -140,6 +141,7 @@ export function DeviceDrawer({
   const device = useQuery({
     queryKey: mapKeys.device(target.kind, target.id),
     queryFn: () => getMapDevice(target.kind, target.id),
+    refetchInterval: MAP_POLL_MS,
   });
   const deploymentId = device.data?.deployment_id ?? null;
   const canViewCards = useCan("view_provisioning", deploymentId);

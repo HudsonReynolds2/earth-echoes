@@ -4,6 +4,42 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D201 (2026-11-14): How E6.6 made the map live
+
+- **Leading and trailing, not trailing only.** The map refetches on the first event at once,
+  and folds everything else inside the 2 s window into one refetch at its end. A lone
+  `disconnect` then shows within a round trip rather than after a 2 s wait, and a burst still
+  costs at most one refetch per window. The trailing run reads the server after the whole
+  burst, so nothing is missed. `createCoalescer` is pure and tested under fake timers. The
+  app-level tests count real requests: one for a single event, two for 200 (one per window).
+- **The basemap configuration is excluded.** It is under `["map"]` for the one-key
+  invalidation phase-6 asks for, but no device event can change it, so `isLiveMapQuery` skips
+  `["map","config"]`. A test holds that.
+- **The 30 s poll is on the three map reads only** (layer, detail, device). It is documented
+  in `lib/map.ts` as interim for services and alerts, which emit no event today.
+- **Same-tab mutations.** Every inventory edit already invalidated the whole cache (E1, E4.11,
+  E6.2a). Two paths did not, and now do:
+  - a committed bulk import invalidates everything;
+  - the services page's refresh adds `["map"]`, because a test result moves
+    `services_status`, which the Deployment marker's chip shows.
+- **The drawer survives an update by construction.** Its device and tab live in the URL, and
+  its query keeps data during a refetch, so it never flashes "Loading". The vitest acceptance
+  asserts the same drawer element, the same selected tab, the same URL, the same marker
+  element (updated in place), and no `fitBounds` or `setView` after the event.
+- **The backend acceptance runs the real consumer.** `test_map_live.py` sends a
+  disconnect-shaped sequence through `ReportedConsumer`: an `online`, then a will stamped
+  earlier. It records what the real `publish` was given and asserts the following:
+  - the LWT event carries the Aggregator's Deployment;
+  - `/ws`'s `Subscription` delivers it to that Deployment's sessions and to org-wide ones,
+    and not to another Deployment's;
+  - it survives JSON;
+  - the map read it triggers shows the Pod and Deployment offline.
+  The end-to-end SIM run with no reload is E6.8's, as phase-6 says.
+- **Test setup note:** the shared MSW server answers `/auth/me` with 401, and `Shell` opens the
+  socket only for a session. A live-update test must sign in first, as `map-live.test.tsx`
+  does in its `beforeEach`.
+- **Reference:** phase-6 §4 E6.6; spec 9.2, 13; E3.12; D59, D60, D196, D200.
+
 ## D200 (2026-11-14): How E6.5 built the device drawer
 
 - **One endpoint, one shape, four kinds.** `GET /map/devices/{entity_type}/{id}` returns
