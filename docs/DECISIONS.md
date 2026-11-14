@@ -4,6 +4,54 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D183 (2026-11-13): The MQTT manager could run two connection loops for one deployment, and the broker evicted each in turn forever
+
+- **Decision:** `MqttClientManager._begin` (E3-owned `app/controlplane/broker.py`) never starts a
+  second loop for a deployment that already has a live one; the running loop wins. This is
+  the **fifth** E3-owned edit, a guard of four lines, taken on the owner's authorization
+  ("investigate now, fix if small", 2026-11-13).
+- **The defect, found by the E4 walkthrough:** on a freshly started compose stack, the API and
+  the worker start before the migrations create `deployment_service`, so the manager's first
+  `start()` fails and `start_or_retry` retries in the background. `start()` marks the manager
+  running BEFORE its database read. A retry's `start()` was awaiting that read when E5.7b's
+  30-second `refresh()` tick saw the newly provisioned rows and began both deployments' loops,
+  and 7ms later `start()` began them again (both logged at `00:59:54.361` and `.368`). `_begin`
+  overwrote the task map, orphaning live loops. Two loops per deployment share one client
+  identifier, so Mosquitto logged "already connected, closing old connection" about once a
+  second in BOTH processes (about 150 disconnects each in ten minutes) and device reports could
+  be lost in the gaps. `_cancel`'s own docstring named this outcome; nothing guarded it where
+  tasks are created.
+- **Why the gate never saw it:** every test starts a manager against an already-migrated
+  database, so `start()` never fails first.
+- **Pinned by** `tests/test_mqtt_manager_single_loop.py`, which forces the production
+  interleaving (start's read held while a refresh runs; measured "4 connection loops for 2
+  deployments" before the fix) and asserts `_begin` twice keeps the first loop. Both fail
+  without the guard. After rebuilding the QA stack's API and worker: 0 lost connections and no
+  broker takeovers.
+- **Reference:** D64, D137 (E5.7b's refresh), D150 (the third E3 edit), D168 (the fourth).
+
+## D182 (2026-11-13): A config apply to any entity holding a secret 500'd: once a Pod's WiFi password was set, it could never take another change
+
+- **Decision:** `apply_change_plan` (E2-owned `app/config/plan.py`) passes an entity's stored
+  secret MARKERS to `put_overrides` as the keep sentinel `{"$secret_set": true}`, which is
+  `put_overrides`' own documented "preserve the stored secret". `api/config.py` also maps a
+  `PlanError` from the write step to the same 4xx envelope the preview step uses, so this
+  class of failure can never again be a 500. Owner's authorization, 2026-11-13 ("fix it in this
+  batch").
+- **The defect, found by the E4 walkthrough:** `apply_change_plan` merges the target's stored
+  overrides with the change and re-submits the whole map. A stored secret is
+  `{"$secret": name}`, and `put_overrides` accepts only plaintext or the keep sentinel for a
+  secret key, so it rejected the entity's own stored secrets
+  (`network.stream_key` / `network.wifi_password: secret keys take a replacement string or the
+  keep sentinel`), and the API answered 500. Provisioning REQUIRES a Pod's WiFi password, so
+  every provisioned Pod would have been un-configurable from that moment. The `except` that
+  raised was annotated `pragma: no cover - plan validated already`: believed unreachable, and
+  nothing tested a second apply to an entity holding a secret.
+- **Pinned by** `test_config_apply.py::test_a_later_apply_to_an_entity_holding_a_secret_keeps_the_secret`.
+  It fails without the fix and passes with it, and it asserts the stored secret still decrypts
+  to its original value. The test-critical merge-engine suite is untouched and green.
+- **Reference:** D51 (secret markers), D56 (preview == apply), E2.6.
+
 ## D181 (2026-11-13): A longer broker retry window for Docker Desktop's wedging forwarder, and the root fix left open
 
 - **Decision (owner's call, 2026-11-13):** `conftest._start_broker_container` makes **six**

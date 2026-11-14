@@ -1,5 +1,56 @@
 # Project Updates
 
+## 2026-11-13: E4.11 — fill-in-later and the E4 walkthrough; epic E4 is built (Gate 79 GREEN)
+
+- **Tasks closed:** E4.11 (spec 8.6), the last task of epic E4.
+  - **Fill in details** appears on a registered or confirmed Listener card on the board and
+    writes name and GPS through E1's own `PATCH /listeners/{mac}`, so there is no second write
+    path. It is gated on `manage_devices`, which field techs do not hold.
+  - `guide/e4-verification.md` is written and indexed, and `guide/README.md`'s stale "no E4
+    walkthrough" and release text are corrected. `guide/e1-verification.md` was amended in
+    E4.10.
+- **Two pre-existing defects found by hand-running the walkthrough, both fixed here on the
+  owner's authorization:**
+  - **D182 (E2):** every config apply to an entity holding a secret 500'd. `apply_change_plan`
+    re-submitted the stored `{"$secret": …}` markers, which `put_overrides` rejects. Once a
+    Pod's WiFi password was set (which provisioning requires), it could never take another
+    change. Fixed by passing stored secrets as the keep sentinel, plus a 4xx mapping in the
+    API. The regression test fails without the fix.
+  - **D183 (E3):** a manager whose first `start()` lost the race against the migrations ran two
+    connection loops per deployment (E5.7b's `refresh()` and the retry's `start()`, 7ms apart),
+    so the broker evicted each in turn. That was about 150 disconnects in ten minutes in both
+    the API and the worker on every freshly started compose stack. `_begin` now never starts a
+    second live loop (the fifth E3-owned edit). The deterministic regression test measured
+    "4 connection loops for 2 deployments" before the fix.
+- **Gate:** 79, GREEN on the first run. The entire accumulated suite, no filters.
+- **Tests:** **1277 backend / 176 vitest / 4 Playwright / 78 `/sim`**, 1535 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **230.92s**, sim-protocol **190.94s**,
+  wall clock **7m34s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine, with the QA stack taken
+  down first (D44).
+- **Manual verification: the walkthrough, start to finish, against a clean stack** (compose
+  project `eoe-qa` with its own env file; the owner's `deploy/.env` was not touched). Through
+  the API calls the UI makes:
+  1. Bundles were refused for an unverified deployment.
+  2. High Desert was verified through E5's Path B against a real generated stack (4 tests
+     passed, `services_status: verified`).
+  3. A Pod with no network values was refused, naming all five keys. The values were then set
+     and a Pod config apply succeeded (7 revisions published, after D182).
+  4. A pod bundle was generated with credentials **on**, the Aggregator's login minted through
+     the real dynsec provider. The archive unzipped to the four expected files, its checksums
+     verified, and the planted PSK appeared nowhere.
+  5. All 7 cards were marked flashed. A `MockAggregator` brought up **with only the login and
+     CA from its own card's `settings.yaml`**, with the Pod's six Listeners, took its retained
+     config and reported. With no hand reconciliation, the worker's sweep logged
+     `flashed->confirmed=7` and every card's history read `generated > flashed > confirmed`.
+     The same sweep moved an earlier bundle's seven cards `generated->registered` (devices on
+     a later revision, correctly not a mismatch).
+  6. Fill-in through E1's endpoint set GPS `None → 35.1234, -116.5678`, and the frontend served
+     `/provisioning` 200.
+  7. After D183, the rebuilt API and worker showed 0 lost connections and no broker takeovers.
+
+  **The owner's hands-on browser test is next, before batch 4's PR merges.**
+
 ## 2026-11-13: E4.10 — the provisioning wizard and tracking board (Gate 78 GREEN)
 
 - **Tasks closed:** E4.10 (spec 8.5, screen S6). `frontend/src/pages/Provisioning.tsx` replaces

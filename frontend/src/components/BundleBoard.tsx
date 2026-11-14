@@ -9,7 +9,10 @@
  * transition a person asserts (D179). Every other column fills in by itself
  * as the worker's reconciler reads what devices report.
  */
+import { FormEvent, useState } from "react";
+
 import { RecordChip } from "./RecordChip";
+import { Listener } from "../lib/inventory";
 import {
   BundleDetail,
   ProvisioningRecord,
@@ -28,23 +31,27 @@ const COLUMN_HELP: Record<RecordStatus, string> = {
 export function BundleBoard({
   bundle,
   podNames,
-  listenerNames,
+  listeners,
   canManage,
+  canEditDevices,
   marking,
   downloading,
   notice,
   onMarkFlashed,
   onDownload,
+  onFillIn,
 }: {
   bundle: BundleDetail;
   podNames: Record<string, string>;
-  listenerNames: Record<string, string>;
+  listeners: Record<string, Listener>;
   canManage: boolean;
+  canEditDevices: boolean;
   marking: boolean;
   downloading: boolean;
   notice: string | null;
   onMarkFlashed: (recordIds: string[]) => void;
   onDownload: () => void;
+  onFillIn: (mac: string, input: FillIn) => Promise<void>;
 }) {
   const byStatus = Object.fromEntries(
     RECORD_STATUSES.map((status) => [
@@ -138,7 +145,13 @@ export function BundleBoard({
             <p className="form-help">{COLUMN_HELP[status]}</p>
             <ul className="bundle-cards">
               {byStatus[status].map((record) => (
-                <RecordCard key={record.id} record={record} listenerNames={listenerNames} />
+                <RecordCard
+                  key={record.id}
+                  record={record}
+                  listener={listeners[record.target_id]}
+                  canEditDevices={canEditDevices}
+                  onFillIn={onFillIn}
+                />
               ))}
             </ul>
           </section>
@@ -148,25 +161,143 @@ export function BundleBoard({
   );
 }
 
+export interface FillIn {
+  name: string;
+  gps_lat: number | null;
+  gps_lon: number | null;
+}
+
+/** A device that has spoken can be named and placed (spec 8.6, E4.11). */
+const ONLINE = new Set(["registered", "confirmed"]);
+
 function RecordCard({
   record,
-  listenerNames,
+  listener,
+  canEditDevices,
+  onFillIn,
 }: {
   record: ProvisioningRecord;
-  listenerNames: Record<string, string>;
+  listener: Listener | undefined;
+  canEditDevices: boolean;
+  onFillIn: (mac: string, input: FillIn) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState(false);
   const last = record.status_history[record.status_history.length - 1];
   const isAggregator = record.target_type === "aggregator";
+  const needsGps = !isAggregator && listener !== undefined && listener.gps_lat === null;
+  const canFill =
+    !isAggregator && listener !== undefined && canEditDevices && ONLINE.has(record.status);
   return (
     <li className="bundle-card" data-testid={`record-${record.target_id}`}>
-      <strong>
-        {isAggregator ? "Aggregator" : (listenerNames[record.target_id] ?? "Listener")}
-      </strong>
+      <strong>{isAggregator ? "Aggregator" : (listener?.name ?? "Listener")}</strong>
       <span className="mono">{isAggregator ? record.aggregator_uuid : record.target_id}</span>
       <span className="form-help">
         {record.file_path.split("/").slice(2).join("/")}
         {last ? ` · ${new Date(last.at).toLocaleTimeString()}` : ""}
       </span>
+      {needsGps && <span className="bundle-card-hint">No GPS yet</span>}
+      {canFill && !editing && (
+        <button type="button" className="btn-tertiary" onClick={() => setEditing(true)}>
+          Fill in details
+        </button>
+      )}
+      {canFill && editing && listener && (
+        <FillInForm
+          listener={listener}
+          onCancel={() => setEditing(false)}
+          onSave={async (input) => {
+            await onFillIn(listener.mac, input);
+            setEditing(false);
+          }}
+        />
+      )}
     </li>
+  );
+}
+
+/**
+ * Name and GPS for a registered Listener (spec 8.6). It writes through E1's
+ * `PATCH /listeners/{mac}`, the one write path for inventory (phase-4 E4.11),
+ * so the inventory rules apply unchanged, name uniqueness included.
+ */
+function FillInForm({
+  listener,
+  onSave,
+  onCancel,
+}: {
+  listener: Listener;
+  onSave: (input: FillIn) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(listener.name);
+  const [lat, setLat] = useState(listener.gps_lat === null ? "" : String(listener.gps_lat));
+  const [lon, setLon] = useState(listener.gps_lon === null ? "" : String(listener.gps_lon));
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const parse = (value: string) => (value.trim() === "" ? null : Number(value));
+    const gps_lat = parse(lat);
+    const gps_lon = parse(lon);
+    if ((gps_lat === null) !== (gps_lon === null)) {
+      setError("Give both latitude and longitude, or neither.");
+      return;
+    }
+    if (
+      (gps_lat !== null && Number.isNaN(gps_lat)) ||
+      (gps_lon !== null && Number.isNaN(gps_lon))
+    ) {
+      setError("Latitude and longitude must be numbers.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave({ name: name.trim(), gps_lat, gps_lon });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="form bundle-fill-in"
+      onSubmit={submit}
+      aria-label={`Details for ${listener.mac}`}
+    >
+      <div className="form-field">
+        <label htmlFor={`name-${listener.mac}`}>Name</label>
+        <input
+          id={`name-${listener.mac}`}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </div>
+      <div className="form-field">
+        <label htmlFor={`lat-${listener.mac}`}>Latitude</label>
+        <input id={`lat-${listener.mac}`} value={lat} onChange={(e) => setLat(e.target.value)} />
+      </div>
+      <div className="form-field">
+        <label htmlFor={`lon-${listener.mac}`}>Longitude</label>
+        <input id={`lon-${listener.mac}`} value={lon} onChange={(e) => setLon(e.target.value)} />
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="form-actions">
+        <button type="button" className="btn-tertiary" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+        <button type="submit" disabled={busy}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </form>
   );
 }

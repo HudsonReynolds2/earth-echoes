@@ -20,6 +20,7 @@ from sqlalchemy import func, select
 from test_auth import PASSWORD, pg_url  # noqa: F401  (module fixture reuse)
 
 from app.auth.passwords import hash_password
+from app.config.overrides import get_overrides
 from app.main import API_PREFIX, create_app
 from app.models import (
     Aggregator,
@@ -503,3 +504,43 @@ def test_publish_is_enabled_by_default_and_apply_still_stops_at_draft_without_a_
     """
     assert apply_app.state.settings.publish_enabled is True
     assert getattr(apply_app.state, "mqtt", None) is None
+
+
+def test_a_later_apply_to_an_entity_holding_a_secret_keeps_the_secret(apply_app):
+    """D182, found by the E4 walkthrough: once a Pod held a stored secret (its
+    WiFi password, which provisioning requires), every later apply to that Pod
+    500'd. The write step re-submitted the stored MARKER to put_overrides, which
+    accepts only plaintext or the keep sentinel for a secret key.
+
+    Both halves: the second apply succeeds, and the secret it did not mention is
+    preserved exactly, still the same stored value, not cleared or re-encrypted
+    from anything else."""
+    owner = _login(apply_app, OWNER)
+    ids = apply_app.state.ids
+    plaintext = f"walkthrough-psk-{uuid.uuid4().hex}"
+    pod_selection = {"entity_type": "pod", "where": {"ids": [ids["pod_2"]]}}
+
+    first = _apply(
+        owner,
+        {
+            "selection": pod_selection,
+            "changes": {"network.wifi_password": plaintext},
+            "level": "target",
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = _apply(
+        owner,
+        {"selection": pod_selection, "changes": {"logging.verbosity": "debug"}, "level": "target"},
+    )
+    assert second.status_code == 200, second.text
+
+    store = apply_app.state.secret_store
+    with apply_app.state.session_factory() as db:
+        stored = get_overrides(db, "pod", ids["pod_2"])
+    assert stored["logging.verbosity"] == "debug"
+    assert stored["network.wifi_password"] == {
+        "$secret": f"config:pod:{ids['pod_2']}:network.wifi_password"
+    }
+    assert store.get(stored["network.wifi_password"]["$secret"]) == plaintext

@@ -34,7 +34,12 @@ from app.config.overrides import (
     secret_marker,
 )
 from app.config.selection import MatchedEntity
-from app.config.validation import is_keep_sentinel, is_secret_marker, validate_override_map
+from app.config.validation import (
+    KEEP_SENTINEL,
+    is_keep_sentinel,
+    is_secret_marker,
+    validate_override_map,
+)
 from app.models import (
     Aggregator,
     ConfigRevision,
@@ -445,7 +450,17 @@ def apply_change_plan(
     to_delete: list[str] = []
     restricted = restricted_keys()
     for target_level, target_id in plan.write_targets:
-        existing = get_overrides(db, target_level, target_id)
+        # A stored secret is a MARKER ({"$secret": name}), and put_overrides
+        # accepts only plaintext or the keep sentinel for a secret key, so
+        # re-submitting the stored map verbatim made every apply to an entity
+        # holding a secret fail: a Pod with its WiFi password set could never
+        # take another config change (D182; found by the E4 walkthrough). The
+        # keep sentinel is put_overrides' own documented "preserve the stored
+        # secret", so the secret is untouched and no plaintext moves.
+        existing = {
+            key: (KEEP_SENTINEL if is_secret_marker(value) else value)
+            for key, value in get_overrides(db, target_level, target_id).items()
+        }
         if allow_write_restricted:
             existing = {key: value for key, value in existing.items() if key not in restricted}
         merged = {**existing, **dict(changes)}
@@ -458,7 +473,9 @@ def apply_change_plan(
                 merged,
                 allow_write_restricted=allow_write_restricted,
             )
-        except OverrideValidationError as error:  # pragma: no cover - plan validated already
+        except OverrideValidationError as error:
+            # Was `pragma: no cover - plan validated already`, which D182 proved
+            # false. The API maps this to a 4xx (api/config.py), never a 500.
             raise PlanError(
                 "invalid change map",
                 detail={

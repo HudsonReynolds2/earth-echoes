@@ -553,7 +553,20 @@ class MqttClientManager:
 
     def _begin(self, coords: BrokerCoordinates) -> None:
         """Start one deployment's connection loop. Shared with `start()` so
-        there is one place a task and its bookkeeping are created together."""
+        there is one place a task and its bookkeeping are created together.
+
+        **Never a second live loop for one deployment** (D183). Both loops would
+        dial with the same client identifier and the broker would evict each in
+        turn, indefinitely. `start()` and `refresh()` can both reach here for the
+        same rows: a refresh tick lands while `start()` awaits its database read,
+        which is exactly what a compose stack does when the API starts before
+        its migrations. Overwriting the task map orphaned the first loop, so the
+        loop that exists wins.
+        """
+        existing = self._tasks.get(coords.deployment_id)
+        if existing is not None and not existing.done():
+            log.debug("a connection loop for the %s is already running", coords)
+            return
         self._coordinates[coords.deployment_id] = coords
         self._connected[coords.deployment_id] = asyncio.Event()
         self._tasks[coords.deployment_id] = asyncio.create_task(

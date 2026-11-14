@@ -237,3 +237,75 @@ describe("the generation wizard", () => {
     expect(screen.queryByRole("button", { name: "New bundle" })).toBeNull();
   });
 });
+
+describe("filling in a registered Listener later (spec 8.6, E4.11)", () => {
+  // The fixture's second Listener has no GPS: the per-pod card left it blank.
+  const BLANK_MAC = "02:EE:0E:01:01:02";
+
+  function capturePatches() {
+    const patches: { mac: string; body: unknown }[] = [];
+    server.use(
+      http.patch(`${API}/listeners/:mac`, async ({ params, request }) => {
+        const body = await request.json();
+        patches.push({ mac: decodeURIComponent(String(params.mac)), body });
+        return HttpResponse.json({ mac: params.mac, ...(body as object) });
+      }),
+    );
+    return patches;
+  }
+
+  it("offers a registered blank-card Listener's name and GPS, through E1's endpoint", async () => {
+    const bundle = seedBundle(ALDER);
+    setStatus(bundle.id, BLANK_MAC, "registered");
+    const patches = capturePatches();
+    actAs("owner");
+    await openRedwood();
+
+    const card = await screen.findByTestId(`record-${BLANK_MAC}`);
+    expect(card).toHaveTextContent("No GPS yet");
+    await userEvent.click(within(card).getByRole("button", { name: "Fill in details" }));
+    const form = within(card).getByRole("form", { name: `Details for ${BLANK_MAC}` });
+    await userEvent.clear(within(form).getByLabelText("Name"));
+    await userEvent.type(within(form).getByLabelText("Name"), "ridge-oak-02");
+    await userEvent.type(within(form).getByLabelText("Latitude"), "41.7756");
+    await userEvent.type(within(form).getByLabelText("Longitude"), "-124.1987");
+    await userEvent.click(within(form).getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Saved ridge-oak-02.")).toBeVisible();
+    expect(patches).toEqual([
+      { mac: BLANK_MAC, body: { name: "ridge-oak-02", gps_lat: 41.7756, gps_lon: -124.1987 } },
+    ]);
+  });
+
+  it("refuses half a coordinate before anything is sent", async () => {
+    const bundle = seedBundle(ALDER);
+    setStatus(bundle.id, BLANK_MAC, "confirmed");
+    const patches = capturePatches();
+    actAs("owner");
+    await openRedwood();
+    const card = await screen.findByTestId(`record-${BLANK_MAC}`);
+    await userEvent.click(within(card).getByRole("button", { name: "Fill in details" }));
+    await userEvent.type(within(card).getByLabelText("Latitude"), "41.7");
+    await userEvent.click(within(card).getByRole("button", { name: "Save" }));
+    expect(within(card).getByRole("alert")).toHaveTextContent("both latitude and longitude");
+    expect(patches).toEqual([]);
+  });
+
+  it("is not offered for a card whose device has not come online", async () => {
+    seedBundle(ALDER);
+    actAs("owner");
+    await openRedwood();
+    const card = await screen.findByTestId(`record-${BLANK_MAC}`);
+    expect(within(card).queryByRole("button", { name: "Fill in details" })).toBeNull();
+  });
+
+  it("is not offered to a field tech, who provisions but does not edit inventory", async () => {
+    const bundle = seedBundle(ALDER);
+    setStatus(bundle.id, BLANK_MAC, "registered");
+    actAs("field_tech", RC);
+    await openRedwood();
+    const card = await screen.findByTestId(`record-${BLANK_MAC}`);
+    expect(screen.getByTestId("mark-flashed")).toBeVisible();
+    expect(within(card).queryByRole("button", { name: "Fill in details" })).toBeNull();
+  });
+});

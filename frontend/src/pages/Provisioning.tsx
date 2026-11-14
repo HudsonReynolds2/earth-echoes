@@ -10,12 +10,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
-import { BundleBoard } from "../components/BundleBoard";
+import { BundleBoard, FillIn } from "../components/BundleBoard";
 import { BundleWizard } from "../components/BundleWizard";
 import { useCan } from "../components/Can";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
-import { listDeployments, listListeners, listPods } from "../lib/inventory";
+import { listDeployments, listListeners, listPods, patchListener } from "../lib/inventory";
 import {
   BOARD_REFRESH_MS,
   BundleDetail,
@@ -44,6 +44,9 @@ export function Provisioning() {
   }, [deployments.data, deploymentId]);
 
   const canManage = useCan("manage_provisioning", deploymentId || null);
+  // Filling in name and GPS writes inventory through E1's endpoint, so it is
+  // E1's permission that decides who may (spec 8.6; phase-4 E4.11).
+  const canEditDevices = useCan("manage_devices", deploymentId || null);
   const deployment = deployments.data?.items.find((d) => d.id === deploymentId);
 
   const pods = useQuery({
@@ -80,8 +83,8 @@ export function Provisioning() {
     () => Object.fromEntries((pods.data?.items ?? []).map((pod) => [pod.id, pod.name])),
     [pods.data],
   );
-  const listenerNames = useMemo(
-    () => Object.fromEntries((listeners.data?.items ?? []).map((l) => [l.mac, l.name])),
+  const listenersByMac = useMemo(
+    () => Object.fromEntries((listeners.data?.items ?? []).map((l) => [l.mac, l])),
     [listeners.data],
   );
 
@@ -109,6 +112,12 @@ export function Provisioning() {
     },
     onError: (error) => setNotice(error instanceof Error ? error.message : String(error)),
   });
+
+  async function fillIn(mac: string, input: FillIn) {
+    await patchListener(mac, input);
+    await queryClient.invalidateQueries({ queryKey: ["listeners", "deployment", deploymentId] });
+    setNotice(`Saved ${input.name}.`);
+  }
 
   async function generated(created: BundleDetail) {
     setWizardOpen(false);
@@ -203,13 +212,15 @@ export function Provisioning() {
         <BundleBoard
           bundle={bundle.data}
           podNames={podNames}
-          listenerNames={listenerNames}
+          listeners={listenersByMac}
           canManage={canManage}
+          canEditDevices={canEditDevices}
           marking={mark.isPending}
           downloading={download.isPending}
           notice={notice}
           onMarkFlashed={(ids) => mark.mutate(ids)}
           onDownload={() => download.mutate()}
+          onFillIn={fillIn}
         />
       )}
     </div>

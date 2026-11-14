@@ -17,12 +17,13 @@ holds the specification).
 | [E1 verification walkthrough](e1-verification.md) | Hand-verify the hierarchy and inventory release feature by feature against a seeded local stack |
 | [E2 verification walkthrough](e2-verification.md) | Hand-verify the configuration release: the inheritance editor, secrets, bulk preview/commit, and saved selections |
 | [E3 verification walkthrough](e3-verification.md) | Hand-verify the control plane: the MQTT broker and its isolation, publication, reconciliation, and device status |
+| [E4 verification walkthrough](e4-verification.md) | Hand-verify device provisioning: generating a bundle, what is in it, and watching the tracking board fill in as a device comes online from its own card |
 | [E5 verification walkthrough](e5-verification.md) | Hand-verify deployment services onboarding: write-only credentials, the five connection tests, the rolled-up status, and the generated stack |
 | [SIM verification walkthrough](sim-verification.md) | Hand-verify the simulation harness: the mock fleet, the six shipped scenarios, and the full-scale load procedure |
 
-There is no E4 walkthrough yet: epic E4 (device provisioning) has not been built — E5 and the
-simulation harness landed first, by owner decision (see `docs/DECISIONS.md` D160). Its
-walkthrough ships with the epic, like every other row above.
+E4 (device provisioning) was built after E5 and the simulation harness, by owner decision
+(see `docs/DECISIONS.md` D160), which is why its walkthrough relies on E5's generated stack to
+reach a verified broker.
 
 ## The five-minute path
 
@@ -49,6 +50,6 @@ configuration, remote monitoring, and remote reconfiguration of Listener/Aggrega
 This repository currently ships the platform foundations (accounts, roles, audit,
 encrypted secret storage), the device hierarchy and inventory, the configuration model,
 the live MQTT control plane, deployment services onboarding with the generated
-per-deployment stack, and a simulation harness that stands in for real fleets. Device
-provisioning (bundle generation and tracking), the map, and alerting arrive in subsequent
-releases. The full technical specification lives in `project_planning/`.
+per-deployment stack, device provisioning (bundle generation, firmware-encrypted cards, and
+the tracking board), and a simulation harness that stands in for real fleets. The map and
+alerting arrive in subsequent releases. The full technical specification lives in `project_planning/`.

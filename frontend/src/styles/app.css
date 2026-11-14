@@ -2031,3 +2031,13 @@ tr.row-noop td {
   background: var(--eoe-color-surface);
   font-size: var(--eoe-font-size-sm);
 }
+
+.bundle-card-hint {
+  color: var(--eoe-color-record-registered);
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-medium);
+}
+
+.bundle-fill-in {
+  margin-top: var(--eoe-space-2);
+}
