@@ -108,6 +108,45 @@ const LEAVES = [1, 2, 3].map((n) => ({
   alert_count: 0,
 }));
 
+/** E6.5: what `GET /map/devices/listener/{mac}` answers for any of them. */
+function deviceRow(mac: string, name: string) {
+  return {
+    entity_type: "listener",
+    id: mac,
+    name,
+    status: "sleeping",
+    deployment_id: DEP,
+    deployment_name: "Redwood Coast",
+    pod_id: POD_A,
+    pod_name: "Pod 01 · Alder Creek",
+    gps_lat: null,
+    gps_lon: null,
+    alerts: [],
+    revision_state: "applied",
+    liveness: {
+      state: "sleeping",
+      last_audio_at: "2026-11-14T11:58:04Z",
+      expected_wake_at: "2026-11-14T12:05:00Z",
+      changed_at: "2026-11-14T11:58:30Z",
+      reported_at: "2026-11-14T12:00:00Z",
+      grace: { seconds: 30, source: "deployment", source_entity_id: DEP },
+    },
+    aggregator: {
+      id: "agg-a",
+      name: null,
+      aggregator_uuid: "demo-agg-rc-01",
+      status: "healthy",
+      online: true,
+      online_changed_at: "2026-11-14T03:00:00Z",
+      revision_state: "applied",
+    },
+    counts: null,
+    listener_count: null,
+    pod_count: null,
+    services_status: null,
+  };
+}
+
 const LISTENERS = [0, 1, 2, 3, 4, 5].map((n) => ({
   mac: `02:EE:0E:01:01:0${n + 1}`,
   name: `pin-${n + 1}`,
@@ -139,6 +178,10 @@ test.describe("markers", () => {
         ],
       }),
     );
+    await page.route(`${API}/map/devices/listener/**`, (route) => {
+      const mac = decodeURIComponent(route.request().url().split("/").pop()!);
+      route.fulfill({ json: deviceRow(mac, `pin-${Number(mac.slice(-1))}`) });
+    });
     await page.route(`${API}/map/deployments/${DEP}`, (route) =>
       route.fulfill({
         json: {
@@ -215,7 +258,8 @@ test.describe("markers", () => {
     await expect(page).toHaveURL(
       /device=listener%3A02%3AEE%3A0E%3A01%3A01%3A03|device=listener:02:EE:0E:01:01:03/,
     );
-    await expect(page.getByTestId("map-selected")).toContainText("pin-3");
+    // E6.5: the selection opens the device drawer (E6.2b's interim card is gone).
+    await expect(page.getByTestId("device-drawer")).toContainText("pin-3");
   });
 
   test("markers are reachable from the keyboard", async ({ page }) => {
@@ -244,6 +288,10 @@ test.describe("leaves", () => {
     await page.route(`${API}/pods/${POD_A}`, (route) =>
       route.fulfill({ json: { id: POD_A, deployment_id: DEP, name: "Pod 01 · Alder Creek" } }),
     );
+    await page.route(`${API}/map/devices/listener/**`, (route) => {
+      const mac = decodeURIComponent(route.request().url().split("/").pop()!);
+      route.fulfill({ json: deviceRow(mac, `leaf-${mac.slice(-1)}`) });
+    });
     await page.route(`${API}/map/deployments/${DEP}`, (route) =>
       route.fulfill({
         json: {
@@ -308,5 +356,90 @@ test.describe("leaves", () => {
       }
     }
     if (process.env.EOE_SHOT) await page.screenshot({ path: process.env.EOE_SHOT });
+  });
+});
+
+test.describe("the device drawer", () => {
+  test("joins the selected marker to the drawer, dims the map, and hands focus back on Esc", async ({
+    page,
+  }) => {
+    await page.route(`${API}/auth/me`, (route) =>
+      route.fulfill({
+        json: {
+          id: "u1",
+          email: "owner@example.com",
+          is_active: true,
+          assignments: [{ role: "owner", deployment_id: null }],
+        },
+      }),
+    );
+    await page.route(`${API}/pods/${POD_A}`, (route) =>
+      route.fulfill({ json: { id: POD_A, deployment_id: DEP, name: "Pod 01 · Alder Creek" } }),
+    );
+    await page.route(`${API}/map/devices/listener/**`, (route) => {
+      const mac = decodeURIComponent(route.request().url().split("/").pop()!);
+      route.fulfill({ json: deviceRow(mac, `leaf-${mac.slice(-1)}`) });
+    });
+    await page.route(`${API}/map/deployments/${DEP}`, (route) =>
+      route.fulfill({
+        json: {
+          deployment: deploymentRow(DEP, "Redwood Coast", 41.213, -124.004, "healthy"),
+          pods: [
+            {
+              id: POD_A,
+              name: "Pod 01 · Alder Creek",
+              aggregator_id: "agg-a",
+              aggregator_uuid: "demo-agg-rc-01",
+              aggregator_name: null,
+              gps_lat: 41.221,
+              gps_lon: -124.012,
+              aggregator_status: "healthy",
+              status: "sleeping",
+              counts: { ...ZERO, healthy: 1, sleeping: 3 },
+              alert_count: 0,
+              listener_count: 3,
+            },
+          ],
+          listeners: LEAVES,
+        },
+      }),
+    );
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto(`/map/pods/${POD_A}`);
+    const leaf = page.getByRole("button", { name: /^Listener leaf-2,/ });
+    await expect(leaf).toBeVisible();
+    await leaf.click();
+
+    const drawer = page.getByTestId("device-drawer");
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText("leaf-2");
+    await expect(drawer).toContainText("2026-11-14 12:05:00Z");
+    await expect(page.getByTestId("device-drawer-title")).toBeFocused();
+    await expect(page.getByTestId("map-view")).toHaveAttribute("data-drawer-open", "true");
+    await expect(leaf.locator(".map-marker-selected")).toHaveCount(1);
+
+    // The leader line runs from the leaf's centre to the drawer's left edge.
+    const line = page.getByTestId("map-leader").locator("line");
+    await expect(line).toHaveCount(1);
+    await expect
+      .poll(async () => {
+        const leafBox = (await leaf.boundingBox())!;
+        const drawerBox = (await drawer.boundingBox())!;
+        const viewBox = (await page.getByTestId("map-view").boundingBox())!;
+        const [x1, y1, x2] = await line.evaluate((element) =>
+          ["x1", "y1", "x2"].map((name) => Number(element.getAttribute(name))),
+        );
+        return [
+          Math.round(Math.abs(viewBox.x + x1 - (leafBox.x + leafBox.width / 2))),
+          Math.round(Math.abs(viewBox.y + y1 - (leafBox.y + leafBox.height / 2))),
+          Math.round(Math.abs(viewBox.x + x2 - drawerBox.x)),
+        ];
+      })
+      .toEqual([0, 0, 0]);
+
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0);
+    await expect(page.getByTestId("map-leader")).toHaveCount(0);
+    await expect(leaf).toBeFocused();
   });
 });

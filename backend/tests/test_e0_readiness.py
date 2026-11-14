@@ -196,6 +196,10 @@ E0_ROUTES = {
     # E6.4: the map's two drill levels (phase-6 fixed choice 5).
     ("GET", f"{API_PREFIX}/map/deployments"),
     ("GET", f"{API_PREFIX}/map/deployments/{{deployment_id}}"),
+    # E6.5: the drawer's Status tab, and the Card tab's filtered read of
+    # existing records (phase-6's authorized E4 edit). Both read-only.
+    ("GET", f"{API_PREFIX}/map/devices/{{entity_type}}/{{entity_id}}"),
+    ("GET", f"{API_PREFIX}/provisioning/records"),
 }
 
 E0_TABLES = {

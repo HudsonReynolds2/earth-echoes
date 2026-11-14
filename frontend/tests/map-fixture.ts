@@ -11,8 +11,10 @@
  * - "Unplaced Ridge": a Deployment with no coordinates at all.
  */
 import type {
+  MapAggregator,
   MapDeployment,
   MapDeploymentDetail,
+  MapDevice,
   MapListener,
   MapPod,
   StatusCounts,
@@ -121,4 +123,149 @@ export function mapDeploymentFixture(id: string): MapDeploymentDetail | null {
     return { deployment: UNPLACED_DEPLOYMENT, pods: [], listeners: [] };
   }
   return detailFor(id);
+}
+
+// --- E6.5: `GET /map/devices/{kind}/{id}`, from the same derivation --------
+
+/** The alerting Listener's liveness: it promised a wake and went quiet. */
+export const SLEEPING_LIVENESS = {
+  state: "sleeping" as const,
+  last_audio_at: "2026-11-14T11:58:04Z",
+  expected_wake_at: "2026-11-14T12:05:00Z",
+  changed_at: "2026-11-14T11:58:30Z",
+  reported_at: "2026-11-14T12:00:00Z",
+  grace: { seconds: 30, source: "deployment", source_entity_id: FIXTURE_IDS.redwoodCoast },
+};
+
+function aggregatorOf(podId: string): MapAggregator | null {
+  const agg = aggregators.find((row) => row.pod_id === podId);
+  if (!agg) return null;
+  const offline = agg.aggregator_uuid === OFFLINE_AGG;
+  return {
+    id: agg.id,
+    name: null,
+    aggregator_uuid: agg.aggregator_uuid,
+    status: offline ? "offline" : "unknown",
+    online: offline ? false : null,
+    online_changed_at: offline ? "2026-11-14T03:00:00Z" : null,
+    revision_state: offline ? "applied" : null,
+  };
+}
+
+export function mapDeviceFixture(kind: string, rawId: string): MapDevice | null {
+  const id = kind === "listener" ? rawId.toUpperCase() : rawId;
+  const base = {
+    revision_state: null,
+    liveness: null,
+    aggregator: null,
+    counts: null,
+    listener_count: null,
+    pod_count: null,
+    services_status: null,
+  };
+  if (kind === "deployment") {
+    const detail = detailFor(id);
+    if (!detail) return null;
+    const { deployment } = detail;
+    return {
+      ...base,
+      entity_type: "deployment",
+      id,
+      name: deployment.name,
+      status: deployment.status,
+      deployment_id: id,
+      deployment_name: deployment.name,
+      pod_id: null,
+      pod_name: null,
+      gps_lat: deployment.gps_lat,
+      gps_lon: deployment.gps_lon,
+      alerts: [],
+      counts: deployment.counts,
+      listener_count: deployment.listener_count,
+      pod_count: deployment.pod_count,
+      services_status: deployment.services_status,
+    };
+  }
+  for (const deployment of deployments) {
+    const detail = detailFor(deployment.id)!;
+    if (kind === "pod" || kind === "aggregator") {
+      const pod =
+        kind === "pod"
+          ? detail.pods.find((row) => row.id === id)
+          : detail.pods.find((row) => row.aggregator_id === id);
+      if (!pod) continue;
+      const own = aggregatorOf(pod.id)!;
+      const common = {
+        ...base,
+        deployment_id: deployment.id,
+        deployment_name: deployment.name,
+        pod_id: pod.id,
+        pod_name: pod.name,
+        gps_lat: pod.gps_lat,
+        gps_lon: pod.gps_lon,
+        alerts: [],
+        aggregator: own,
+      };
+      return kind === "pod"
+        ? {
+            ...common,
+            entity_type: "pod",
+            id,
+            name: pod.name,
+            status: pod.status,
+            counts: pod.counts,
+            listener_count: pod.listener_count,
+          }
+        : {
+            ...common,
+            entity_type: "aggregator",
+            id,
+            name: own.aggregator_uuid,
+            status: own.status,
+            revision_state: own.revision_state,
+          };
+    }
+    const listener = detail.listeners.find((row) => row.mac === id);
+    if (!listener) continue;
+    const pod = detail.pods.find((row) => row.id === listener.pod_id)!;
+    const alerting = listener.mac === ALERTING_MAC;
+    return {
+      ...base,
+      entity_type: "listener",
+      id,
+      name: listener.name,
+      status: listener.status,
+      deployment_id: deployment.id,
+      deployment_name: deployment.name,
+      pod_id: pod.id,
+      pod_name: pod.name,
+      gps_lat: listener.gps_lat,
+      gps_lon: listener.gps_lon,
+      alerts: alerting
+        ? [
+            {
+              id: "a1000000-0000-4000-8000-000000000001",
+              alert_type: "duplicate_identity",
+              entity_type: "listener",
+              entity_key: listener.mac,
+              detail: { reported_by: "demo-agg-rc-02" },
+              created_at: "2026-11-14T09:12:00Z",
+            },
+          ]
+        : [],
+      revision_state: alerting ? "applied" : null,
+      liveness: alerting
+        ? SLEEPING_LIVENESS
+        : {
+            state: null,
+            last_audio_at: null,
+            expected_wake_at: null,
+            changed_at: null,
+            reported_at: null,
+            grace: { seconds: 45, source: "default", source_entity_id: null },
+          },
+      aggregator: aggregatorOf(pod.id),
+    };
+  }
+  return null;
 }

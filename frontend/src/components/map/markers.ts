@@ -106,6 +106,8 @@ export function deploymentMarkerHtml(input: {
   alerts: number;
   services: ServicesStatus;
   dimmed: boolean;
+  /** E6.5: the drawer is open on it, so it keeps a halo. */
+  selected?: boolean;
 }): string {
   // D190: services status is its own chip, never the marker's color, and only
   // shown when it is not the healthy answer.
@@ -114,7 +116,7 @@ export function deploymentMarkerHtml(input: {
       ? ""
       : `<span class="map-services-chip" data-services="${input.services}">${SERVICES_LABELS[input.services]}</span>`;
   return (
-    `<div class="${classes("deployment", input.dimmed, false)}" ${statusAttribute(input.status)}>` +
+    `<div class="${classes("deployment", input.dimmed, input.selected ?? false)}" ${statusAttribute(input.status)}>` +
     `<span class="map-marker-shape">${glyph(input.status)}${badge(input.alerts)}</span>` +
     `<span class="map-marker-label">${escapeHtml(input.name)}` +
     `<span class="map-marker-status">${statusLabel(input.status)}</span></span>` +
@@ -136,6 +138,8 @@ export function podMarkerHtml(input: {
   unplacedListeners: number;
   dimmed: boolean;
   showLabel: boolean;
+  /** E6.5: the drawer is open on it (or on its Aggregator). */
+  selected?: boolean;
 }): string {
   const size = podMarkerSize(input.listeners);
   // In the label, not floating over the marker: the space above a Pod is
@@ -149,7 +153,7 @@ export function podMarkerHtml(input: {
       `<span class="map-marker-status">${statusLabel(input.status)} · ${input.listeners} listeners${noGps}</span></span>`
     : "";
   return (
-    `<div class="${classes("pod", input.dimmed, false)}" ${statusAttribute(input.status)}>` +
+    `<div class="${classes("pod", input.dimmed, input.selected ?? false)}" ${statusAttribute(input.status)}>` +
     `<span class="map-marker-shape" style="width:${size}px;height:${size}px">` +
     `${glyph(input.status)}${badge(input.alerts)}</span>` +
     label +

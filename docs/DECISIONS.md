@@ -4,6 +4,56 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D200 (2026-11-14): How E6.5 built the device drawer
+
+- **One endpoint, one shape, four kinds.** `GET /map/devices/{entity_type}/{id}` returns
+  `MapDeviceOut` with nullable sections rather than a discriminated union. The drawer renders
+  what is there. It lives in `app/map/service.py` beside the layer reads, and its Pod and
+  Deployment status and counts come from the same `_Fleet` and `roll_up` as their markers.
+  `test_pod_and_deployment_drawers_agree_with_their_markers` holds that for every Pod, the
+  Deployment and every Listener.
+- **The grace is the effective config, with its provenance.** Spec 6.5 and V2 show "Grace
+  30s · inherited". The drawer reads `listener.wake_grace_seconds` through E2's redacted
+  `effective_for`, so "inherited from the Deployment" names the real level. It is the
+  platform's desired value. The device's applied value can lag it during a pending revision,
+  and the Config tab and Timeline show that.
+- **`_latest_revision_states` is imported under an alias, not renamed.** It is E1/E3 code
+  outside phase-6's authorized edits. Importing it as `latest_revision_states` changes nothing
+  that owns it.
+- **How each level's drawer opens.**
+  - A Listener (pin or leaf) opens its drawer on click, as E6.2b's interim card did.
+  - Clicking a Pod still drills to its route, because that is how the map is navigated. On
+    the Pod's own route, clicking it opens its drawer.
+  - A *Deployment details* / *Pod details* control on those routes opens that level's drawer.
+  - An Aggregator is reached from its Pod's or Listener's drawer. Its marker (for the halo and
+    line) is its Pod's, because the Pod marker sits at the Aggregator's position (spec 9.2).
+- **Tabs that do not apply are absent, not empty.** A Deployment has no single timeline or
+  card, so it shows Status, Config and Telemetry. A Pod's Timeline and Card are its
+  Aggregator's, because the Aggregator is the device the Pod's card provisions.
+- **The tab is in the URL** (`?panel=`), written with `replace` so the back button walks
+  between devices, not tabs.
+- **The leader line hides rather than guesses.** It is drawn only when the marker element is
+  on screen and left of the drawer: not clustered, not panned away, not under the drawer.
+  jsdom has no layout, so the geometry is a pure function tested in vitest, and the real line
+  is asserted in Playwright to within a pixel of the leaf's center and the drawer's edge.
+- **Visual check, by screenshot, in both themes.** It found three defects, all fixed:
+  - the *Pod details* control was blank in the light theme, because the base `button` rule's
+    white text sat on the surface background;
+  - the Aggregator jump read as plain text;
+  - the Telemetry tab was clipped by the drawer's width.
+- **A test changed with its feature.** `map-drill.test.tsx`'s deep-link test, and the drill
+  step in `e2e/map.spec.ts`, asserted E6.2b's interim `map-selected` card. D196 recorded that
+  E6.5 would replace that card with the drawer on the same URL. Both now assert the drawer
+  opens on that URL with the same name and MAC. Nothing was weakened.
+- **The route surface grew, deliberately.** Gate 87's first run failed
+  `test_route_surface_is_exactly_the_e0_contract`: the two new GETs were not yet in
+  `E0_ROUTES`. That test exists to make each epic extend the list by hand, alongside
+  `INTERFACES.md`, and both are now listed. The test is doing its job, not being weakened.
+- **New token:** `--eoe-width-drawer` (420px), in the extension sheet with the other widths.
+- **Also recorded here:** `docs/INTERFACES.md` gains H1's listener pair rule (D199). It belongs
+  with E1's schema, and H1's PR predates this section.
+- **Reference:** phase-6 §4 E6.5; spec 6.5, 9.2; V2·S2; D60, D191, D196, D199.
+
 ## D199 (2026-11-14): The owner's hygiene batch: listener half-pairs refused, two flakes fixed
 
 The owner answered D194's, D195's and D197's offers at CP2 time: "Yes fix the flaky tests. and

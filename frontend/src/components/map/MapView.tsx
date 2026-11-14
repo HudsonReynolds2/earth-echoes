@@ -34,8 +34,11 @@ export function MapView({
   config,
   children,
   overlay,
+  drawerOpen = false,
 }: {
   config: MapConfig;
+  /** E6.5: the device drawer is open, so the map dims behind it. */
+  drawerOpen?: boolean;
   /** Leaflet layers (markers, from E6.2b). */
   children?: ReactNode;
   /** Ordinary DOM drawn over the map, outside Leaflet's panes. */
@@ -49,7 +52,12 @@ export function MapView({
   };
 
   return (
-    <div className="map-view" data-testid="map-view" data-basemap={basemap}>
+    <div
+      className="map-view"
+      data-testid="map-view"
+      data-basemap={basemap}
+      data-drawer-open={drawerOpen ? "true" : undefined}
+    >
       <MapContainer
         center={INITIAL_CENTER}
         zoom={INITIAL_ZOOM}

@@ -775,10 +775,244 @@ h2 {
   font-size: var(--eoe-font-size-sm);
 }
 
-.map-selected {
+/* E6.5: opens the Deployment's or the focused Pod's drawer. Sits under the
+ * GPS-less toggle, in the same left column. */
+.map-details {
   top: calc(var(--eoe-space-4) * 2 + var(--eoe-control-height-md) + var(--eoe-space-2));
+  left: calc(var(--eoe-space-12) + var(--eoe-space-4));
+  right: auto;
+  font-size: var(--eoe-font-size-sm);
+  /* A button, so the base rule's action colors must be undone for a control
+   * that sits on the map's surface like its neighbours. */
+  height: auto;
+  color: var(--eoe-color-text);
+  font-weight: var(--eoe-font-weight-medium);
+  cursor: pointer;
+}
+
+.map-details:hover {
+  background: var(--eoe-color-surface-raised);
+}
+
+/* ── E6.5: the device drawer (V2·S2) ─────────────────────────────────────
+ * V2's four fixes: the map dims behind it and the selected marker keeps a
+ * halo; a leader line joins them; a deep shadow and a 3px accent edge lift
+ * it off the map; a titled header with Close and an Esc hint. */
+.map-view[data-drawer-open] .leaflet-tile-pane {
+  filter: brightness(0.62) saturate(0.6);
+  transition: filter var(--eoe-duration-base) var(--eoe-ease);
+}
+
+.map-view[data-drawer-open] .map-marker:not(.map-marker-selected) {
+  opacity: 0.55;
+}
+
+.map-view[data-drawer-open] .map-marker-selected .map-marker-shape {
+  box-shadow: 0 0 0 var(--eoe-space-2) var(--eoe-color-accent-tint);
+}
+
+/* The switcher would sit under the drawer; it steps left instead. */
+.map-view[data-drawer-open] .basemap-switcher {
+  right: calc(var(--eoe-width-drawer) + var(--eoe-space-8));
+}
+
+.device-drawer {
+  position: absolute;
+  top: var(--eoe-space-4);
+  right: var(--eoe-space-4);
+  bottom: var(--eoe-space-4);
+  z-index: 1001;
+  width: min(var(--eoe-width-drawer), calc(100% - 2 * var(--eoe-space-4)));
+  display: flex;
   flex-direction: column;
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-left: var(--eoe-border-width-selected) solid var(--eoe-color-accent);
+  border-radius: var(--eoe-radius-lg);
+  box-shadow: var(--eoe-shadow-md);
+  overflow: hidden;
+}
+
+.device-drawer-header {
+  display: flex;
   align-items: flex-start;
+  gap: var(--eoe-space-3);
+  padding: var(--eoe-space-4) var(--eoe-space-5);
+  border-bottom: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+}
+
+.device-drawer-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-drawer-heading h2 {
+  margin: var(--eoe-space-1) 0 0;
+  font-size: var(--eoe-font-size-xl);
+  overflow-wrap: anywhere;
+}
+
+.device-drawer-heading h2:focus {
+  outline: none;
+}
+
+.device-drawer-heading h2:focus-visible {
+  outline: var(--eoe-border-width-emphasis) solid var(--eoe-color-focus-ring);
+}
+
+.device-drawer-context {
+  margin: 0;
+  font-size: var(--eoe-font-size-sm);
+}
+
+.device-drawer-esc kbd {
+  display: inline-block;
+  padding: 0 var(--eoe-space-2);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-sm);
+  color: var(--eoe-color-text-muted);
+  font-family: var(--eoe-font-family-mono);
+  font-size: var(--eoe-font-size-2xs);
+  line-height: var(--eoe-control-height-sm);
+}
+
+.device-drawer-identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-2);
+  padding: var(--eoe-space-3) var(--eoe-space-5);
+}
+
+.device-drawer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  margin: 0;
+}
+
+.revision-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--eoe-space-2);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-pill);
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.device-drawer-tabs {
+  margin: 0 var(--eoe-space-5);
+  overflow-x: auto;
+}
+
+.device-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--eoe-space-4) var(--eoe-space-5);
+}
+
+.device-drawer-section + .device-drawer-section {
+  margin-top: var(--eoe-space-5);
+}
+
+.device-drawer-section h3 {
+  margin: 0 0 var(--eoe-space-2);
+}
+
+.device-drawer-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--eoe-space-1) var(--eoe-space-4);
+  margin: 0;
+}
+
+.device-drawer-facts dt {
+  color: var(--eoe-color-text-muted);
+}
+
+.device-drawer-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.device-drawer-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.device-drawer-alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-1);
+  padding: var(--eoe-space-3);
+  background: var(--eoe-color-status-alerting-tint);
+  border-radius: var(--eoe-radius-md);
+}
+
+/* An in-text jump to another device's drawer: reads as a link. */
+.device-drawer-inline {
+  height: auto;
+  padding: 0;
+  color: var(--eoe-color-accent);
+  font-weight: var(--eoe-font-weight-normal);
+  text-decoration: underline;
+}
+
+.device-drawer-inline:hover {
+  background: transparent;
+  color: var(--eoe-color-accent-hover);
+}
+
+/* Five tabs in the drawer's width: tighter than the context bar's. */
+.device-drawer-tabs .tab {
+  padding: 0 var(--eoe-space-2);
+}
+
+.device-drawer-config-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--eoe-space-3);
+  margin: 0 0 var(--eoe-space-3);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.device-drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--eoe-space-3);
+  padding: var(--eoe-space-3) var(--eoe-space-5);
+  border-top: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+}
+
+.device-drawer-action-note {
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* The leader line: screen space, over the map, under the drawer. */
+.map-leader {
+  position: absolute;
+  inset: 0;
+  z-index: 1000;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.map-leader line {
+  stroke: var(--eoe-color-accent);
+  stroke-width: var(--eoe-border-width-emphasis);
+}
+
+.map-leader circle {
+  fill: var(--eoe-color-accent);
 }
 
 /* ── forms and controls ────────────────────────────────────────────────── */

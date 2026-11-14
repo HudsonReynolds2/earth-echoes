@@ -1,6 +1,7 @@
 """The map's read surface (epic E6; spec 9, 13).
 
-E6.1 ships `GET /map/config`; E6.4 adds the two drill-level reads. All of
+E6.1 ships `GET /map/config`; E6.4 adds the two drill-level reads; E6.5 adds
+one device's detail for the drawer. All of
 them are open to every role (all four hold `VIEW_STATUS`, E0.7), scoped to the
 Deployments the caller may see.
 """
@@ -15,10 +16,14 @@ from app.auth.deps import DbDep
 from app.auth.rbac import Permission, has_permission
 from app.map.basemaps import MapConfigOut, map_config
 from app.map.service import (
+    DeviceKind,
     MapDeploymentDetailOut,
     MapDeploymentOut,
+    MapDeviceOut,
     deployment_detail,
     deployments_layer,
+    device_detail,
+    resolve_device,
 )
 from app.models import Deployment, UserSession
 from app.scoping import require_any_assignment, visible_deployments
@@ -71,3 +76,21 @@ def get_map_deployment(
     ):
         raise not_found("deployment")
     return deployment_detail(db, deployment)
+
+
+@router.get("/devices/{entity_type}/{entity_id}", response_model=MapDeviceOut)
+def get_map_device(
+    entity_type: DeviceKind,
+    entity_id: str,
+    db: DbDep,
+    session: Annotated[UserSession, Depends(require_any_assignment)],
+) -> MapDeviceOut:
+    """One device's Status tab (E6.5): a Listener by MAC, or an Aggregator,
+    Pod or Deployment by id. Missing and out-of-scope answer the same 404
+    (D35)."""
+    found = resolve_device(db, entity_type, entity_id)
+    if found is None or not has_permission(
+        session.user.role_assignments, Permission.VIEW_STATUS, found[0]
+    ):
+        raise not_found(entity_type)
+    return device_detail(db, found[1])
