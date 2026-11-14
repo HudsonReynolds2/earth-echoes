@@ -176,13 +176,15 @@ export function provisioningHandlers() {
       bundleStore.set(bundle.id, bundle);
       return HttpResponse.json(bundle, { status: 201 });
     }),
-    http.patch(`${API}/provisioning/records/:id`, ({ params }) => {
+    http.patch(`${API}/provisioning/records/:id`, async ({ params, request }) => {
+      const { status: to } = (await request.json()) as { status: "flashed" | "generated" };
+      const from = to === "flashed" ? "generated" : "flashed";
       for (const bundle of bundleStore.values()) {
         const record = bundle.records.find((r) => r.id === String(params.id));
         if (record) {
-          if (record.status === "generated") {
-            record.status = "flashed";
-            record.status_history.push({ status: "flashed", at: AT, actor: "me" });
+          if (record.status === from) {
+            record.status = to;
+            record.status_history.push({ status: to, at: AT, actor: "me" });
           }
           return HttpResponse.json(record);
         }

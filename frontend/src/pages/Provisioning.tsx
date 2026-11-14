@@ -24,7 +24,8 @@ import {
   downloadBundle,
   getBundle,
   listBundles,
-  markFlashed,
+  OperatorStatus,
+  setRecordStatus,
 } from "../lib/provisioning";
 
 export function Provisioning() {
@@ -89,15 +90,20 @@ export function Provisioning() {
   );
 
   const mark = useMutation({
-    mutationFn: async (recordIds: string[]) => {
-      for (const id of recordIds) await markFlashed(id);
-      return recordIds.length;
+    mutationFn: async ({ ids, to }: { ids: string[]; to: OperatorStatus }) => {
+      for (const id of ids) await setRecordStatus(id, to);
+      return { count: ids.length, to };
     },
-    onSuccess: async (count) => {
-      setNotice(`${count} card${count === 1 ? "" : "s"} marked flashed.`);
-      await queryClient.invalidateQueries({ queryKey: bundleKey(bundleId ?? "") });
+    onSuccess: ({ count, to }) => {
+      const cards = `${count} card${count === 1 ? "" : "s"}`;
+      setNotice(
+        to === "flashed" ? `${cards} marked flashed.` : `${cards} unmarked, back in Generated.`,
+      );
     },
     onError: (error) => setNotice(error instanceof Error ? error.message : String(error)),
+    // Each card is saved as it is marked, so after a failure partway through
+    // the board must re-read which ones made it (D184).
+    onSettled: () => queryClient.invalidateQueries({ queryKey: bundleKey(bundleId ?? "") }),
   });
 
   const download = useMutation({
@@ -218,7 +224,7 @@ export function Provisioning() {
           marking={mark.isPending}
           downloading={download.isPending}
           notice={notice}
-          onMarkFlashed={(ids) => mark.mutate(ids)}
+          onSetStatus={(ids, to) => mark.mutate({ ids, to })}
           onDownload={() => download.mutate()}
           onFillIn={fillIn}
         />

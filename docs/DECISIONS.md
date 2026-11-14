@@ -4,6 +4,74 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D187 (2026-11-13): A card marked flashed by mistake can be unmarked, the same way it was marked
+
+- **Decision:** the **Flashed** column has the same checkboxes and *Select all* as Generated, and
+  an *Unmark N cards* button that returns the checked cards to **Generated**. Each column now
+  carries its own action; the header keeps only *Download bundle*. Owner's request,
+  2026-11-13 ("add the unmark; it should behave the same way").
+- **API:** `PATCH /provisioning/records/{id}` now also accepts `{"status": "generated"}`.
+  - It is allowed only from `flashed` (otherwise a 409) and is idempotent from `generated`.
+  - It is audited as `provisioning.record.unflashed`, and the history keeps both entries.
+  - `registered`, `confirmed` and `mismatch` remain the reconciler's and are refused with a 422.
+    A card a device has spoken for cannot be unmarked: its status is the evidence's.
+- **A reconciler fix this required:** `derive_status` fell back to `flashed` if the card had
+  EVER been marked, so an unmarked card would have jumped back to Flashed on the next sweep.
+  The fallback now reads the operator's LATEST `flashed`/`generated` entry. This changes only
+  the no-evidence branch (when no device has spoken). The evidence rules and their precedence
+  are unchanged, and the E3 revision state machine (test-critical) is not involved.
+- **Pinned by:**
+  - `test_provisioning_records.py`: an unmarked card stays Generated through a sweep and can be
+    re-marked, and only a flashed card can be unmarked.
+  - `test_provisioning_api.py`: the unmark round trip with one audit row, and a 409 from
+    `confirmed`.
+  - `provisioning.test.tsx`: unmark through the board, no checkboxes on the evidence's columns,
+    and none for a viewer.
+
+## D186 (2026-11-13): Two QA-stack foot-guns found bringing the stack back up after gate 79 (recorded, not fixed)
+
+- **The gate rewrites `deploy/dev-certs`.** A QA stack left with the old CA then fails TLS to its
+  own broker (`CERTIFICATE_VERIFY_FAILED`). This is one more reason for D44's rule to take the
+  stack down before a gate. To recover, re-run `app.devbroker --host mosquitto --keep-tls` and
+  restart mosquitto.
+- **Re-running `app.devbroker` re-points EVERY deployment's `mqtt` row at the dev broker,**
+  including one that has moved to its own generated stack (E5 Path B). High Desert silently
+  lost its verified broker. It was restored by re-entering the stack's stored broker
+  credentials on its Services page and re-testing it to verified.
+- **Open:** `devbroker` should leave a row alone whose host is not the dev broker. That is
+  E3/E5-owned tooling, so it is left for a hygiene batch, alongside D181's root fix.
+
+## D185 (2026-11-13): The inheritance chain stacks each rung on two rows
+
+- **Decision:** each rung of the Configuration page's *Inheritance* card (E2.7,
+  `InheritanceChain`) now puts the level and its override count on the first row and the
+  entity's name on a second, full-width row. This is a CSS-only change to `.chain-rung`; the
+  component's markup and tests are unchanged. A right padding to match the left followed the
+  owner's second look, so "overrides" no longer meets the highlighted rung's edge.
+- **Why:** owner feedback from the batch-4 browser test, with a screenshot. In the 290px rail,
+  the three-column row (92px level / name / count) let "ORGANIZATION" overflow into the name
+  column and wrapped names like "Pod 02 · Mesa Rim" one word per line.
+
+## D184 (2026-11-13): Cards are marked flashed one by one, not all at once
+
+- **Decision:** on the tracking board, each card in **Generated** has a checkbox, the column has
+  *Select all*, and the header button marks only the checked cards ("Mark 2 cards flashed";
+  disabled, and reading "Check cards to mark flashed", while nothing is checked). This
+  supersedes E4.10's single "Mark N cards flashed" action, which marked every Generated card.
+- **Why:** owner feedback from the batch-4 browser test. A field tech writes 30 cards over
+  hours or days, not in one sitting, and must be able to record exactly which cards are done.
+- **What persists:** the `flashed` status itself. Each checked card is a separate
+  `PATCH /provisioning/records/{id}` saved on its own record, which E4.9 already provided, so
+  the backend is unchanged. The checkboxes are only a selection and are not saved. After any
+  mark the board re-reads the bundle, including after a failure partway through a batch, so it
+  shows exactly which cards were saved. Unmarking a mis-click followed at the owner's request
+  (D187).
+- **Pinned by** four vitest cases in `frontend/tests/provisioning.test.tsx`:
+  - only the checked cards move;
+  - *Select all*;
+  - a reopened board keeps what was saved;
+  - a failure on the second card leaves exactly one card flashed and says why.
+
 ## D183 (2026-11-13): The MQTT manager could run two connection loops for one deployment, and the broker evicted each in turn forever
 
 - **Decision:** `MqttClientManager._begin` (E3-owned `app/controlplane/broker.py`) never starts a

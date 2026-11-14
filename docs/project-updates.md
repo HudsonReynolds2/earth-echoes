@@ -1,5 +1,39 @@
 # Project Updates
 
+## 2026-11-13: Batch-4 browser-test follow-ups: per-card flash, unmark, inheritance layout (Gate 80 GREEN)
+
+- **What changed:** owner feedback from hand-testing batch 4 in the browser.
+  - **D184, per-card flash.** Generated cards carry checkboxes and *Select all*, and the
+    column's button marks only the checked cards. Each card's status is saved as it moves, so
+    30 cards can be flashed over several sittings. The board re-reads after a failure partway
+    through a batch.
+  - **D187, unmark.** The Flashed column has the same controls, with *Unmark N cards*. The PATCH
+    accepts `generated` only from `flashed`, audited as `provisioning.record.unflashed`. The
+    reconciler's no-evidence fallback now follows the operator's LATEST mark. Before, any old
+    mark would have pulled an unmarked card back to Flashed on the next sweep.
+  - **D185, inheritance chain layout.** Each rung stacks on two rows, with padding on both
+    sides, in the 290px rail.
+  - **D186** records two QA-stack foot-guns: the gate rewrites `deploy/dev-certs`, and
+    `devbroker` re-points every deployment at the dev broker.
+  - The records are project-changes #46 and addendum PHASE4-4-01.
+- **Gate:** 80, GREEN on the third run. The entire accumulated suite, no filters.
+  - Run 1 was RED: `test_governance.py::test_every_change_entry_names_an_addendum_that_exists`
+    ("change #46 references missing document project_planning/phase-4-provisioning.md,"). The
+    trailing comma on an *Affects* line was read as part of the path. Fixed in the records.
+  - Run 2 was RED: 1 setup error in `test_publish_revision.py`. Verbatim: "ports are not
+    available: exposing port TCP 127.0.0.1:54373 -> 127.0.0.1:0: /forwards/expose returned
+    unexpected status: 500 … 6 attempts". This is Docker Desktop's forwarder, D181's open root
+    cause and its fourth occurrence. Three forwarding probes then passed.
+  - Run 3 was GREEN.
+- **Tests:** **1280 backend / 181 vitest / 4 Playwright / 78 `/sim`**, 1543 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected.
+- **Manual verification:**
+  - The owner tested per-card marking, reload persistence, unmark and the inheritance panel in
+    the browser on the QA stack ("works great").
+  - On the rebuilt stack I marked a record, unmarked it and waited past a worker sweep. It
+    stayed `generated`, with history `generated, flashed, generated`. A PATCH to `confirmed`
+    was a 422.
+
 ## 2026-11-13: E4.11 — fill-in-later and the E4 walkthrough; epic E4 is built (Gate 79 GREEN)
 
 - **Tasks closed:** E4.11 (spec 8.6), the last task of epic E4.

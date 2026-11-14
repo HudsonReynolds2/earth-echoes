@@ -8,6 +8,8 @@
  *   right column, with the summary tiles counting it, without leaving the page.
  * - **A viewer sees the board and no generate button** (and no download, and
  *   no "mark flashed").
+ * - **Cards are marked flashed one by one** (owner feedback, D184): only the
+ *   checked cards move, and what was saved survives a reopen or a failure.
  * - **Record status is not device status**: the board's chips are
  *   `.record-chip`, and no device-state `[data-status]` appears on it (D40).
  *
@@ -106,18 +108,123 @@ describe("the tracking board", () => {
     expect(board.querySelector(".status-chip")).toBeNull();
   });
 
-  it("marks every still-generated card flashed in one action", async () => {
+  const checkCard = (mac: string) =>
+    userEvent.click(within(screen.getByTestId(`record-${mac}`)).getByRole("checkbox"));
+
+  it("marks only the cards that were checked, one save per card (D184)", async () => {
     seedBundle(ALDER);
     actAs("owner");
     await openRedwood();
     const button = await screen.findByTestId("mark-flashed");
+    expect(button).toHaveTextContent("Check cards to mark flashed");
+    expect(button).toBeDisabled();
+
+    await checkCard(FIXTURE_IDS.firstListenerMac);
+    await checkCard("02:EE:0E:01:01:03");
+    expect(button).toHaveTextContent("Mark 2 cards flashed");
+    await userEvent.click(button);
+
+    expect(await screen.findByText("2 cards marked flashed.")).toBeVisible();
+    await screen.findByText("Check cards to mark flashed");
+    expect(countIn("flashed")).toBe(2);
+    expect(countIn("generated")).toBe(7);
+    expect(
+      within(column("flashed")).getByTestId(`record-${FIXTURE_IDS.firstListenerMac}`),
+    ).toBeVisible();
+  });
+
+  it("selects every still-generated card with Select all", async () => {
+    seedBundle(ALDER);
+    actAs("owner");
+    await openRedwood();
+    await userEvent.click(
+      within(await screen.findByTestId("column-generated")).getByLabelText("Select all"),
+    );
+    const button = screen.getByTestId("mark-flashed");
     expect(button).toHaveTextContent("Mark 9 cards flashed");
     await userEvent.click(button);
 
     expect(await screen.findByText("9 cards marked flashed.")).toBeVisible();
-    await screen.findByText("Mark 0 cards flashed");
     expect(countIn("flashed")).toBe(9);
     expect(countIn("generated")).toBe(0);
+    expect(within(column("generated")).queryByLabelText("Select all")).toBeNull();
+  });
+
+  it("keeps the cards already flashed when a later session reopens the board", async () => {
+    seedBundle(ALDER);
+    actAs("owner");
+    await openRedwood();
+    await screen.findByTestId(`record-${FIXTURE_IDS.firstListenerMac}`);
+    await checkCard(FIXTURE_IDS.firstListenerMac);
+    await userEvent.click(screen.getByTestId("mark-flashed"));
+    await screen.findByText("1 card marked flashed.");
+
+    document.body.innerHTML = "";
+    await openRedwood();
+    await screen.findByTestId("bundle-board");
+    expect(countIn("flashed")).toBe(1);
+    expect(countIn("generated")).toBe(8);
+  });
+
+  it("unmarks a card flashed by mistake, the same way it was marked (D187)", async () => {
+    const bundle = seedBundle(ALDER);
+    setStatus(bundle.id, FIXTURE_IDS.firstListenerMac, "flashed");
+    setStatus(bundle.id, "02:EE:0E:01:01:02", "flashed");
+    setStatus(bundle.id, "02:EE:0E:01:01:03", "confirmed");
+    actAs("owner");
+    await openRedwood();
+    const unmark = await screen.findByTestId("unmark-flashed");
+    expect(unmark).toHaveTextContent("Check cards to unmark");
+    expect(unmark).toBeDisabled();
+    // Only the operator's two columns are checkable; a confirmed card is the evidence's.
+    expect(within(column("confirmed")).queryAllByRole("checkbox")).toHaveLength(0);
+
+    await checkCard("02:EE:0E:01:01:02");
+    expect(unmark).toHaveTextContent("Unmark 1 card");
+    await userEvent.click(unmark);
+
+    expect(await screen.findByText("1 card unmarked, back in Generated.")).toBeVisible();
+    expect(countIn("flashed")).toBe(1);
+    expect(countIn("generated")).toBe(7);
+    expect(within(column("generated")).getByTestId("record-02:EE:0E:01:01:02")).toBeVisible();
+  });
+
+  it("offers a viewer no checkboxes in either column", async () => {
+    const bundle = seedBundle(ALDER);
+    setStatus(bundle.id, FIXTURE_IDS.firstListenerMac, "flashed");
+    actAs("viewer");
+    await openRedwood();
+    await screen.findByTestId("bundle-board");
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(screen.queryByTestId("unmark-flashed")).toBeNull();
+  });
+
+  it("shows exactly which cards were saved when marking fails partway", async () => {
+    seedBundle(ALDER);
+    let calls = 0;
+    server.use(
+      http.patch(`${API}/provisioning/records/:id`, () => {
+        calls += 1;
+        if (calls === 2) {
+          return HttpResponse.json(
+            { error: { code: "server_error", message: "Network hiccup", detail: null } },
+            { status: 500 },
+          );
+        }
+        return undefined; // fall through to the fixture, which saves it
+      }),
+    );
+    actAs("owner");
+    await openRedwood();
+    await userEvent.click(
+      within(await screen.findByTestId("column-generated")).getByLabelText("Select all"),
+    );
+    await userEvent.click(screen.getByTestId("mark-flashed"));
+
+    expect(await screen.findByText(/Network hiccup/)).toBeVisible();
+    await screen.findByText("Check cards to mark flashed");
+    expect(countIn("flashed")).toBe(1);
+    expect(countIn("generated")).toBe(8);
   });
 
   it("shows a viewer the board and nothing that changes anything", async () => {

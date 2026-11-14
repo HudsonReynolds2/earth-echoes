@@ -11,7 +11,9 @@ restart, gives the same rows (asserted).
 
 - **`flashed`** is operator-set only (`mark_flashed`, behind `PATCH
   /provisioning/records/{id}`). The platform cannot observe a card being
-  written, so this is the one status a person asserts.
+  written, so this is the one status a person asserts, and the one a person
+  may retract (`unmark_flashed`, back to `generated`, for a mis-click; D187).
+  The operator's LATEST word wins: an unmarked card stays `generated`.
 - **`registered`**: a `device_state` row exists for the record's device.
   First contact is exactly that row's existence; no first-seen column is
   needed.
@@ -33,7 +35,7 @@ restart, gives the same rows (asserted).
 ## Precedence
 
 Latched `confirmed` > `mismatch` > `confirmed` (newly reached) > `registered`
-> `flashed` (if the operator ever marked it) > `generated`. A `mismatch` whose
+> `flashed` (if the operator's latest mark says so) > `generated`. A `mismatch` whose
 evidence later clears re-derives to whatever the evidence now says. Every
 change is appended to `status_history` with a null actor (the system).
 """
@@ -72,8 +74,14 @@ class RecordSweepReport:
         return f"examined {self.examined} records; transitions {moved}"
 
 
-def _ever(record: DeviceProvisioningRecord, status: str) -> bool:
-    return any(entry.get("status") == status for entry in record.status_history)
+def _operator_flashed(record: DeviceProvisioningRecord) -> bool:
+    """Whether the last word on the card is "written". The latest of the
+    history's `flashed`/`generated` entries decides, so an unmark (D187)
+    sticks instead of the sweep re-deriving `flashed` from an older mark."""
+    for entry in reversed(record.status_history):
+        if entry.get("status") in ("flashed", "generated"):
+            return entry.get("status") == "flashed"
+    return False
 
 
 def derive_status(db: Session, record: DeviceProvisioningRecord) -> str:
@@ -116,7 +124,7 @@ def derive_status(db: Session, record: DeviceProvisioningRecord) -> str:
             return "mismatch"
         return "registered"
 
-    return "flashed" if _ever(record, "flashed") else "generated"
+    return "flashed" if _operator_flashed(record) else "generated"
 
 
 def _append(record: DeviceProvisioningRecord, status: str, actor: str | None) -> None:
@@ -165,4 +173,21 @@ def mark_flashed(record: DeviceProvisioningRecord, actor_user_id: uuid.UUID) -> 
             f"only a generated card can be marked flashed; this one is {record.status!r}"
         )
     _append(record, "flashed", str(actor_user_id))
+    return True
+
+
+def unmark_flashed(record: DeviceProvisioningRecord, actor_user_id: uuid.UUID) -> bool:
+    """Retract "this card is written", for a card marked by mistake (D187).
+    Returns whether anything changed; unmarking a generated card is a no-op.
+
+    Only a `flashed` card can be unmarked: once a device has spoken, its status
+    is the evidence's, not the operator's.
+    """
+    if record.status == "generated":
+        return False
+    if record.status != "flashed":
+        raise RecordTransitionError(
+            f"only a flashed card can be unmarked; this one is {record.status!r}"
+        )
+    _append(record, "generated", str(actor_user_id))
     return True

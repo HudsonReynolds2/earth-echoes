@@ -2026,20 +2026,26 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 - **`app/provisioning/records.py`:**
   - `derive_status(db, record)` is a pure read.
   - `reconcile_records(session_factory) -> RecordSweepReport` is one idempotent pass.
-  - `mark_flashed(record, actor)` is the operator transition.
+  - `mark_flashed(record, actor)` and `unmark_flashed(record, actor)` are the operator
+    transitions (`generated` ⇄ `flashed`; D187).
 - **Rules** (in precedence order): latched `confirmed` > `mismatch` (an identity quarantine for
   the MAC created at or after the record, or a reported checksum that matches no revision of
   that device) > `confirmed` (reported checksum = embedded checksum; latches) > `registered`
-  (any `device_state` row, including a LATER revision's checksum) > `flashed` (operator-set) >
-  `generated`.
+  (any `device_state` row, including a LATER revision's checksum) > `flashed` (operator-set; the
+  operator's LATEST mark or unmark decides, D187) > `generated`.
 - **Evidence keys:** `device_state.(entity_type, entity_id)` = the record's
   `(target_type, target_id)`, with aggregators keyed by row id (D75).
 - **Runs on the worker** as the `provisioning-records` sweep (D168), on the service-config
   cadence.
 - **Routes:**
   - `GET /provisioning/records/{id}` (VIEW).
-  - `PATCH /provisioning/records/{id}` with body `{"status": "flashed"}` only (MANAGE). Returns
-    409 unless the record is `generated`, and is idempotent when already `flashed`. Audited.
+  - `PATCH /provisioning/records/{id}` with body `{"status": "flashed"}` or
+    `{"status": "generated"}` (MANAGE).
+    - `flashed` marks a card written. It returns 409 unless the record is `generated`, and is
+      idempotent when already `flashed`. Audited as `provisioning.record.flashed`.
+    - `generated` unmarks a mis-click (D187). It returns 409 unless the record is `flashed`,
+      and is idempotent when already `generated`. Audited as `provisioning.record.unflashed`.
+    - Any other value is a 422.
 
 ## Owned by SIM
 

@@ -89,8 +89,16 @@ be provisioned.
 
 ## 5. The card journey (E4.9): the board fills in by itself
 
-- [ ] **Mark 7 cards flashed**. All seven move to **Flashed**; the button reads *Mark 0 cards
-      flashed*.
+- [ ] With nothing checked, the button reads *Check cards to mark flashed* and is disabled.
+      Check **two** cards: it reads *Mark 2 cards flashed*. Press it. Only those two move to
+      **Flashed**; the rest stay in **Generated** (D184).
+- [ ] **Reload the page.** The two cards are still in **Flashed**: each card's status is saved
+      as it is marked, so 30 cards can be flashed over several sittings.
+- [ ] In the **Flashed** column, check one of those two cards and press **Unmark 1 card**. It
+      goes back to **Generated** and stays there (D187). Cards in Registered, Confirmed or
+      Mismatch never offer a checkbox: their status is what the device reported.
+- [ ] **Select all** in the Generated column, then **Mark 6 cards flashed**. All seven are now
+      **Flashed**.
 - [ ] Bring the Aggregator up **from its card**, exactly as a Pi would: its own login from
       `settings.yaml`, with this Pod's six Listeners attached. From the repo root, with `ZIPDIR`
       set to your unzipped folder:

@@ -49,6 +49,7 @@ from app.provisioning.records import (
     derive_status,
     mark_flashed,
     reconcile_records,
+    unmark_flashed,
 )
 from app.provisioning.service import create_bundle
 from app.secrets import SecretStore
@@ -331,6 +332,40 @@ def test_the_operator_may_only_flash_a_generated_card(env):
             mark_flashed(db.get(DeviceProvisioningRecord, confirmed.id), ACTOR)
         flashed = next(r for r in _records(factory, "listener") if r.status == "flashed")
         assert mark_flashed(db.get(DeviceProvisioningRecord, flashed.id), ACTOR) is False
+
+
+def test_an_unmarked_card_stays_generated_through_a_sweep(env):
+    """D187: a mis-click is undone, and the sweep honours the operator's LATEST
+    word. Before, it re-derived `flashed` from any mark ever made, so an
+    unmarked card would have jumped back within one pass."""
+    factory, _ = env
+    record = next(r for r in _records(factory, "listener") if r.status == "generated")
+    history = list(record.status_history)
+    with factory() as db:
+        assert mark_flashed(db.get(DeviceProvisioningRecord, record.id), ACTOR) is True
+        db.commit()
+    with factory() as db:
+        assert unmark_flashed(db.get(DeviceProvisioningRecord, record.id), ACTOR) is True
+        db.commit()
+    assert reconcile_records(factory).changed is False
+    assert _status(factory, record.id) == (
+        "generated",
+        [e["status"] for e in history] + ["flashed", "generated"],
+    )
+
+    with factory() as db:  # and it can be marked again, which the sweep keeps
+        assert unmark_flashed(db.get(DeviceProvisioningRecord, record.id), ACTOR) is False
+        assert mark_flashed(db.get(DeviceProvisioningRecord, record.id), ACTOR) is True
+        db.commit()
+    reconcile_records(factory)
+    assert _status(factory, record.id)[0] == "flashed"
+
+
+def test_the_operator_may_only_unmark_a_flashed_card(env):
+    factory, _ = env
+    confirmed = next(r for r in _records(factory, "listener") if r.status == "confirmed")
+    with factory() as db, pytest.raises(RecordTransitionError, match="'confirmed'"):
+        unmark_flashed(db.get(DeviceProvisioningRecord, confirmed.id), ACTOR)
 
 
 # --- The worker runs it (D168) ------------------------------------------------------------------

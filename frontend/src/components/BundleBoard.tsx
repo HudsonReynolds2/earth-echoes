@@ -5,9 +5,14 @@
  * pipeline a human physically walks through: cards get written, devices come
  * online, reports get compared" (S6). One column per spec 8.5 status, in
  * pipeline order. The header carries the two field actions: download the
- * archive, and mark the cards that are still `generated` as flashed, the one
- * transition a person asserts (D179). Every other column fills in by itself
- * as the worker's reconciler reads what devices report.
+ * archive. The two columns a person drives carry their own action: check
+ * cards in Generated and mark them flashed, the one transition a person
+ * asserts (D179), or check cards in Flashed and unmark a mis-click (D187).
+ * Cards are picked one by one because a field tech writes 30 cards over hours,
+ * not in one sitting: each card's status is saved on its own record as it is
+ * marked, so the board is the running tally of which cards are done (D184).
+ * Every other column fills in by itself as the worker's reconciler reads what
+ * devices report.
  */
 import { FormEvent, useState } from "react";
 
@@ -15,10 +20,17 @@ import { RecordChip } from "./RecordChip";
 import { Listener } from "../lib/inventory";
 import {
   BundleDetail,
+  OperatorStatus,
   ProvisioningRecord,
   RECORD_STATUSES,
   RecordStatus,
 } from "../lib/provisioning";
+
+/** The two columns a person drives, and what checking cards in each does. */
+const COLUMN_ACTION: Partial<Record<RecordStatus, OperatorStatus>> = {
+  generated: "flashed",
+  flashed: "generated",
+};
 
 const COLUMN_HELP: Record<RecordStatus, string> = {
   generated: "Card file prepared, not yet written.",
@@ -37,7 +49,7 @@ export function BundleBoard({
   marking,
   downloading,
   notice,
-  onMarkFlashed,
+  onSetStatus,
   onDownload,
   onFillIn,
 }: {
@@ -49,7 +61,7 @@ export function BundleBoard({
   marking: boolean;
   downloading: boolean;
   notice: string | null;
-  onMarkFlashed: (recordIds: string[]) => void;
+  onSetStatus: (recordIds: string[], to: OperatorStatus) => void;
   onDownload: () => void;
   onFillIn: (mac: string, input: FillIn) => Promise<void>;
 }) {
@@ -64,7 +76,16 @@ export function BundleBoard({
   const pods = Object.keys(bundle.plan)
     .map((id) => podNames[id] ?? id)
     .join(", ");
-  const pending = byStatus.generated.map((record) => record.id);
+  // The checked cards. A column's action counts only its own cards, so a card
+  // that moved on (marked here, or by the reconciler on a refetch) drops out.
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) =>
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <section className="bundle-board" data-testid="bundle-board" aria-label="Bundle tracking board">
@@ -89,16 +110,6 @@ export function BundleBoard({
               disabled={downloading}
             >
               {downloading ? "Downloading…" : "Download bundle"}
-            </button>
-            <button
-              type="button"
-              onClick={() => onMarkFlashed(pending)}
-              disabled={pending.length === 0 || marking}
-              data-testid="mark-flashed"
-            >
-              {marking
-                ? "Marking…"
-                : `Mark ${pending.length} card${pending.length === 1 ? "" : "s"} flashed`}
             </button>
           </div>
         )}
@@ -143,6 +154,16 @@ export function BundleBoard({
               <span className="bundle-column-count">{byStatus[status].length}</span>
             </header>
             <p className="form-help">{COLUMN_HELP[status]}</p>
+            {canManage && COLUMN_ACTION[status] && byStatus[status].length > 0 && (
+              <ColumnAction
+                ids={byStatus[status].map((record) => record.id)}
+                to={COLUMN_ACTION[status]}
+                checked={checked}
+                marking={marking}
+                setChecked={setChecked}
+                onRun={onSetStatus}
+              />
+            )}
             <ul className="bundle-cards">
               {byStatus[status].map((record) => (
                 <RecordCard
@@ -150,6 +171,10 @@ export function BundleBoard({
                   record={record}
                   listener={listeners[record.target_id]}
                   canEditDevices={canEditDevices}
+                  selectable={canManage && COLUMN_ACTION[status] !== undefined}
+                  checked={checked.has(record.id)}
+                  disabled={marking}
+                  onToggle={() => toggle(record.id)}
                   onFillIn={onFillIn}
                 />
               ))}
@@ -158,6 +183,71 @@ export function BundleBoard({
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * *Select all* plus the column's one button, acting on the checked cards of
+ * this column only. "Mark 2 cards flashed" in Generated, "Unmark 2 cards" in
+ * Flashed; disabled, and saying what to do, while nothing is checked.
+ */
+function ColumnAction({
+  ids,
+  to,
+  checked,
+  marking,
+  setChecked,
+  onRun,
+}: {
+  ids: string[];
+  to: OperatorStatus;
+  checked: ReadonlySet<string>;
+  marking: boolean;
+  setChecked: (next: ReadonlySet<string>) => void;
+  onRun: (recordIds: string[], to: OperatorStatus) => void;
+}) {
+  const selected = ids.filter((id) => checked.has(id));
+  const all = selected.length === ids.length;
+  const noun = `card${selected.length === 1 ? "" : "s"}`;
+  const label =
+    selected.length === 0
+      ? `Check cards to ${to === "flashed" ? "mark flashed" : "unmark"}`
+      : to === "flashed"
+        ? `Mark ${selected.length} ${noun} flashed`
+        : `Unmark ${selected.length} ${noun}`;
+  return (
+    <div className="bundle-column-action">
+      <label className="bundle-select-all">
+        <input
+          type="checkbox"
+          checked={all}
+          onChange={() => {
+            const next = new Set(checked);
+            for (const id of ids) {
+              if (all) next.delete(id);
+              else next.add(id);
+            }
+            setChecked(next);
+          }}
+          disabled={marking}
+        />
+        Select all
+      </label>
+      <button
+        type="button"
+        className={to === "flashed" ? undefined : "btn-secondary"}
+        onClick={() => {
+          onRun(selected, to);
+          const next = new Set(checked);
+          for (const id of selected) next.delete(id);
+          setChecked(next);
+        }}
+        disabled={selected.length === 0 || marking}
+        data-testid={to === "flashed" ? "mark-flashed" : "unmark-flashed"}
+      >
+        {marking ? "Saving…" : label}
+      </button>
+    </div>
   );
 }
 
@@ -174,11 +264,19 @@ function RecordCard({
   record,
   listener,
   canEditDevices,
+  selectable,
+  checked,
+  disabled,
+  onToggle,
   onFillIn,
 }: {
   record: ProvisioningRecord;
   listener: Listener | undefined;
   canEditDevices: boolean;
+  selectable: boolean;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
   onFillIn: (mac: string, input: FillIn) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -188,8 +286,19 @@ function RecordCard({
   const canFill =
     !isAggregator && listener !== undefined && canEditDevices && ONLINE.has(record.status);
   return (
-    <li className="bundle-card" data-testid={`record-${record.target_id}`}>
-      <strong>{isAggregator ? "Aggregator" : (listener?.name ?? "Listener")}</strong>
+    <li
+      className="bundle-card"
+      data-testid={`record-${record.target_id}`}
+      data-checked={checked || undefined}
+    >
+      {selectable ? (
+        <label className="bundle-card-select">
+          <input type="checkbox" checked={checked} onChange={onToggle} disabled={disabled} />
+          <strong>{isAggregator ? "Aggregator" : (listener?.name ?? "Listener")}</strong>
+        </label>
+      ) : (
+        <strong>{isAggregator ? "Aggregator" : (listener?.name ?? "Listener")}</strong>
+      )}
       <span className="mono">{isAggregator ? record.aggregator_uuid : record.target_id}</span>
       <span className="form-help">
         {record.file_path.split("/").slice(2).join("/")}

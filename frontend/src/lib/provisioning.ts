@@ -116,12 +116,15 @@ export function createBundle(input: CreateBundleIn) {
   });
 }
 
-/** The operator's one transition (spec 8.5): "this card is written". */
-export function markFlashed(recordId: string) {
+/** The statuses a person may set (spec 8.5): "flashed" marks a card written,
+ * "generated" unmarks a mis-click (D187). The rest are the reconciler's. */
+export type OperatorStatus = "flashed" | "generated";
+
+export function setRecordStatus(recordId: string, status: OperatorStatus) {
   return request<ProvisioningRecord>(`/provisioning/records/${recordId}`, {
     method: "PATCH",
     headers: writeHeaders(),
-    body: JSON.stringify({ status: "flashed" }),
+    body: JSON.stringify({ status }),
   });
 }
 

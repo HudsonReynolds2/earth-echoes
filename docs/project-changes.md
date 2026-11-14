@@ -5,6 +5,24 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #46 (2026-11-13): Cards are marked flashed one by one, and a mis-click can be unmarked
+
+- **What changed:**
+  - **Marking.** E4.10's single "Mark N cards flashed" action marked every Generated card at
+    once. It is replaced by a per-card checkbox and *Select all* in the Generated column, with
+    the column's button marking only the checked cards (D184).
+  - **Unmarking.** The Flashed column has the same controls with an *Unmark* button. Spec 13's
+    `PATCH /provisioning/records/{id}` therefore gains a second operator value,
+    `{"status": "generated"}`, allowed only from `flashed` (D187).
+  - **The reconciler.** Its no-evidence fallback now follows the operator's LATEST mark or
+    unmark. Previously it followed any mark ever made.
+- **Why:** owner feedback from the batch-4 browser test. A field tech flashing 30 cards does so
+  over several sittings, must be able to record exactly which cards are done, and needs to undo
+  a mis-click.
+- **Who approved:** the owner, 2026-11-13.
+- **Affects:** project_planning/phase-4-provisioning.md section 4 (E4.9's `flashed` rule)
+- **Addendum:** PHASE4-4-01
+
 ## #45 (2026-11-13): E4's three owner decisions at plan approval — bootstrap default ON, the reconciler as a sweep, and an E4.2 that carries no secret slot
 
 - **What changed:** `project_planning/phase-4-provisioning.md` §2 gains addendum

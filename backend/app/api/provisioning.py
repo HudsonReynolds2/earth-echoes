@@ -40,7 +40,7 @@ from app.inventory.naming import normalize_mac
 from app.models import DeviceProvisioningRecord, ProvisioningBundle, UserSession
 from app.provisioning.bootstrap import BootstrapRefused
 from app.provisioning.generate import GenerationError
-from app.provisioning.records import RecordTransitionError, mark_flashed
+from app.provisioning.records import RecordTransitionError, mark_flashed, unmark_flashed
 from app.provisioning.service import ArchiveMissing, PodChoice, create_bundle, load_archive
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
 from app.services.credentials import CredentialError
@@ -312,13 +312,15 @@ def download_bundle(
 
 
 class PatchRecordIn(BaseModel):
-    """Spec 13 `PATCH /provisioning/records/{id}`. One allowed value, on
-    purpose: `registered`, `confirmed` and `mismatch` are statements about
-    evidence, and the reconciler derives them (D179)."""
+    """Spec 13 `PATCH /provisioning/records/{id}`. Two allowed values, on
+    purpose: `flashed` marks a generated card written, and `generated`
+    unmarks a flashed one (a mis-click, D187). `registered`, `confirmed` and
+    `mismatch` are statements about evidence, and the reconciler derives them
+    (D179)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["flashed"]
+    status: Literal["flashed", "generated"]
 
 
 def _resolve_record(
@@ -350,13 +352,18 @@ def patch_record(
 ) -> RecordOut:
     record = _resolve_record(db, actor, record_id, Permission.MANAGE_PROVISIONING)
     try:
-        changed = mark_flashed(record, actor.user_id)
+        transition = mark_flashed if body.status == "flashed" else unmark_flashed
+        changed = transition(record, actor.user_id)
     except RecordTransitionError as error:
         raise AppError("conflict", str(error), status_code=409) from error
     if changed:
         record_audit(
             db,
-            action="provisioning.record.flashed",
+            action=(
+                "provisioning.record.flashed"
+                if body.status == "flashed"
+                else "provisioning.record.unflashed"
+            ),
             entity_type="device_provisioning_record",
             entity_id=str(record.id),
             actor_user_id=actor.user_id,
