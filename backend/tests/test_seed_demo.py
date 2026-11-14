@@ -72,9 +72,25 @@ def test_demo_seed_is_one_command_deterministic_and_refuses_reruns():
             # first pod carries the pod tags and GPS.
             alder_01 = db.get(Listener, "02:EE:0E:01:01:01")
             assert alder_01 is not None and alder_01.name == "alder-creek-01"
-            assert alder_01.tags == ["coastal"] and alder_01.gps_lat == 47.6
+            # E6.2a moved the fixture's GPS to sit around each Pod (D189):
+            # 130 m north of Alder Creek's Aggregator, not the pre-E6 spot
+            # (47.6, -121.88) that every Pod's first listener shared.
+            assert alder_01.tags == ["coastal"]
+            assert (alder_01.gps_lat, alder_01.gps_lon) == (41.2222, -124.012)
             alder_02 = db.get(Listener, "02:EE:0E:01:01:02")
             assert alder_02 is not None and alder_02.gps_lat is None
+            # E6.2a: every Deployment and Aggregator is placed, and no two
+            # Listeners in different Pods share a coordinate.
+            assert all(d.gps_lat is not None for d in db.scalars(select(Deployment)))
+            assert all(a.gps_lat is not None for a in db.scalars(select(Aggregator)))
+            placed = [
+                (row.aggregator_id, (row.gps_lat, row.gps_lon))
+                for row in db.scalars(select(Listener).where(Listener.gps_lat.is_not(None)))
+            ]
+            owners: dict[tuple[float, float], set] = {}
+            for aggregator_id, point in placed:
+                owners.setdefault(point, set()).add(aggregator_id)
+            assert all(len(pods) == 1 for pods in owners.values())
             # One system audit row summarizes the seed.
             detail = db.scalar(
                 select(AuditLog.detail).where(AuditLog.action == "inventory.seed_demo")

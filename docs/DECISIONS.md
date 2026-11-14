@@ -4,6 +4,166 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D194 (2026-11-13): How E6.2a placed Deployments and Pods
+
+- **A PATCH is judged by its result.** `apply_coordinates` combines the PATCH with the
+  row's current values and refuses half a pair. Moving one axis of a placed Deployment is
+  therefore allowed, nulling one axis is a 422, and clearing a position means sending both
+  nulls. Create bodies are checked directly. The message is shared by the API and
+  `LocationCard`: "give both latitude and longitude, or neither".
+- **Three layers, one rule.** The API's 422 explains the rule. The import reports a half
+  row as a `validation_error` row (checked before insert, so it does not read as the
+  `conflict` the database would raise). The `ck_*_gps_pair` / `ck_*_gps_range` CHECKs catch
+  any path around the API.
+- **Listener GPS is unchanged.** The listener API still accepts half a pair, which is E1's
+  behavior and outside phase-6's authorized edits. Only the frontend's E4.11 dialog refuses
+  it. Recorded, not fixed. Bringing listeners under the same rule is a one-line change if an
+  owner wants it.
+- **Aggregator CSVs gain an optional tail, not new header columns.** The header must be
+  exactly the pre-E6 columns, or those plus `gps_lat,gps_lon`. Every aggregator CSV written
+  before E6 still imports. A header with only one of the two is still malformed.
+- **The fixture moved, deliberately.** Before E6, listener *i* had the same coordinates in
+  every Pod (`47.6+i/100, −121.88−i/100`), so pins would have stacked across Pods and
+  Deployments. Listeners now sit about 130 m N/E/S/W of their own Pod, and Deployments and
+  Aggregators are placed (Redwood Coast near Orick, CA; High Desert near Fort Rock, OR).
+  `test_seed_demo.py` was amended to match. Its old assertion `alder_01.gps_lat == 47.6`
+  pinned the pre-E6 rule; it now pins the new point and adds "no two Pods share a listener
+  point". This is a test changed with its fixture, not weakened. `inventory-fixture.ts`
+  mirrors the seed with the same arithmetic, and `location.test.tsx` pins first-listener
+  equality.
+- **The SIM fleet's origin comes from the slug digest**, like its MAC head. Two fleets land
+  in different places, and the answer is computable from the slug alone, which keeps
+  provisioning idempotent.
+- **Reference:** phase-6 §2 fixed choice 2 and the authorized-edits table; E6.2a.
+
+## D193 (2026-11-13): How E6.1 built the basemaps
+
+- **Google is shipped, under Google's third-party-renderer rules.** Phase-6 fixed choice 1
+  made E6.1 check the Map Tiles API policies before shipping the Google source. They allow a
+  third-party renderer, provided three conditions hold:
+  - the Google mark is shown, as text ("Google Maps") where the logo does not fit;
+  - the per-viewport copyright from `/tile/v1/viewport` is displayed;
+  - tiles are not pre-fetched or cached beyond the response headers. Offline use is
+    prohibited, which offline mode already guarantees.
+
+  The layer opens a session, refreshes the copyright on every `moveend`, and caches nothing
+  itself. The phase document's stop-and-ask did not trigger.
+- **`GET /map/config` is gated on `require_any_assignment`, not on
+  `require_permission(VIEW_STATUS)`.** The latter without a path scope is an org-level check,
+  so it would 403 a Deployment Operator assigned to one Deployment. Every role holds
+  `VIEW_STATUS`, and the response is platform configuration, not scoped data.
+- **PMTiles serves both raster and vector archives.** The operator configures one URL, and
+  the archive header picks the renderer: `pmtiles`' raster layer for imagery, and
+  `protomaps-leaflet` (light flavor) for a vector street map. protomaps-leaflet bundles its
+  own `pmtiles` copy, so it is handed the URL, not our archive object. Both are dynamic
+  imports. The production build shows them as separate 19 KB and 127 KB chunks.
+- **Blank settings mean unset.** Compose passes `${EOE_MAP_*:-}` as `""`. A `before`
+  validator turns blank strings into `None`. Otherwise an empty `EOE_MAP_IMAGE_BOUNDS` would
+  fail startup on every default install.
+- **Library pins:** `leaflet` 1.9.4, `react-leaflet` 4.2.1 (the React 18 line), `pmtiles`
+  4.5.0, `protomaps-leaflet` 5.1.0, and `@types/leaflet` 1.9.20, all exact in
+  `package.json`. `leaflet.markercluster` arrives with E6.2b. Leaflet's attribution prefix is
+  set to a plain "Leaflet" link, without the default flag graphic.
+- **Reference:** phase-6 §2 fixed choices 1 and 7, E6.1; D188.
+
+## D192 (2026-11-13): A docs-only task gets no gate of its own
+
+- **Decision:** a task that changes only planning documents and records gets no full gate of
+  its own. Examples are a phase document, a ledger, project-changes entries, addenda and
+  DECISIONS entries. It runs `test_governance` on its own, which is the one suite that reads
+  those files, and is committed locally. The **next code task's full gate covers it**, and
+  nothing is pushed or tagged until that gate is green. Owner's instruction, 2026-11-13, at
+  E6.0: "You definitely don't need to run a full gate when all you have done is make plans."
+- **Rule R0 is narrowed, not weakened.** Every code change still ends on a full gate. R3 still
+  holds: nothing reaches the remote without a full green gate.
+- **First use:** E6.0.
+- **Reference:** rule R0, rule R3; E4.0's and E5.0's docs-only gates (gate-66, gate-53) are the
+  practice this replaces.
+
+## D191 (2026-11-13): E6's alerts are the open inventory alerts, attached to the device they name
+
+- **Decision:** until E7, the only alerts are open `inventory_alert` rows (`duplicate_identity`
+  and `provisioning_required`).
+  - **Attached alerts.** An alert whose entity is in inventory attaches to that device: a
+    listener MAC, or an `aggregator_uuid` that resolves to an Aggregator. That device becomes
+    `alerting` and gets an alert badge with the count.
+  - **Unattached alerts.** An alert that matches no inventory row, such as a
+    `provisioning_required` for an unknown Aggregator, counts toward its Deployment's badge
+    only.
+  - **The seam.** The source is one seam, `app/map/alerts.py::open_alerts`. E7 adds Grafana
+    alerts by extending it.
+- **Authorized E3-owned edit (E6.4).** `controlplane/device_status.py` gains an alert input,
+  which its own docstring anticipates. It is applied through `hierarchy_common`'s batched
+  readers, so the inventory tables, the map and the Overview still read one derivation (D60).
+  The existing `device_status` tests stay unchanged.
+- **Why:** spec 9.2 says "any device with an active alert renders with an alert badge", and
+  spec 9.3 makes active alerts part of displayed status. Applying alerts in the map alone would
+  let the map and the inventory table disagree about the same device, which D60 exists to
+  prevent.
+- **Reference:** phase-6 §2 fixed choice 4; spec 9.2, 9.3, 4.3.
+
+## D190 (2026-11-13): Only `services_status = 'degraded'` changes a Deployment marker's status
+
+- **Decision:** a Deployment's rolled-up status is the worst of its descendants' statuses,
+  plus `degraded` when its `services_status` is `degraded`. `unconfigured` and
+  `pending_verification` never change device status. They render as a separate services chip
+  on the marker, the drawer and the Overview card. `verified` adds nothing. Owner's choice,
+  2026-11-13.
+- **Why:** spec 16.5 says services status "surfaces on the map rollup". A brand-new Deployment
+  whose services have not been set up yet is not broken, and painting it degraded would teach
+  operators to ignore the color. `degraded` is different: it means a stack that was verified
+  is now failing re-checks.
+- **Note:** DES v2's legend lists "service untested" under degraded. The services chip is
+  where that is shown. The device-status color does not show it.
+- **Reference:** phase-6 §2 fixed choice 3; spec 9.3, 16.5.
+
+## D189 (2026-11-13): Aggregators and Deployments get coordinate columns, with no derived fallback
+
+- **Decision:** an additive, reversible migration adds nullable `gps_lat`/`gps_lon` to
+  `aggregator` and `deployment`.
+  - **Validation.** Values are range-validated as the Listener's are, and both-or-neither is
+    enforced by a named CHECK constraint and at the API.
+  - **Placement.** A Pod's marker sits at its Aggregator's coordinates (spec 9.2), and a
+    Deployment's marker at its own.
+  - **No fallback.** There is no centroid or other derived fallback. Anything without
+    coordinates is not drawn and is listed in an *Unplaced* panel linking to the form that
+    fixes it. GPS-less Listeners keep spec 9.2's leaf rule, which is not a fallback.
+  - **Fixture and fleet.** The demo fixture and the SIM fleet get deterministic coordinates at
+    all three levels. The fixture's Listener GPS moves to sit around its own Pod, because
+    today listener *i* has the same coordinates in every Pod.
+  - Owner's choice, 2026-11-13: "The system has never been deployed in real life so there is
+    no real data for fallbacks to be necessary."
+- **Why:** spec 9.2 places Pods "at the Aggregator's location" and Deployments at
+  "representative coordinates", but neither entity has a coordinate field.
+- **Reference:** phase-6 §2 fixed choice 2; spec 4.1, 9.2.
+
+## D188 (2026-11-13): Leaflet with switchable basemaps; Esri satellite by default
+
+- **Decision:**
+  - **Engine.** Leaflet with react-leaflet (spec 9.1).
+  - **Sources.** Basemaps sit behind a closed `BasemapSource` interface (spec 14.5):
+    `esri_imagery` (default online, no key), `osm`, `google_satellite` (only when
+    `EOE_MAP_GOOGLE_API_KEY` is set), `pmtiles` (`EOE_MAP_PMTILES_URL`), `image`
+    (`EOE_MAP_IMAGE_URL` and `EOE_MAP_IMAGE_BOUNDS`), and `none` (tests, and the
+    offline-with-nothing-configured fallback).
+  - **Offline.** `EOE_MAP_OFFLINE=true` removes every online source.
+  - **Delivery.** The API serves the configuration at runtime (`GET /map/config`), so changing
+    basemaps needs no rebuild.
+  - **Attribution** is always visible.
+  - Owner's choice, 2026-11-13.
+- **Supersedes:** project-changes #9's direction (Google Maps JS API as the engine; #49) and
+  spec 9.1's OSM default (#48, SPEC-9-01).
+- **The Google key is not a secret.** A Maps key is necessarily sent to the browser, so it does
+  not go through `SecretStore`. It must be HTTP-referrer-restricted, and `.env.example` says
+  so. If Google's current terms forbid showing Map Tiles API tiles in a non-Google renderer,
+  E6.1 stops and asks instead of shipping the source.
+- **Open remainders:**
+  - Esri's terms for production use of World Imagery (attribution and account requirements)
+    must be confirmed before a production deploy. **E8.7 owns this.**
+  - E8's CSP must allow the configured tile hosts (named in INTERFACES' E6 section when E6.1
+    lands).
+- **Reference:** phase-6 §2 fixed choice 1; spec 9.1, 14.5, 15.1.
+
 ## D187 (2026-11-13): A card marked flashed by mistake can be unmarked, the same way it was marked
 
 - **Decision:** the **Flashed** column has the same checkboxes and *Select all* as Generated, and

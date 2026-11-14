@@ -17,13 +17,16 @@ from sqlalchemy.exc import IntegrityError
 
 from app.api.hierarchy_common import (
     AggregatorOut,
+    CoordinatesIn,
     TagsBody,
     TagsOut,
     aggregator_out,
+    apply_coordinates,
     clean_tags,
     deployment_of_aggregator,
     not_found,
     refuse_delete_with_children,
+    require_coordinate_pair,
 )
 from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
@@ -55,7 +58,7 @@ class AggregatorsQuery(PageParams):
     tag: str | None = None
 
 
-class CreateAggregatorBody(BaseModel):
+class CreateAggregatorBody(CoordinatesIn):
     model_config = {"extra": "forbid"}
 
     pod_id: uuid.UUID
@@ -64,7 +67,7 @@ class CreateAggregatorBody(BaseModel):
     name: str | None = Field(default=None, max_length=200)
 
 
-class PatchAggregatorBody(BaseModel):
+class PatchAggregatorBody(CoordinatesIn):
     model_config = {"extra": "forbid"}
 
     name: str | None = Field(default=None, max_length=200)
@@ -137,11 +140,14 @@ def create_aggregator(
         raise AppError(
             "forbidden", "requires permission manage_devices in this deployment", status_code=403
         )
+    require_coordinate_pair(body.gps_lat, body.gps_lon)
     row = Aggregator(
         pod_id=body.pod_id,
         aggregator_uuid=body.aggregator_uuid or uuid.uuid4().hex,
         balena_uuid=body.balena_uuid,
         name=body.name,
+        gps_lat=body.gps_lat,
+        gps_lon=body.gps_lon,
     )
     db.add(row)
     try:
@@ -180,6 +186,7 @@ def patch_aggregator(
         row.name = changed["name"]
     if "balena_uuid" in changed:
         row.balena_uuid = changed["balena_uuid"]
+    apply_coordinates(row, changed)
     if changed:
         record_audit(
             db,

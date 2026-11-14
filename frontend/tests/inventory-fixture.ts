@@ -100,14 +100,43 @@ const PODS: FixturePod[] = [
 
 const STAMP = { created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-01T00:00:00Z" };
 
+// E6.2a (D189): mirrors backend/app/seed.py's DEMO_*_COORDS exactly.
+const DEPLOYMENT_COORDS: Record<string, [number, number]> = {
+  [RC]: [41.213, -124.004],
+  [HD]: [43.358, -121.056],
+};
+const POD_COORDS: Record<string, [number, number]> = {
+  "demo-agg-rc-01": [41.221, -124.012],
+  "demo-agg-rc-02": [41.208, -123.992],
+  "demo-agg-rc-03": [41.199, -124.01],
+  "demo-agg-hd-01": [43.367, -121.066],
+  "demo-agg-hd-02": [43.355, -121.042],
+  "demo-agg-hd-03": [43.346, -121.07],
+};
+/** Even-index listener k = i / 2 sits ~130 m north, east, south, then west
+ * of its Pod; odd indices carry no GPS (seed.py `demo_listener_gps`). */
+const LEAF_OFFSETS: [number, number][] = [
+  [0.0012, 0],
+  [0, 0.0016],
+  [-0.0012, 0],
+  [0, -0.0016],
+];
+
+export function demoListenerGps(aggUuid: string, i: number): [number | null, number | null] {
+  if (i % 2 !== 0) return [null, null];
+  const [lat, lon] = POD_COORDS[aggUuid];
+  const [dlat, dlon] = LEAF_OFFSETS[(i / 2) % LEAF_OFFSETS.length];
+  return [Number((lat + dlat).toFixed(6)), Number((lon + dlon).toFixed(6))];
+}
+
 export const listeners = PODS.flatMap((pod) =>
   Array.from({ length: pod.listeners }, (_, i) => ({
     mac: `${pod.mac_block}:${String(i + 1).padStart(2, "0")}`,
     name: `${pod.prefix}-${String(i + 1).padStart(2, "0")}`,
     aggregator_id: pod.agg_id,
     deployment_id: pod.deployment_id,
-    gps_lat: i % 2 === 0 ? 47.6 + i / 100 : null,
-    gps_lon: i % 2 === 0 ? -121.88 - i / 100 : null,
+    gps_lat: demoListenerGps(pod.agg_uuid, i)[0],
+    gps_lon: demoListenerGps(pod.agg_uuid, i)[1],
     tags: i === 0 ? pod.tags : [],
     // E3.12/D60: real status, and most fixture devices have never spoken —
     // which is the honest default and the one the guard test leans on.
@@ -123,6 +152,8 @@ export const aggregators = PODS.map((pod) => ({
   balena_uuid: null,
   name: null,
   tags: [] as string[],
+  gps_lat: POD_COORDS[pod.agg_uuid][0] as number | null,
+  gps_lon: POD_COORDS[pod.agg_uuid][1] as number | null,
   listener_count: pod.listeners,
   status: "unknown" as const,
   ...STAMP,
@@ -146,6 +177,8 @@ export const deployments = [
     name: "Redwood Coast",
     slug: "redwood-coast",
     tags: ["coastal"],
+    gps_lat: DEPLOYMENT_COORDS[RC][0] as number | null,
+    gps_lon: DEPLOYMENT_COORDS[RC][1] as number | null,
     pod_count: 3,
     listener_count: 16,
     ...STAMP,
@@ -156,6 +189,8 @@ export const deployments = [
     name: "High Desert",
     slug: "high-desert",
     tags: ["ridge"],
+    gps_lat: DEPLOYMENT_COORDS[HD][0] as number | null,
+    gps_lon: DEPLOYMENT_COORDS[HD][1] as number | null,
     pod_count: 3,
     listener_count: 12,
     ...STAMP,

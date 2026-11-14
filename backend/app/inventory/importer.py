@@ -34,6 +34,10 @@ MAX_BYTES = 1024 * 1024
 
 LISTENER_CSV_COLUMNS = ["mac", "name", "aggregator_uuid", "gps_lat", "gps_lon", "tags"]
 AGGREGATOR_CSV_COLUMNS = ["pod_id", "aggregator_uuid", "balena_uuid", "name", "tags"]
+#: E6.2a (D189): an aggregator CSV MAY end with these two columns. Optional as
+#: a pair rather than folded into the strict header, so every aggregator CSV
+#: written before E6 still imports unchanged.
+AGGREGATOR_CSV_OPTIONAL_TAIL = ["gps_lat", "gps_lon"]
 
 
 class ListenerImportRow(BaseModel):
@@ -55,6 +59,8 @@ class AggregatorImportRow(BaseModel):
     balena_uuid: str | None = Field(default=None, max_length=64)
     name: str | None = Field(default=None, max_length=200)
     tags: list[str] = Field(default_factory=list)
+    gps_lat: float | None = Field(default=None, ge=-90, le=90)
+    gps_lon: float | None = Field(default=None, ge=-180, le=180)
 
 
 class RowError(BaseModel):
@@ -77,18 +83,24 @@ class ImportReport(BaseModel):
     rows: list[RowResult]
 
 
-def parse_csv_rows(text: str, columns: list[str]) -> list[dict[str, Any]]:
+def parse_csv_rows(
+    text: str, columns: list[str], optional_tail: list[str] | None = None
+) -> list[dict[str, Any]]:
     """Strict-header CSV to row dicts. Empty cells become None; `tags` is
     pipe-separated. A wrong header is a whole-request 422 - the file is
-    malformed, not a row problem."""
+    malformed, not a row problem. `optional_tail` names columns the header
+    MAY end with, all of them or none (E6.2a)."""
     import csv
     import io
 
     reader = csv.DictReader(io.StringIO(text))
-    if reader.fieldnames is None or [name.strip() for name in reader.fieldnames] != columns:
+    allowed = [columns] + ([columns + optional_tail] if optional_tail else [])
+    header = [name.strip() for name in reader.fieldnames] if reader.fieldnames else None
+    if header is None or header not in allowed:
+        forms = " or ".join(",".join(form) for form in allowed)
         raise AppError(
             "validation_error",
-            f"CSV header must be exactly: {','.join(columns)}",
+            f"CSV header must be exactly: {forms}",
             status_code=422,
         )
     rows: list[dict[str, Any]] = []
@@ -275,6 +287,13 @@ def import_aggregators(
                 _error(index, "forbidden", "no manage_devices grant in this row's deployment")
             )
             continue
+        if (parsed.gps_lat is None) != (parsed.gps_lon is None):
+            # Checked here so the row reads as a validation error naming the
+            # fix, rather than as the conflict the database CHECK would raise.
+            results.append(
+                _error(index, "validation_error", "give both latitude and longitude, or neither")
+            )
+            continue
         aggregator_uuid = parsed.aggregator_uuid or uuid.uuid4().hex
         nested = db.begin_nested()
         try:
@@ -284,6 +303,8 @@ def import_aggregators(
                 balena_uuid=parsed.balena_uuid,
                 name=parsed.name,
                 tags=_clean_tags(parsed.tags),
+                gps_lat=parsed.gps_lat,
+                gps_lon=parsed.gps_lon,
             )
             db.add(row)
             db.flush()

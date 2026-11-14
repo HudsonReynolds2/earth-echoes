@@ -1,5 +1,87 @@
 # Project Updates
 
+## 2026-11-13: E6.2a — Deployments and Pods have a place on the map (Gate 82 GREEN)
+
+- **What changed:**
+  - **Data.** Migration `670aec9e9363` adds nullable `gps_lat`/`gps_lon` and named
+    `gps_pair`/`gps_range` CHECKs to `deployment` and `aggregator` (the Pod marker sits at its
+    Aggregator, spec 9.2). There is no derived fallback (D189).
+  - **API.** The coordinate fields are on create, PATCH, and the Pod-create inline
+    aggregator. A PATCH is judged by its result, and half a pair is a 422 that names the fix.
+    The aggregator CSV may end with `gps_lat,gps_lon`, and pre-E6 headers still import.
+  - **Fixture and fleet.** The demo fixture is placed: Redwood Coast near Orick, CA and High
+    Desert near Fort Rock, OR, with listeners about 130 m around their own Pod instead of all
+    Pods sharing one spot. The SIM fleet is placed by its slug.
+  - **UI.** `LocationCard` lets operators set or clear a location on the deployment and pod
+    pages.
+  - Decisions are in D194, and INTERFACES gains E1/SIM amendments and an E6 entry.
+- **Gate:** 82, GREEN on the second run. The entire accumulated suite, no filters.
+  - Run 1 was RED on `backend-quality` only. Verbatim: "unformatted: File would be
+    reformatted --> alembic/versions/670aec9e9363_map_coordinates.py". Every test passed in
+    that run. The new, uncommitted migration was formatted.
+  - Run 2 was GREEN.
+- **Tests:** **1319 backend / 208 vitest / 6 Playwright / 79 `/sim`**, 1612 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_coordinates.py` (23),
+  `location.test.tsx` (8), and SIM `test_a_fleet_is_placed_on_the_map_deterministically`.
+  `test_seed_demo.py` was amended with its fixture (D194).
+- **Command:** `make gate`
+- **Manual verification:** on a fresh QA stack (project `eoe-e6`, see below), checked as the
+  owner through the live API:
+  - `GET /map/config` offers Esri satellite as the default and OSM, with no Google entry.
+  - Both demo Deployments and all six Aggregators carry their fixture coordinates.
+  - PATCH `{"gps_lon": null}` on a placed Deployment returns 422 "give both latitude and
+    longitude, or neither", and latitude 95 returns 422.
+- **QA stack note:** the existing `eoe-qa` database volume (created during the E4 batch-4
+  browser test) does not accept this checkout's `deploy/.env` credentials, and that `.env`
+  also predated `EOE_FIRMWARE_KEK`.
+  - The `.env` gained a locally generated `EOE_FIRMWARE_KEK`.
+  - `eoe-qa` was stopped with its volumes kept.
+  - CP1 runs on a fresh project, `eoe-e6`. Nothing was deleted.
+
+## 2026-11-13: E6.0 and E6.1 — the E6 plan, and a live map with switchable basemaps (Gate 81 GREEN)
+
+- **What changed:**
+  - **E6.0, docs only.** The phase document `phase-6-map-monitoring.md` and
+    `e6-progress-ledger.md`, plus project-changes #47-#49, addenda PLAN-3-05, SPEC-9-01 and
+    DES-7-04, and DECISIONS D188-D192.
+    - Owner-fixed choices: Leaflet with switchable basemaps and Esri satellite by default
+      (D188); coordinate columns on Aggregator and Deployment with no derived fallback (D189);
+      only services `degraded` moves a Deployment marker (D190).
+    - By the owner's instruction, this task got no gate of its own (D192). This gate covers it.
+  - **E6.1.** `GET /api/v1/map/config` and the `EOE_MAP_*` settings (blank means unset).
+    `lib/basemaps.ts` is the spec 14.5 tile-source interface: a closed id set with one factory
+    each.
+    - Google is served through the Map Tiles API, under its third-party-renderer rules.
+    - PMTiles handles raster and vector archives, in lazy chunks.
+    - `MapView` replaces the Map page's EmptyState, and Leaflet's controls are relit from
+      tokens.
+    - The E1 walkthrough's `/map` line is amended. Decisions are in D193.
+- **Gate:** 81, GREEN on the third run. The entire accumulated suite, no filters.
+  - Run 1 was RED: `test_repo_layout.py::test_compose_env_pins_every_variable_the_compose_file_interpolates`.
+    Verbatim: "compose interpolates these but compose_env does not pin them:
+    {'EOE_MAP_PMTILES_URL', 'EOE_MAP_GOOGLE_API_KEY', 'EOE_MAP_IMAGE_BOUNDS',
+    'EOE_MAP_IMAGE_URL', 'EOE_MAP_OFFLINE'}". This was a real omission: the five new compose
+    variables were not pinned for the container tests (D87). Fixed by pinning them to the
+    compose defaults. No test was weakened.
+  - Run 2 was RED: 1 setup error in `test_publish_revision.py`. Verbatim: "ports are not
+    available: exposing port TCP 127.0.0.1:54721 -> 127.0.0.1:0: /forwards/expose returned
+    unexpected status: 500 … 6 attempts (D99: Docker's forwarder under load)". This is Docker
+    Desktop's forwarder, D181's open root cause, now on its fifth occurrence. Three forwarding
+    probes then passed.
+  - Run 3 was GREEN.
+- **Tests:** **1296 backend / 200 vitest / 6 Playwright / 78 `/sim`**, 1580 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_config.py` (16), `basemaps.test.ts`
+  (14), `map-page.test.tsx` (5) and `e2e/map.spec.ts` (2, which fails on any tile-host
+  request).
+- **Command:** `make gate`
+- **Manual verification:**
+  - In a real browser, the Map page loaded **real Esri satellite tiles (28)** and **real
+    OpenStreetMap tiles (28)**. I inspected a screenshot: the satellite imagery fills the
+    region, the legend and switcher are in place, and the attribution reads "Leaflet | Powered
+    by Esri · Source: Esri, Maxar, Earthstar Geographics…".
+  - `npm run build` shows the PMTiles libraries as separate lazy chunks (19 KB, 127 KB).
+  - The owner's hands-on check is CP1, after E6.2a.
+
 ## 2026-11-13: Batch-4 browser-test follow-ups: per-card flash, unmark, inheritance layout (Gate 80 GREEN)
 
 - **What changed:** owner feedback from hand-testing batch 4 in the browser.

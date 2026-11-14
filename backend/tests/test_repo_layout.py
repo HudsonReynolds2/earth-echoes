@@ -90,6 +90,14 @@ def compose_env() -> dict[str, str]:
         "BUILD_SHA": "dev",
         "EOE_CORS_ORIGINS": "http://localhost:15173",
         "EOE_FRONTEND_API_URL": "http://localhost:18000",
+        # E6.1's basemap knobs (D188), pinned to the compose defaults: online,
+        # no Google key, no offline sources. A walkthrough `.env` that set an
+        # image or offline mode must not change what the container tests serve.
+        "EOE_MAP_OFFLINE": "false",
+        "EOE_MAP_GOOGLE_API_KEY": "",
+        "EOE_MAP_PMTILES_URL": "",
+        "EOE_MAP_IMAGE_URL": "",
+        "EOE_MAP_IMAGE_BOUNDS": "",
         # SIM.4's fleet knobs, pinned to the compose file's own defaults. The
         # `sim` service is profiled off, so these do not change what `up` starts
         # — but `compose config` still interpolates them, and D87's rule is that

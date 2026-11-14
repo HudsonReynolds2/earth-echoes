@@ -46,6 +46,10 @@ only the published host side moved, so the stack coexists with other local servi
 | `EOE_DRIFT_SWEEP_SECONDS` | no | drift re-comparison cadence, default 300 (E3.7) |
 | `EOE_BROKER_REFRESH_SECONDS` | no | how often both hosts reload broker coordinates, default 30 (E5.7b, D137) |
 | `EOE_SERVICE_CONFIG_SWEEP_SECONDS` | no | deployment-service config sweep cadence, default 60 (E5.7b, D137) |
+| `EOE_MAP_OFFLINE` | no (default `false`) | remove every internet basemap (E6.1, D188). Additive row, owned by E6 |
+| `EOE_MAP_GOOGLE_API_KEY` | no | Google Map Tiles API **browser** key; offers the Google satellite basemap. Public by design, must be referrer-restricted, not a SecretStore secret (E6.1, D188). Additive row, owned by E6 |
+| `EOE_MAP_PMTILES_URL` | no | offline PMTiles basemap URL, raster or vector (E6.1). Additive row, owned by E6 |
+| `EOE_MAP_IMAGE_URL`, `EOE_MAP_IMAGE_BOUNDS` | no, both or neither | operator georeferenced image; bounds `south,west,north,east`, validated fail-loud at startup (E6.1). Additive row, owned by E6 |
 
 No secret defaults are committed; `deploy/.env.example` documents names only, never values.
 Settings precedence: environment variable over TOML config file over default (D5).
@@ -342,6 +346,13 @@ proven by `backend/tests/test_hierarchy_schema.py`:
   columns, never conflated (spec 4.2): `id` (platform UUID), `aggregator_uuid String(64)`
   unique + indexed (the join key unifying Prometheus/Influx/S3; global uniqueness = the
   within-org rule while v1 is single-org, D32), `balena_uuid` nullable.
+- **E6.2a amendment (D189): `deployment` and `aggregator` gain nullable `gps_lat`/`gps_lon`**,
+  with named CHECKs `ck_<table>_gps_pair` (both or neither) and `ck_<table>_gps_range`. They
+  are map positions (the Pod marker sits at its Aggregator, spec 9.2), NOT catalog keys: no
+  `location.*` setting resolves to them. Exposed on `DeploymentOut`/`AggregatorOut` and
+  accepted on create, PATCH and the Pod-create inline aggregator; a PATCH is judged by its
+  RESULT (`apply_coordinates`), so moving one axis of an existing pair is allowed and half a
+  pair is a 422 `"give both latitude and longitude, or neither"`. Listener GPS is unchanged.
 - **`listener`** — **`mac String(17)` is the PRIMARY KEY** (D31), CHECK-constrained to
   uppercase colon-separated `AA:BB:CC:DD:EE:FF`; FK `aggregator.id`; **`deployment_id` is a
   set-once denormalized stamp** (D32) making `uq_listener_deployment_id` (name unique
@@ -417,7 +428,9 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **CSV formats (normative; header exact, `tags` pipe-separated, blank = null):**
   listeners `mac,name,aggregator_uuid,gps_lat,gps_lon,tags` — parents referenced by
   `aggregator_uuid`; aggregators `pod_id,aggregator_uuid,balena_uuid,name,tags` — blank
-  `aggregator_uuid` is platform-generated (spec 4.2). Operator examples:
+  `aggregator_uuid` is platform-generated (spec 4.2). **E6.2a:** the aggregator header may also end with
+  `gps_lat,gps_lon` (`AGGREGATOR_CSV_OPTIONAL_TAIL`; both or neither, and per row both or
+  neither — a half row is a `validation_error` row); pre-E6 headers import unchanged. Operator examples:
   `guide/bulk-import.md` (defers here).
 - **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
   failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
@@ -438,7 +451,12 @@ hierarchy-only when an owner already exists). Canonical, deterministic contents 
   Basin Flat" (`demo-agg-hd-01`, 6, `basin-flat-NN`, `02:EE:0E:02:01:NN`), "Pod 02 ·
   Mesa Rim" (`demo-agg-hd-02`, 4, `mesa-rim-NN`, `02:EE:0E:02:02:NN`), "Pod 03 · Dry
   Wash" (`demo-agg-hd-03`, 2, `dry-wash-NN`, `02:EE:0E:02:03:NN`). 28 listeners total.
-- **Determinism rules:** even-index listeners carry GPS (47.6+i/100, −121.88−i/100);
+- **Determinism rules:** ~~even-index listeners carry GPS (47.6+i/100, −121.88−i/100);~~
+  *(amended E6.2a, D189: every Deployment and Aggregator is placed — Redwood Coast near
+  Orick CA, High Desert near Fort Rock OR, `app/seed.py` `DEMO_DEPLOYMENT_COORDS` /
+  `DEMO_POD_COORDS` — and even-index listener i sits ~130 m N/E/S/W of its own Pod by
+  `DEMO_LEAF_OFFSETS[(i // 2) % 4]`, rounded to 6 places (`demo_listener_gps`); odd indices
+  stay GPS-less, 15 placed and 13 leaves in all)*;
   each pod's first listener carries the pod's tags; nothing is random.
 
 ### Inventory frontend (E1.8) — E2/E3/E4/E6 extend these surfaces
@@ -2047,6 +2065,50 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
       and is idempotent when already `generated`. Audited as `provisioning.record.unflashed`.
     - Any other value is a 422.
 
+## Owned by E6
+
+### Basemaps and `GET /map/config` (E6.1; spec 9.1, 14.5, 15.1; D188, D193)
+
+- **The tile-source interface is `frontend/src/lib/basemaps.ts`.** A closed id set
+  (`esri_imagery`, `osm`, `google_satellite`, `pmtiles`, `image`, `none`), one definition and
+  one async layer factory per id (`LAYER_FACTORIES: Record<BasemapId, ...>`). Components call
+  `createBasemapLayer(entry)` and never name a tile server. The same id list lives in
+  `backend/app/map/basemaps.py`; `test_map_config.py` and `basemaps.test.ts` pin both.
+- **`GET /api/v1/map/config`** (`require_any_assignment`; every role holds `VIEW_STATUS`):
+  `{offline, default, sources: [{id, url, bounds, api_key}]}`. The server decides which
+  sources are offered from the `EOE_MAP_*` settings; the frontend owns URL templates,
+  attribution and zoom limits. Online default `esri_imagery`; offline default is the first of
+  `pmtiles`, `image`, else `none`. Offline mode removes every online source.
+- **Google** (only with a key) uses the Map Tiles API: a session from `createSession`, tiles
+  from `/v1/2dtiles`, and the "Google Maps" mark plus the per-viewport copyright from
+  `/tile/v1/viewport`, refreshed on every `moveend`, as Google's third-party-renderer policy
+  requires. Nothing caches tiles beyond the browser's honoring of response headers.
+- **PMTiles** reads the archive header: raster archives draw with `pmtiles`'
+  `leafletRasterLayer`, vector archives with `protomaps-leaflet`. Both are dynamic imports in
+  their own chunks, never in the main bundle.
+- **The viewer's basemap** is remembered per browser under `localStorage["eoe.map.basemap"]`
+  (try/catch both ways) and dropped if the server no longer offers it.
+- **For E8's CSP:** `BASEMAPS[id].host` names each online source's host —
+  `server.arcgisonline.com`, `tile.openstreetmap.org`, `tile.googleapis.com` (`img-src`, plus
+  `connect-src` for Google's two JSON calls) — and the PMTiles/image origin is the operator's
+  configured URL (`connect-src` for PMTiles range requests, `img-src` for the image).
+- **Frontend:** `components/map/MapView.tsx` (react-leaflet `MapContainer`, `BasemapLayer`,
+  the switcher, an `overlay` slot for DOM drawn over the map), `lib/map.ts` (query keys under
+  `["map", ...]`). Leaflet's controls are relit from tokens in `app.css`'s map section.
+- **Tests never contact a tile host.** vitest builds layer objects only; `e2e/map.spec.ts`
+  runs against the `none` basemap and fails on any request to a known tile host.
+
+### Coordinates on Deployments and Aggregators (E6.2a; spec 9.2; D189)
+
+- Columns, API and import: see E1's entity schema and bulk import sections (amended
+  additively). **No derived fallback**: a Deployment or Pod without coordinates is not drawn
+  and belongs in the map's Unplaced panel (E6.2b).
+- **Frontend:** `components/LocationCard.tsx` (`parseCoordinates`, `HALF_PAIR_MESSAGE`) on
+  the deployment page (`deployment-location`) and the pod page (`pod-location`, editing the
+  Aggregator); `patchDeployment`/`patchAggregator` and the `Coordinates` type in
+  `lib/inventory.ts`. Gated on `manage_devices`; saving invalidates every query, so the map
+  re-reads.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform
@@ -2114,6 +2176,12 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 ### Provisioning a fleet (SIM.4; D112) — over the platform's own API
 
 `sim/provision.py`, importable and a CLI (`uv run python provision.py`).
+
+- **E6.2a (D189): a fleet is placed on the map.** `FleetPlan.deployment_coords()` (an origin
+  in the western US derived from the slug digest, like `mac_head`), `pod_coords(index)` (a
+  square grid at `POD_SPACING` ≈ 1.3 km) and `listener_coords(index, listener_index)` (even
+  indices on a `LISTENER_RADIUS` ≈ 165 m ring around their Pod, odd indices `None`). Sent on
+  `POST /deployments`, the Pod-create inline aggregator, and the listener import.
 
 - **`FleetPlan(aggregators=20, listeners_per_aggregator=30, deployment_slug="sim-fleet",
   mac_prefix=None)`** — every identity is a pure function of the slug and two indices, which is

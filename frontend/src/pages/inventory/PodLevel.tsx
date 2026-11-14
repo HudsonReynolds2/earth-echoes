@@ -23,9 +23,17 @@ import { EntityTable } from "../../components/EntityTable";
 import { NameConflictDialog } from "../../components/NameConflictDialog";
 import { PageHeader } from "../../components/PageHeader";
 import { StatusCell } from "../../components/StatusChip";
+import { LocationCard } from "../../components/LocationCard";
 import { TagEditor } from "../../components/TagEditor";
 import { getCatalog } from "../../lib/config";
-import { ApiError, createListener, getPod, Listener, listListeners } from "../../lib/inventory";
+import {
+  ApiError,
+  createListener,
+  getPod,
+  Listener,
+  listListeners,
+  patchAggregator,
+} from "../../lib/inventory";
 import { InventoryOutletContext } from "./InventoryLayout";
 
 /** The E2.8 selection column (spec 5.2's simple path) leads; the rest is
@@ -271,6 +279,16 @@ export function PodLevel() {
           </p>
         )}
       </section>
+      {row.aggregator && (
+        <LocationCard
+          title="Map location"
+          what="this pod"
+          value={{ gps_lat: row.aggregator.gps_lat, gps_lon: row.aggregator.gps_lon }}
+          deploymentId={row.deployment_id}
+          onSave={(coordinates) => patchAggregator(row.aggregator!.id, coordinates)}
+          testId="pod-location"
+        />
+      )}
       {row.aggregator && <DeviceTimeline target={{ kind: "aggregator", id: row.aggregator.id }} />}
       {showCreate && row.aggregator && (
         <section className="card">

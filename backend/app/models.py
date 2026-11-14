@@ -223,6 +223,15 @@ class Organization(Base):
     deployments: Mapped[list["Deployment"]] = relationship(back_populates="organization")
 
 
+# --- E6.2a: map coordinates on Deployment and Aggregator (spec 9.2; D189) ----
+
+#: Both-or-neither, and in range. A marker cannot be drawn from half a pair,
+#: and the API's 422 is the friendly half of this rule; these CHECKs are the
+#: half no code path can skip (import, seed, a future bulk tool).
+GPS_PAIR_CHECK = "(gps_lat IS NULL) = (gps_lon IS NULL)"
+GPS_RANGE_CHECK = "gps_lat IS NULL OR (gps_lat BETWEEN -90 AND 90 AND gps_lon BETWEEN -180 AND 180)"
+
+
 class Deployment(Base):
     """One telemetry stack plus one MQTT broker (spec 4.1). slug keys the
     MQTT topic namespace ({dep}, spec 7.2): lowercase URL-safe, globally
@@ -238,6 +247,8 @@ class Deployment(Base):
             _in_vocab("services_status", SERVICES_STATUS_VOCAB), name="services_status_vocab"
         ),
         Index("ix_deployment_tags", "tags", postgresql_using="gin"),
+        CheckConstraint(GPS_PAIR_CHECK, name="gps_pair"),
+        CheckConstraint(GPS_RANGE_CHECK, name="gps_range"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -245,6 +256,11 @@ class Deployment(Base):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(63), unique=True, index=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String(64)), default=list)
+    #: E6.2a (spec 9.2's "representative coordinates"; D189): where the
+    #: Deployment's marker sits. Set by the operator; NO derived fallback - a
+    #: Deployment without coordinates is listed as unplaced, not guessed at.
+    gps_lat: Mapped[float | None] = mapped_column(Float, default=None)
+    gps_lon: Mapped[float | None] = mapped_column(Float, default=None)
     #: E3.7: the spec 6.4 item 4 window, in seconds, after which a `pending`
     #: revision this deployment owns is failed as a timeout. A PLATFORM
     #: setting, not a device setting (phase-3 fixed choice), so it lives on the
@@ -330,7 +346,11 @@ class Aggregator(Base):
     rule, D32), balena_uuid is the Balena cross-reference."""
 
     __tablename__ = "aggregator"
-    __table_args__ = (Index("ix_aggregator_tags", "tags", postgresql_using="gin"),)
+    __table_args__ = (
+        Index("ix_aggregator_tags", "tags", postgresql_using="gin"),
+        CheckConstraint(GPS_PAIR_CHECK, name="gps_pair"),
+        CheckConstraint(GPS_RANGE_CHECK, name="gps_range"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     pod_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pod.id"), unique=True)
@@ -338,6 +358,11 @@ class Aggregator(Base):
     balena_uuid: Mapped[str | None] = mapped_column(String(64), default=None)
     name: Mapped[str | None] = mapped_column(String(200), default=None)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String(64)), default=list)
+    #: E6.2a (spec 9.2: the Pod marker sits "at the Aggregator's location";
+    #: D189). The Aggregator is on Ethernet at the Pod's HaLow router, so its
+    #: position IS the Pod's. No derived fallback.
+    gps_lat: Mapped[float | None] = mapped_column(Float, default=None)
+    gps_lon: Mapped[float | None] = mapped_column(Float, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

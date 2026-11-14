@@ -30,6 +30,16 @@ pod_id,aggregator_uuid,balena_uuid,name,tags
 
 Leave `aggregator_uuid` blank and the platform assigns one (the recommended path).
 
+The header may also end with `gps_lat,gps_lon`, to place each pod on the map as it is
+imported (the pod's marker sits at its aggregator). Both columns or neither, and on each row
+both values or neither: a row with only one is reported as an error. CSVs without the two
+columns import exactly as before.
+
+```csv
+pod_id,aggregator_uuid,balena_uuid,name,tags,gps_lat,gps_lon
+6f1d2c3b-...,agg-ridge-02,,ridge-gateway,ridge,41.2080,-123.9920
+```
+
 ## Sending it
 
 ```bash

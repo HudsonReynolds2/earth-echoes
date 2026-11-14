@@ -493,6 +493,8 @@ The Pod's WiFi-layer encryption (`network.wifi_security`, Section 5.3) protects 
 
 The map uses Leaflet with react-leaflet and OpenStreetMap tiles by default. For offline or air-gapped local hosting, the platform supports PMTiles, a single-file vector basemap requiring no tile server.
 
+> **Addendum SPEC-9-01 (2026-11-13, ref project-changes #48):** the engine stays Leaflet with react-leaflet, but **the default basemap is satellite imagery** (Esri World Imagery, no key) rather than OpenStreetMap tiles. The basemap is operator-switchable behind the Section 14.5 tile-source interface. OpenStreetMap stays available. Google satellite is offered only when the operator configures a referrer-restricted Google Maps API key. For offline or air-gapped hosts, PMTiles remains supported, and an operator-supplied georeferenced image is added as a second offline option. An offline setting removes every online source. Esri's terms for production use are an open item for the hardening phase. Rationale in DECISIONS.md D188.
+
 ### 9.2 Hierarchy on the map
 
 Each hierarchy level renders distinctly and is clickable, drilling from Organization summary to a single Listener.

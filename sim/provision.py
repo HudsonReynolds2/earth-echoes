@@ -37,6 +37,7 @@ import hashlib
 import http.cookiejar
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -432,6 +433,45 @@ class FleetPlan:
     def indices(self) -> range:
         return range(self.aggregators)
 
+    # -- Where the fleet sits on the map (E6.2a; spec 9.2; D189) ------------
+
+    #: Pod grid pitch, about 1.3 km of latitude: far enough apart that Pods
+    #: read as separate markers at Deployment zoom.
+    POD_SPACING = 0.012
+    #: Listener ring radius around its Pod, about 165 m of latitude.
+    LISTENER_RADIUS = 0.0015
+
+    def deployment_coords(self) -> tuple[float, float]:
+        """The fleet's origin, derived from the slug like `mac_head`, so two
+        fleets in two deployments land in different places and the answer is
+        computable from the slug alone. Inside the western US, where the demo
+        fixture also sits, so a QA map shows both without a long pan."""
+        digest = hashlib.sha256(self.deployment_slug.encode()).digest()
+        return round(40.0 + digest[3] / 255 * 6, 6), round(-123.5 + digest[4] / 255 * 6, 6)
+
+    def pod_coords(self, index: int) -> tuple[float, float]:
+        """Pods on a square grid starting at the origin."""
+        side = math.ceil(math.sqrt(self.aggregators))
+        lat, lon = self.deployment_coords()
+        row, column = divmod(index, side)
+        return (
+            round(lat + row * self.POD_SPACING, 6),
+            round(lon + column * self.POD_SPACING, 6),
+        )
+
+    def listener_coords(self, index: int, listener_index: int) -> tuple[float | None, float | None]:
+        """Even-index Listeners sit on a ring around their Pod; odd ones carry
+        no GPS, so a fleet exercises both pins and leaves (spec 9.2)."""
+        if listener_index % 2 != 0:
+            return None, None
+        placed = math.ceil(self.listeners_per_aggregator / 2)
+        angle = 2 * math.pi * (listener_index // 2) / max(placed, 1)
+        lat, lon = self.pod_coords(index)
+        return (
+            round(lat + self.LISTENER_RADIUS * math.cos(angle), 6),
+            round(lon + self.LISTENER_RADIUS * math.sin(angle), 6),
+        )
+
 
 @dataclass(frozen=True)
 class ProvisionedAggregator:
@@ -521,7 +561,13 @@ def _deployment(operator: Operator, organization_id: str, plan: FleetPlan) -> st
         return str(found[0]["id"])
     created = operator.post(
         "/deployments",
-        {"organization_id": organization_id, "name": plan.name, "slug": plan.deployment_slug},
+        {
+            "organization_id": organization_id,
+            "name": plan.name,
+            "slug": plan.deployment_slug,
+            "gps_lat": plan.deployment_coords()[0],
+            "gps_lon": plan.deployment_coords()[1],
+        },
     )
     log.info("created deployment %s (%s)", created["slug"], created["id"])
     return str(created["id"])
@@ -551,7 +597,11 @@ def _aggregator(
         {
             "deployment_id": deployment_id,
             "name": plan.pod_name(index),
-            "aggregator": {"aggregator_uuid": aggregator_uuid},
+            "aggregator": {
+                "aggregator_uuid": aggregator_uuid,
+                "gps_lat": plan.pod_coords(index)[0],
+                "gps_lon": plan.pod_coords(index)[1],
+            },
         },
     )
     aggregator = pod["aggregator"]
@@ -583,8 +633,8 @@ def _import_listeners(operator: Operator, plan: FleetPlan, fleet: ProvisionedFle
             "mac": mac,
             "name": plan.listener_name(aggregator.index, listener_index),
             "aggregator_uuid": aggregator.aggregator_uuid,
-            "gps_lat": None,
-            "gps_lon": None,
+            "gps_lat": plan.listener_coords(aggregator.index, listener_index)[0],
+            "gps_lon": plan.listener_coords(aggregator.index, listener_index)[1],
             "tags": ["sim"],
         }
         for aggregator in fleet.aggregators

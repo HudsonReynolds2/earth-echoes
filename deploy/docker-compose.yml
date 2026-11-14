@@ -27,6 +27,13 @@ services:
       REDIS_URL: ${REDIS_URL:-}
       EOE_CORS_ORIGINS: ${EOE_CORS_ORIGINS:-http://localhost:15173}
       EOE_PUBLISH_ENABLED: ${EOE_PUBLISH_ENABLED:-true}
+      # E6.1 (D188): the map's basemaps. All optional; unset means the two
+      # keyless online sources, satellite by default.
+      EOE_MAP_OFFLINE: ${EOE_MAP_OFFLINE:-false}
+      EOE_MAP_GOOGLE_API_KEY: ${EOE_MAP_GOOGLE_API_KEY:-}
+      EOE_MAP_PMTILES_URL: ${EOE_MAP_PMTILES_URL:-}
+      EOE_MAP_IMAGE_URL: ${EOE_MAP_IMAGE_URL:-}
+      EOE_MAP_IMAGE_BOUNDS: ${EOE_MAP_IMAGE_BOUNDS:-}
     depends_on:
       postgres:
         condition: service_healthy

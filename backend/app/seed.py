@@ -73,6 +73,44 @@ DEMO_HIERARCHY = [
 ]
 
 
+# E6.2a (D189): where the demo sits on the map. Redwood Coast is on the
+# northern California coast near Orick; High Desert is in central Oregon near
+# Fort Rock. Pods are 1-2 km apart, keyed by aggregator_uuid. Mirrored in
+# frontend/tests/inventory-fixture.ts; INTERFACES "The demo fixture" states
+# the rule.
+DEMO_DEPLOYMENT_COORDS: dict[str, tuple[float, float]] = {
+    "redwood-coast": (41.2130, -124.0040),
+    "high-desert": (43.3580, -121.0560),
+}
+DEMO_POD_COORDS: dict[str, tuple[float, float]] = {
+    "demo-agg-rc-01": (41.2210, -124.0120),
+    "demo-agg-rc-02": (41.2080, -123.9920),
+    "demo-agg-rc-03": (41.1990, -124.0100),
+    "demo-agg-hd-01": (43.3670, -121.0660),
+    "demo-agg-hd-02": (43.3550, -121.0420),
+    "demo-agg-hd-03": (43.3460, -121.0700),
+}
+#: Even-index listener k = index // 2 sits about 130 m north, east, south,
+#: then west of its Pod. Odd indices stay GPS-less, so every Pod keeps a mix
+#: of pins and leaves (spec 9.2).
+DEMO_LEAF_OFFSETS: tuple[tuple[float, float], ...] = (
+    (0.0012, 0.0),
+    (0.0, 0.0016),
+    (-0.0012, 0.0),
+    (0.0, -0.0016),
+)
+
+
+def demo_listener_gps(aggregator_uuid: str, index: int) -> tuple[float | None, float | None]:
+    """The fixture rule, in one place: even indices carry GPS around their
+    Pod, odd indices carry none."""
+    if index % 2 != 0:
+        return None, None
+    pod_lat, pod_lon = DEMO_POD_COORDS[aggregator_uuid]
+    dlat, dlon = DEMO_LEAF_OFFSETS[(index // 2) % len(DEMO_LEAF_OFFSETS)]
+    return round(pod_lat + dlat, 6), round(pod_lon + dlon, 6)
+
+
 def seed_demo_hierarchy(db: Session) -> dict[str, int]:
     """Stage the canonical demo hierarchy. Fully deterministic — no randomness
     — so tests and later epics (E2 selections, E6 map) reference rows by name.
@@ -82,8 +120,14 @@ def seed_demo_hierarchy(db: Session) -> dict[str, int]:
     db.flush()
     counts = {"deployments": 0, "pods": 0, "aggregators": 0, "listeners": 0}
     for dep_name, slug, dep_tags, pod_rows in DEMO_HIERARCHY:
+        dep_lat, dep_lon = DEMO_DEPLOYMENT_COORDS[slug]
         deployment = Deployment(
-            organization_id=organization.id, name=dep_name, slug=slug, tags=dep_tags
+            organization_id=organization.id,
+            name=dep_name,
+            slug=slug,
+            tags=dep_tags,
+            gps_lat=dep_lat,
+            gps_lon=dep_lon,
         )
         db.add(deployment)
         db.flush()
@@ -92,22 +136,27 @@ def seed_demo_hierarchy(db: Session) -> dict[str, int]:
             pod = Pod(deployment_id=deployment.id, name=pod_name, tags=pod_tags)
             db.add(pod)
             db.flush()
-            aggregator = Aggregator(pod_id=pod.id, aggregator_uuid=aggregator_uuid)
+            pod_lat, pod_lon = DEMO_POD_COORDS[aggregator_uuid]
+            aggregator = Aggregator(
+                pod_id=pod.id, aggregator_uuid=aggregator_uuid, gps_lat=pod_lat, gps_lon=pod_lon
+            )
             db.add(aggregator)
             db.flush()
             counts["pods"] += 1
             counts["aggregators"] += 1
             for index in range(listener_count):
                 # Mirrors frontend/tests/inventory-fixture.ts exactly: even
-                # indices carry GPS, the first listener carries the pod tags.
+                # indices carry GPS around their Pod (E6.2a), the first
+                # listener carries the pod tags.
+                gps_lat, gps_lon = demo_listener_gps(aggregator_uuid, index)
                 db.add(
                     Listener(
                         mac=f"{mac_block}:{index + 1:02d}",
                         name=f"{prefix}-{index + 1:02d}",
                         aggregator_id=aggregator.id,
                         deployment_id=deployment.id,
-                        gps_lat=47.6 + index / 100 if index % 2 == 0 else None,
-                        gps_lon=-121.88 - index / 100 if index % 2 == 0 else None,
+                        gps_lat=gps_lat,
+                        gps_lon=gps_lon,
                         tags=pod_tags if index == 0 else [],
                     )
                 )

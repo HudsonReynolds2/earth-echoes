@@ -426,8 +426,8 @@ h2 {
 
 /* ── map surface ───────────────────────────────────────────────────────── */
 
-/* The real map engine lands with E6; this reserves its band so the shell,
- * context bar, and legend are settled around it. */
+/* DES.7 reserved this band; E6.1 fills it with the Leaflet map (D188). The
+ * region still centers its error state; the map itself fills it edge to edge. */
 .map-region {
   flex: 1;
   min-height: 0;
@@ -439,10 +439,101 @@ h2 {
   background: var(--eoe-color-surface-raised);
 }
 
+/* Leaflet's panes sit at z-index 400 and its controls at 1000. Everything the
+ * platform draws over the map shares the controls' layer. */
 .map-legend-slot {
   position: absolute;
   left: var(--eoe-space-6);
   bottom: var(--eoe-space-6);
+  z-index: 1000;
+}
+
+.map-view,
+.map-skeleton {
+  position: absolute;
+  inset: 0;
+}
+
+.map-canvas {
+  width: 100%;
+  height: 100%;
+  /* What the `none` basemap shows, and what shows between tiles loading. */
+  background: var(--eoe-color-surface-raised);
+  font-family: var(--eoe-font-family);
+}
+
+.map-control {
+  position: absolute;
+  top: var(--eoe-space-4);
+  right: var(--eoe-space-4);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  padding: var(--eoe-space-2) var(--eoe-space-3);
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-md);
+  box-shadow: var(--eoe-shadow-sm);
+}
+
+.basemap-switcher select {
+  min-height: var(--eoe-control-height-sm);
+}
+
+.map-notice {
+  position: absolute;
+  top: var(--eoe-space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  margin: 0;
+  max-width: calc(100% - 2 * var(--eoe-space-12));
+  padding: var(--eoe-space-2) var(--eoe-space-4);
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-md);
+  box-shadow: var(--eoe-shadow-sm);
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.map-notice-error {
+  top: var(--eoe-space-12);
+  color: var(--eoe-color-danger);
+  border-color: var(--eoe-color-danger-border);
+}
+
+/* Leaflet ships white controls. Relit from tokens so the night theme is not a
+ * bright box on a dark map. */
+.map-canvas .leaflet-bar {
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  box-shadow: var(--eoe-shadow-sm);
+}
+
+.map-canvas .leaflet-bar a {
+  background: var(--eoe-color-surface);
+  color: var(--eoe-color-text);
+  border-bottom-color: var(--eoe-color-border);
+}
+
+.map-canvas .leaflet-bar a:hover,
+.map-canvas .leaflet-bar a:focus-visible {
+  background: var(--eoe-color-surface-raised);
+}
+
+.map-canvas .leaflet-bar a.leaflet-disabled {
+  color: var(--eoe-color-text-subtle);
+}
+
+.map-canvas .leaflet-control-attribution {
+  background: var(--eoe-color-surface);
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-2xs);
+}
+
+.map-canvas .leaflet-control-attribution a {
+  color: var(--eoe-color-accent);
 }
 
 /* ── forms and controls ────────────────────────────────────────────────── */
