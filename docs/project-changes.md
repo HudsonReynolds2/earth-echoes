@@ -5,6 +5,65 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #49 (2026-11-13): project-changes #9's map-engine direction is superseded
+
+- **What changed:** #9 recorded, "so it is not re-decided", a map-engine direction for E6:
+  Google Maps satellite through the official JS API when online, an operator-supplied local
+  image for air-gapped hosts, and ESRI later. At E6 plan approval the owner chose differently
+  (#48). The engine is Leaflet. Esri satellite is the default basemap now, not later. Google is
+  an opt-in basemap source behind a key, not the engine. The local image remains an offline
+  option.
+- **Why:** #9 was written at DES.7, before any map work, to keep the satellite intent from
+  being lost. The owner kept that intent (satellite by default) and chose the spec's engine,
+  because it keeps the spec 14.5 tile-source interface and works without a key on day one.
+- **Who approved:** the owner, 2026-11-13, at E6 plan approval.
+- **Affects:** project_planning/DES-track-handoff.md (addendum DES-7-01's deferred map engine)
+- **Addendum:** DES-7-04
+
+## #48 (2026-11-13): The map's default basemap is satellite imagery, and basemaps are switchable
+
+- **What changed:** spec §9.1 gains addendum **SPEC-9-01**.
+  - **Unchanged:** the engine is Leaflet with react-leaflet.
+  - **Changed:** the default basemap is **Esri World Imagery** satellite (no key), not
+    OpenStreetMap.
+  - **Switchable sources** sit behind the spec 14.5 tile-source interface. They are:
+    OpenStreetMap; Google satellite (only when `EOE_MAP_GOOGLE_API_KEY` is set); PMTiles
+    (spec 9.1's offline source); an operator-supplied georeferenced image (a second offline
+    option); and `none`.
+  - **Offline:** `EOE_MAP_OFFLINE=true` removes every online source.
+  - **Remainder:** Esri's terms for production use are left open for E8.7 (DECISIONS
+    **D188**).
+- **Why:** the owner wants satellite imagery for field sites, which a street map does not
+  show. Esri World Imagery needs no key, so a new install shows satellite immediately. Google
+  needs a billed key, so it is opt-in.
+- **Who approved:** the owner, 2026-11-13, at E6 plan approval.
+- **Affects:** project_planning/echoes-of-earth-platform-spec-v1.1.md section 9.1
+- **Addendum:** SPEC-9-01
+
+## #47 (2026-11-13): E6's task list gains E6.0 and E6.8, E6.2 splits, E6.4 moves earlier, and E6 ships in four owner-checked batches
+
+- **What changed:** project plan §3 gains addendum **PLAN-3-05**, and
+  `project_planning/phase-6-map-monitoring.md` becomes binding for the epic.
+  - **New first task:** **E6.0 Phase document and records** (the SIM.0/E4.0/E5.0 precedent).
+  - **E6.2 splits** into **E6.2a** (coordinate columns on Aggregator and Deployment, which do
+    not exist today) and **E6.2b** (markers and clustering).
+  - **E6.4 moves ahead of E6.2b**, because markers cannot be colored before the rollup exists.
+  - **New last task:** **E6.8 Verification walkthrough and SIM acceptance**.
+  - **Working order:** E6.0, E6.1, E6.2a, E6.4, E6.2b, E6.3, E6.5, E6.6, E6.7, E6.8.
+  - **Batching:** **B1** = E6.0-E6.2a, **B2** = E6.4/E6.2b/E6.3, **B3** = E6.5-E6.6, **B4** =
+    E6.7-E6.8. There is one PR per batch, each branched from `main` after the previous one
+    merges.
+  - **Owner check:** every batch changes the UI, so each PR waits for the owner's hands-on
+    check (phase document §7, CP1-CP4) before it is merged.
+  - **Fixed choices:** the three owner choices are in DECISIONS **D188-D190**, and the
+    phase document's alert-attachment rule is **D191**.
+- **Why:** the plan's E6 list assumed coordinates existed at every level. Only Listeners have
+  them. The owner asked to check each visible feature on the site before later work depends on
+  it.
+- **Who approved:** the owner, 2026-11-13, at E6 plan approval.
+- **Affects:** project_planning/echoes-of-earth-project-plan.md section 3 (E6)
+- **Addendum:** PLAN-3-05
+
 ## #46 (2026-11-13): Cards are marked flashed one by one, and a mis-click can be unmarked
 
 - **What changed:**

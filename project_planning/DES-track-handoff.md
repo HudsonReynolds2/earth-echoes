@@ -110,6 +110,9 @@ redrawn yet, and their layout is still correct.
 > photograph's provenance and license remain unrecorded — tracked as a TODO in
 > `frontend/public/images/README.md` until the owner supplies them.
 
+> **Addendum DES-7-04 (2026-11-13, ref project-changes #49):** The map-engine direction that DES-7-01 records as deferred to E6 ("Google Maps satellite via the official JS API online, an operator-supplied local image for air-gapped hosts, ESRI later", project-changes #9) is **superseded by the owner's E6 decision**.
+> The engine is Leaflet, per spec 9.1. Satellite imagery is the default basemap, from Esri World Imagery, so Esri is no longer deferred. Google satellite is an opt-in source behind an API key, not the engine. The operator-supplied local image survives as an offline option beside PMTiles. See project-changes #48, spec addendum SPEC-9-01, and DECISIONS D188.
+
 ## Known caveat
 
 None of these mockups has been visually QA'd in-tool: the preview screenshot bridge in my

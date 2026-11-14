@@ -190,6 +190,8 @@ Definition of done: the map renders the hierarchy with correct leaf-vs-pin behav
 6. **E6.6 Live map updates.** Websocket-driven status changes without reload.
 7. **E6.7 Owner landing view.** Organization summary layout with per-deployment cards (data completed by E7).
 
+> **Addendum PLAN-3-05 (2026-11-13, ref project-changes #47):** E6's phase document is `project_planning/phase-6-map-monitoring.md` and is binding for the epic, including its three owner-fixed choices (Leaflet with switchable basemaps and satellite by default, D188; coordinate columns on Aggregator and Deployment with no derived fallback, D189; only `services_status = 'degraded'` moves a Deployment marker, D190). The task list changes in four ways: **E6.0 Phase document and records** is added in front; **E6.2 splits** into E6.2a (coordinates for Aggregators and Deployments) and E6.2b (markers and clustering); **E6.4 runs before E6.2b**, because markers cannot be colored before the rollup exists; and **E6.8 Verification walkthrough and SIM acceptance** is added at the end. The working order is E6.0, E6.1, E6.2a, E6.4, E6.2b, E6.3, E6.5, E6.6, E6.7, E6.8. E6 lands in four batches (E6.0-E6.2a, E6.4/E6.2b/E6.3, E6.5-E6.6, E6.7-E6.8), one PR each, each branched from `main` after the previous PR merges, and every batch waits for the owner's hands-on check before it is merged. Every task still ends on a full gate.
+
 ### E7: Telemetry and alerts
 
 Goal: read integration with each deployment's stores, the Owner rollup, and Grafana alert surfacing.
