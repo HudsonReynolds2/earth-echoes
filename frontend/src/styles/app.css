@@ -372,37 +372,37 @@ h2 {
   font-family: var(--eoe-font-family-glyph);
 }
 
-.status-chip[data-status="healthy"] {
+:is(.status-chip, .map-marker, .map-cluster)[data-status="healthy"] {
   --status-color: var(--eoe-color-status-healthy);
   --status-tint: var(--eoe-color-status-healthy-tint);
   --status-glyph: var(--eoe-color-status-healthy-glyph);
 }
 
-.status-chip[data-status="sleeping"] {
+:is(.status-chip, .map-marker, .map-cluster)[data-status="sleeping"] {
   --status-color: var(--eoe-color-status-sleeping);
   --status-tint: var(--eoe-color-status-sleeping-tint);
   --status-glyph: var(--eoe-color-status-sleeping-glyph);
 }
 
-.status-chip[data-status="degraded"] {
+:is(.status-chip, .map-marker, .map-cluster)[data-status="degraded"] {
   --status-color: var(--eoe-color-status-degraded);
   --status-tint: var(--eoe-color-status-degraded-tint);
   --status-glyph: var(--eoe-color-status-degraded-glyph);
 }
 
-.status-chip[data-status="offline"] {
+:is(.status-chip, .map-marker, .map-cluster)[data-status="offline"] {
   --status-color: var(--eoe-color-status-offline);
   --status-tint: var(--eoe-color-status-offline-tint);
   --status-glyph: var(--eoe-color-status-offline-glyph);
 }
 
-.status-chip[data-status="alerting"] {
+:is(.status-chip, .map-marker, .map-cluster)[data-status="alerting"] {
   --status-color: var(--eoe-color-status-alerting);
   --status-tint: var(--eoe-color-status-alerting-tint);
   --status-glyph: var(--eoe-color-status-alerting-glyph);
 }
 
-.status-chip[data-status="drifted"] {
+:is(.status-chip, .map-marker, .map-cluster)[data-status="drifted"] {
   --status-color: var(--eoe-color-status-drifted);
   --status-tint: var(--eoe-color-status-drifted-tint);
   --status-glyph: var(--eoe-color-status-drifted-glyph);
@@ -534,6 +534,222 @@ h2 {
 
 .map-canvas .leaflet-control-attribution a {
   color: var(--eoe-color-accent);
+}
+
+/* ── map markers (E6.2b; DES v2: level = shape, status = color + glyph,
+ *    alert = a badge with its own outline) ─────────────────────────────── */
+
+/* Leaflet places a zero-size anchor at the coordinate; everything below is
+ * positioned around that point, so a marker of any size sits exactly on it. */
+.map-marker-anchor {
+  background: none;
+  border: none;
+  /* Labels and badges overflow the shape's box by design. */
+  overflow: visible;
+}
+
+.map-marker-anchor:focus-visible {
+  outline: none;
+}
+
+.map-marker-anchor:focus-visible .map-marker-shape,
+.map-marker-anchor:focus-visible .map-cluster {
+  outline: var(--eoe-border-width-selected) solid var(--eoe-color-focus-ring);
+  outline-offset: var(--eoe-space-1);
+}
+
+/* A zero-size reference point at the CENTER of Leaflet's sized element;
+ * the shape and its label hang off it. */
+.map-marker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  cursor: pointer;
+  font-family: var(--eoe-font-family);
+}
+
+.map-marker-shape {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--eoe-control-height-sm);
+  height: var(--eoe-control-height-sm);
+  background: var(--status-tint, var(--eoe-color-surface));
+  color: var(--status-color, var(--eoe-color-text-muted));
+  border: var(--eoe-border-width-selected) solid var(--status-color, var(--eoe-color-border-strong));
+  box-shadow: var(--eoe-shadow-md);
+  font-size: var(--eoe-font-size-sm);
+}
+
+/* Level is the shape: a Deployment is a soft region, a Pod a square, a
+ * Listener a round pin. */
+.map-marker-deployment .map-marker-shape {
+  width: var(--eoe-control-height-md);
+  height: var(--eoe-control-height-md);
+  border-radius: var(--eoe-radius-lg);
+  font-size: var(--eoe-font-size-md);
+}
+
+.map-marker-pod .map-marker-shape {
+  border-radius: var(--eoe-radius-sm);
+}
+
+.map-marker-listener .map-marker-shape {
+  width: var(--eoe-space-5);
+  height: var(--eoe-space-5);
+  border-radius: var(--eoe-radius-round);
+  font-size: var(--eoe-font-size-2xs);
+}
+
+/* A device that never spoke: neutral, dashed, and a dash, never a color. */
+.map-marker[data-unknown] .map-marker-shape,
+.map-cluster[data-unknown] {
+  border-style: dashed;
+}
+
+.map-marker-dash {
+  color: var(--eoe-color-text-muted);
+}
+
+.map-marker-label {
+  position: absolute;
+  left: 0;
+  top: var(--eoe-space-6);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--eoe-space-1) var(--eoe-space-2);
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-sm);
+  box-shadow: var(--eoe-shadow-sm);
+  color: var(--eoe-color-text);
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-medium);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.map-marker-status {
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-2xs);
+  font-weight: var(--eoe-font-weight-normal);
+}
+
+.map-alert-badge {
+  position: absolute;
+  top: calc(-1 * var(--eoe-space-3));
+  right: calc(-1 * var(--eoe-space-3));
+  min-width: var(--eoe-space-5);
+  padding: 0 var(--eoe-space-1);
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-selected) solid var(--eoe-color-status-alerting);
+  border-radius: var(--eoe-radius-pill);
+  color: var(--eoe-color-status-alerting);
+  font-size: var(--eoe-font-size-2xs);
+  font-weight: var(--eoe-font-weight-bold);
+  line-height: var(--eoe-line-height-tight);
+  text-align: center;
+}
+
+.map-services-chip,
+.map-nogps-badge {
+  position: absolute;
+  left: 0;
+  transform: translateX(-50%);
+  padding: 0 var(--eoe-space-2);
+  background: var(--eoe-color-surface);
+  border: var(--eoe-border-width-hairline) dashed var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-pill);
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-2xs);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.map-services-chip {
+  top: calc(var(--eoe-space-12) + var(--eoe-space-4));
+}
+
+.map-nogps-badge {
+  top: calc(-1 * var(--eoe-space-10));
+}
+
+.map-cluster {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--eoe-space-1);
+  min-width: var(--eoe-control-height-md);
+  height: var(--eoe-control-height-md);
+  padding: 0 var(--eoe-space-2);
+  background: var(--status-tint, var(--eoe-color-surface));
+  color: var(--status-color, var(--eoe-color-text-muted));
+  border: var(--eoe-border-width-selected) solid var(--status-color, var(--eoe-color-border-strong));
+  border-radius: var(--eoe-radius-pill);
+  box-shadow: var(--eoe-shadow-md);
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-bold);
+  cursor: pointer;
+}
+
+/* The Reconciliation and Alerts lenses fade what is fine. Opacity, not a
+ * color change, so a dimmed marker still reads as its status. */
+.map-marker-dimmed {
+  opacity: 0.35;
+}
+
+.map-marker-selected .map-marker-shape {
+  outline: var(--eoe-border-width-selected) solid var(--eoe-color-focus-ring);
+  outline-offset: var(--eoe-space-1);
+}
+
+/* markercluster's stylesheet paints its own green/yellow/orange bubbles on
+ * these classes; the platform's cluster icon replaces them entirely. */
+.map-canvas .marker-cluster,
+.map-canvas .marker-cluster div {
+  background: none;
+}
+
+.map-unplaced {
+  top: auto;
+  bottom: var(--eoe-space-8);
+  flex-direction: column;
+  align-items: stretch;
+  max-width: calc(var(--eoe-width-treerail) + var(--eoe-space-12));
+}
+
+.map-unplaced ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--eoe-space-1);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.map-unplaced li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--eoe-space-3);
+}
+
+.map-selected {
+  top: calc(var(--eoe-space-4) * 2 + var(--eoe-control-height-md) + var(--eoe-space-2));
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 /* ── forms and controls ────────────────────────────────────────────────── */

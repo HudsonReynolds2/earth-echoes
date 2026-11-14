@@ -1,5 +1,45 @@
 # Project Updates
 
+## 2026-11-14: E6.2b — Deployment, Pod and Listener markers, drill routes and clusters (Gate 84 GREEN)
+
+- **What changed:**
+  - **Routes.** `/map`, `/map/deployments/:id` and `/map/pods/:id`, plus `?device=` for a
+    selected Listener.
+  - **Markers.** The pure builders in `markers.ts` escape every name, give `unknown` no
+    color, show the services chip only when services are not verified, and badge alerts with
+    their count. `MarkerLayer` keeps markers keyed and updates them in place, and fits the
+    view once per level. Listener pins are clustered, and a cluster shows the worst status
+    inside it, in the server's order.
+  - **Around the map.** `UnplacedPanel` links to each level's Map location card. The
+    Reconciliation and Alerts lenses dim what is fine. Markers are buttons with spoken
+    names, and they open on Enter.
+  - **Decisions (D196):** the status-chip CSS is shared with markers, `leafletGlobal.ts`
+    serves the UMD cluster plugin, the map declares its own `maxZoom`, and the
+    Reconciliation lens is status-based (a recorded deviation).
+- **Gate:** 84, GREEN on the second run. The entire accumulated suite, no filters.
+  - Run 1 was RED on two failures, neither in code this task touched (the task changed only
+    the frontend, and 232/232 vitest and 8/8 Playwright passed in that run).
+    - Backend, 1 setup error in `test_reported_consumer.py`. Verbatim: "ports are not
+      available: exposing port TCP 127.0.0.1:54535 -> 127.0.0.1:0: /forwards/expose returned
+      unexpected status: 500 … 6 attempts". This is D181's open Docker Desktop forwarder
+      fault.
+    - SIM, `test_mock_aggregator.py::test_an_unclean_death_flips_the_aggregator_offline_through_the_lwt`.
+      Verbatim: "AssertionError: a previous test left this device online". The test's
+      precondition reads `aggregator_status` right after its consumer connects, before the
+      broker's retained `offline` from the previous test's polite disconnect has been
+      consumed. This is a first occurrence, a timing race in a SIM-owned test (D197).
+  - Three forwarding probes passed before the rerun.
+  - Run 2 was GREEN.
+- **Tests:** **1367 backend / 232 vitest / 8 Playwright / 79 `/sim`**, 1686 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `map-markers.test.ts` (11),
+  `map-drill.test.tsx` (11), and `e2e/map.spec.ts` +2.
+- **Command:** `make gate`
+- **Manual verification:** Playwright drove the real map in Chromium against a mocked API on
+  the `none` basemap: two Deployment markers, click to the Deployment, Pod squares, a
+  cluster opened until the alerting pin showed, the pin selected into the URL, and a marker
+  focused and opened with Enter. The live-stack visual check with a reporting SIM fleet is
+  CP2, at the end of the batch.
+
 ## 2026-11-14: E6.4 — markers have a status: the rollup and the map's reads (Gate 83 GREEN)
 
 - **What changed:**

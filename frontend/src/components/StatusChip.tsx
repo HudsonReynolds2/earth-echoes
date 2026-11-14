@@ -36,6 +36,12 @@ export const STATUS_SEVERITY = [
 
 export type RolledUpStatus = (typeof STATUS_SEVERITY)[number];
 
+/** The label every surface uses, including `unknown`, which is "No status
+ * yet": said plainly rather than drawn as a color (D60). */
+export function statusLabel(status: RolledUpStatus): string {
+  return status === "unknown" ? "No status yet" : LABELS[status];
+}
+
 /** The worst status in a set, `unknown` for an empty one. */
 export function worstStatus(statuses: Iterable<RolledUpStatus>): RolledUpStatus {
   const present = new Set(statuses);

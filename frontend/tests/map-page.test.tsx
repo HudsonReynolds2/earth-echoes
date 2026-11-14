@@ -39,7 +39,9 @@ describe("map page", () => {
     expect(view).toHaveAttribute("data-basemap", "esri_imagery");
     expect(view.querySelector(".leaflet-container")).not.toBeNull();
     expect(screen.getByTestId("status-legend")).toBeInTheDocument();
-    expect(screen.getByTestId("map-no-devices")).toHaveTextContent("E6.2b");
+    // E6.2b replaced E6.1's interim note with real markers; the fixture
+    // places two Deployments, so no "nothing placed" note shows.
+    expect(screen.queryByTestId("map-no-devices")).toBeNull();
     expect(screen.queryByTestId("map-empty")).toBeNull();
   });
 

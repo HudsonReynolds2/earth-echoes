@@ -2134,6 +2134,32 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 - **Frontend:** `STATUS_SEVERITY` and `worstStatus` in `components/StatusChip.tsx`, pinned to
   the backend's `SEVERITY` by `tests/status-severity.test.ts`.
 
+### Markers, drill routes and clustering (E6.2b; spec 9.2; D196)
+
+- **Routes:** `/map` (one marker per placed Deployment), `/map/deployments/:deploymentId` (its
+  Pods as squares, its Listeners as clustered pins), `/map/pods/:podId` (the same Deployment,
+  fitted to that Pod). A selected device is `?device=listener:<MAC>` — **E6.5's drawer reads
+  this same grammar, and E7's alert rows link into it.** Crumbs are real links.
+- **`components/map/markers.ts`** — pure builders: `deploymentMarkerHtml`, `podMarkerHtml`,
+  `listenerPinHtml`, `clusterHtml`, `accessibleName`, `isDimmed`, `escapeHtml` (EVERY name is
+  escaped: DivIcon takes raw HTML), sizes `DEPLOYMENT_SIZE`/`LISTENER_SIZE`/`CLUSTER_SIZE`/
+  `podMarkerSize`. Level = shape, status = `data-status` (color + glyph via the status-chip
+  custom properties, whose selectors now include `.map-marker` and `.map-cluster`) + a word,
+  alerts = `.map-alert-badge`. `unknown` carries `data-unknown`, a dashed outline and a dash —
+  never `data-status`.
+- **`components/map/MarkerLayer.tsx`** — `MarkerLayer({specs, cluster})` keeps Leaflet markers
+  keyed by `MarkerSpec.key` (`deployment:<id>`, `pod:<id>`, `listener:<mac>`) and updates them
+  IN PLACE (position, icon, label, status); `FitToPoints({fitKey, points})` fits once per
+  `fitKey`, never on a refetch. Markers are `role="button"` with an `aria-label`, focusable,
+  and open on Enter/Space.
+- **`leafletGlobal.ts`** must be imported before `leaflet.markercluster` (a UMD plugin that
+  extends `window.L`). `MapView` sets `minZoom 2`/`maxZoom 19` itself, because clustering needs
+  a max zoom even with no tile layer.
+- **Lenses:** Reconciliation keeps `drifted` and `degraded` bright; Alerts keeps devices with
+  an alert bright; Status dims nothing.
+- **`components/map/UnplacedPanel.tsx`** lists unplaced Deployments/Pods, linking to the
+  inventory page's Map location card for `manage_devices`.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

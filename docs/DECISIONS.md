@@ -4,6 +4,57 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D197 (2026-11-14): A SIM test's "previous test left this device online" precondition races the retained offline
+
+- **What happened:** gate 84's first run failed
+  `sim/tests/test_mock_aggregator.py::test_an_unclean_death_flips_the_aggregator_offline_through_the_lwt`
+  with "a previous test left this device online". It had passed at every earlier gate.
+- **Mechanism:** the module shares one platform and one Aggregator across tests. The previous
+  test disconnects politely, so the broker holds a retained `offline`. This test starts a new
+  consumer, waits for its CONNECT, and reads `aggregator_status` immediately. Whether the
+  retained `offline` has been consumed by then is a race, so the row can still read `online`.
+  The product behaves correctly. The precondition is checked too early.
+- **Proposed fix, not made:** this is SIM-owned test code outside phase-6's authorized edits.
+  Have the precondition poll briefly (for example with the module's own
+  `wait_for_verdict(online=False)`, bounded at a few seconds) before asserting, and treat a
+  row that is still `online` after that as the real failure. **Offered to the owner** with
+  D195's pool-template fix as one small hygiene batch.
+- **Reference:** gate 84 run 1 (verbatim in project-updates); SIM.1; D108.
+
+## D196 (2026-11-14): How E6.2b drew the markers
+
+- **Markers are kept by an imperative, keyed layer, not react-leaflet's `<Marker>`.**
+  `leaflet.markercluster` needs a real `MarkerClusterGroup`, and remounting markers on every
+  render would reset clusters and focus. `MarkerLayer` diffs a `Map` keyed by entity and
+  changes only what moved, which is also what E6.6 needs from live updates.
+- **The marker's focusable element is the size of its shape.** It was first a zero-size
+  anchor with the shape overflowing it, which Playwright correctly reported as hidden. A
+  zero-size focus target is wrong for keyboard and screen-reader users too. Leaflet now sizes
+  the element to the shape (`iconSize` = `DEPLOYMENT_SIZE` / `podMarkerSize(n)` /
+  `LISTENER_SIZE` / `CLUSTER_SIZE`) and centers it on the coordinate. The CSS hangs the label
+  and badges off its center.
+- **`leaflet.markercluster` needs a global `L`.** It is a UMD build that extends `window.L`.
+  `leafletGlobal.ts` sets it before the plugin is imported, which matters in the browser as
+  well as in tests.
+- **The map declares `maxZoom` itself.** Clustering throws "Map has no maxZoom specified"
+  when no tile layer supplies one (the `none` basemap, or while a slow source loads).
+- **Deviation, the Reconciliation lens.** Phase-6 E6.2b says it "dims every device whose
+  latest revision is `applied`, so drifted, failed and pending stand out". The map payload
+  carries displayed status, not revision state, and spec 9.3 / D60 deliberately show
+  `pending` as healthy (a change in flight is not a fault). The lens therefore keeps
+  `drifted` and `degraded` (failed) bright and dims the rest. Pending revisions are not
+  singled out, and adding revision state to the payload for one lens was not worth a second
+  vocabulary on the map.
+- **A selected Listener is an interim card until E6.5.** Clicking a pin sets
+  `?device=listener:<MAC>`, the grammar the drawer will read, and shows its name, MAC,
+  status and an "Open in inventory" link. E6.5 replaces the card with the drawer and keeps
+  the URL.
+- **Shared status CSS.** The six `.status-chip[data-status=…]` rules became
+  `:is(.status-chip, .map-marker, .map-cluster)[data-status=…]`, so markers and chips cannot
+  drift apart in color or glyph. markercluster's own bubble colors are blanked.
+- **Library:** `leaflet.markercluster` 1.5.3 and `@types/leaflet.markercluster` 1.5.6, exact.
+- **Reference:** phase-6 §4 E6.2b; D60, D188, D190.
+
 ## D195 (2026-11-14): How E6.4 rolled up markers, and two CI-only flakes on PR #26
 
 - **`with_alerts` is a new function, not a third argument.** `aggregator_status` and
