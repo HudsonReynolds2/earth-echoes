@@ -1368,7 +1368,7 @@ reimplement their logic.** Signatures, verbatim:
 - **Channel registry:** `device_status`, `reconciliation`. **E7 adds `alerts`** by adding a
   member and an emitter; the filtering is channel-agnostic and needs no change.
 - **`controlplane/device_status.py` is THE spec 9.3 derivation** — `aggregator_status`,
-  `listener_status`, `rollup`. Reachability outranks reconciliation (an offline device shows
+  `listener_status`, `rollup`. **E6.4 (D191) adds `with_alerts(status, open_alerts)`**: any open alert makes a device `alerting`, `unknown` included; `hierarchy_common`'s `aggregator_statuses`/`listener_statuses` apply it, so the inventory tables and the map agree. Reachability outranks reconciliation (an offline device shows
   `offline`, not `drifted` — the drift cannot be repaired until it is back). `failed` is
   `degraded`, not offline. `pending`/`draft` are healthy: a change in flight is not a fault.
   **`unknown` is a first-class value** for a device that has never spoken and must never be
@@ -2108,6 +2108,31 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
   Aggregator); `patchDeployment`/`patchAggregator` and the `Coordinates` type in
   `lib/inventory.ts`. Gated on `manage_devices`; saving invalidates every query, so the map
   re-reads.
+
+### The marker rollup and the map reads (E6.4; spec 9.2, 9.3, 16.5; D190, D191, D195)
+
+- **`app/map/alerts.py` — E7 EXTENDS THIS.** `listener_alert_counts(db, macs)`,
+  `aggregator_alert_counts(db, aggregator_ids)`, `unattached_alert_counts(db, deployment_ids)`:
+  open alerts per device, and those naming a Deployment but no device in inventory. One query
+  each. Today the source is open `inventory_alert` rows; E7 adds Grafana alerts to the same
+  counts and nothing downstream changes.
+- **`app/map/rollup.py::roll_up(statuses, *, services_status=None) -> MarkerRollup(status,
+  counts)`** — pure. Ordering is `device_status.rollup`/`SEVERITY`; only
+  `services_status == "degraded"` adds a degraded voice (D190); `counts` has every status in
+  severity order, zeros included, devices only.
+- **`GET /api/v1/map/deployments`** (any assignment, scoped by `visible_deployments(...,
+  VIEW_STATUS)`, not paginated): `[{id, name, slug, gps_lat, gps_lon, status, counts,
+  alert_count, services_status, pod_count, listener_count}]`. `alert_count` = attached alerts
+  on its devices + unattached alerts naming it; unattached alerts never change `status`.
+- **`GET /api/v1/map/deployments/{id}`** (out-of-scope or missing = 404, D35):
+  `{deployment: <row above>, pods: [{id, name, aggregator_id, aggregator_uuid,
+  aggregator_name, gps_lat, gps_lon (the Aggregator's), aggregator_status, status, counts,
+  alert_count, listener_count}], listeners: [{mac, name, pod_id, aggregator_id, gps_lat,
+  gps_lon, status, alert_count}]}`.
+- **Query count is constant in the number of devices**, held by a statement counter in
+  `test_map_endpoints.py` at 1 and 1,000 Listeners.
+- **Frontend:** `STATUS_SEVERITY` and `worstStatus` in `components/StatusChip.tsx`, pinned to
+  the backend's `SEVERITY` by `tests/status-severity.test.ts`.
 
 ## Owned by SIM
 

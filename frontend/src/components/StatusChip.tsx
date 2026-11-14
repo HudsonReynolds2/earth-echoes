@@ -17,6 +17,31 @@ export const DEVICE_STATUSES = [
 
 export type DeviceStatus = (typeof DEVICE_STATUSES)[number];
 
+/**
+ * Worst first, for the one rollup the client does itself: a marker cluster's
+ * icon (E6.2b). Every other rollup comes from the API. Mirrors
+ * `backend/app/controlplane/device_status.py::SEVERITY`, and
+ * `tests/status-severity.test.ts` fails if the two diverge (E6.4).
+ * `unknown` is last: one device that never spoke does not hide the rest.
+ */
+export const STATUS_SEVERITY = [
+  "alerting",
+  "offline",
+  "degraded",
+  "drifted",
+  "sleeping",
+  "healthy",
+  "unknown",
+] as const;
+
+export type RolledUpStatus = (typeof STATUS_SEVERITY)[number];
+
+/** The worst status in a set, `unknown` for an empty one. */
+export function worstStatus(statuses: Iterable<RolledUpStatus>): RolledUpStatus {
+  const present = new Set(statuses);
+  return STATUS_SEVERITY.find((status) => present.has(status)) ?? "unknown";
+}
+
 const LABELS: Record<DeviceStatus, string> = {
   healthy: "Streaming",
   sleeping: "Sleeping",

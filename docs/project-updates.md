@@ -1,5 +1,34 @@
 # Project Updates
 
+## 2026-11-14: E6.4 — markers have a status: the rollup and the map's reads (Gate 83 GREEN)
+
+- **What changed:**
+  - **Alerts in the status derivation.** `device_status.with_alerts` means an open alert
+    makes a device `alerting`. It is applied in `hierarchy_common`'s readers, so the inventory
+    tables and the map read one derivation (D60, D191).
+  - **The map's backend.**
+    - `app/map/alerts.py` is the seam E7 extends.
+    - `app/map/rollup.py` is the pure rollup: worst-of-descendants, plus a degraded voice for
+      services `degraded` only (D190).
+    - `app/map/service.py` serves `GET /map/deployments` and `GET /map/deployments/{id}`
+      (404 when out of scope).
+  - **Frontend.** `STATUS_SEVERITY`/`worstStatus`, pinned to the backend's order.
+  - **Records.** The E3 walkthrough's two `alerting` lines are amended. D195 also records PR
+    #26's two CI-only infrastructure flakes and offers a harness fix.
+- **Gate:** 83, GREEN on its first complete run. The entire accumulated suite, no filters.
+  An earlier start was stopped within seconds, before any stage reported, because the QA
+  stack held the gate's host ports (D44). It was rerun from the start.
+- **Tests:** **1367 backend / 210 vitest / 6 Playwright / 79 `/sim`**, 1662 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_endpoints.py` (48, including the
+  constant query count at 1 and 1,000 Listeners) and `status-severity.test.ts` (2).
+- **Command:** `make gate`
+- **Manual verification:** on the QA stack rebuilt with this code, signed in as the owner:
+  - `GET /map/deployments` returns both Deployments, placed and honestly `unknown` (no
+    device has reported on this stack), with services `unconfigured`.
+  - Redwood Coast's detail lists three placed Pods with their Aggregator coordinates and 9
+    of 16 Listeners placed (4+3+2), as the fixture rule says.
+  - The stack was taken down again so the next gate has its ports.
+
 ## 2026-11-13: E6.2a — Deployments and Pods have a place on the map (Gate 82 GREEN)
 
 - **What changed:**

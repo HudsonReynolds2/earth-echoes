@@ -4,6 +4,44 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D195 (2026-11-14): How E6.4 rolled up markers, and two CI-only flakes on PR #26
+
+- **`with_alerts` is a new function, not a third argument.** `aggregator_status` and
+  `listener_status` keep the signatures E3's suite pins. The batched readers in
+  `hierarchy_common` wrap their result, so every caller (inventory tables, the aggregator card,
+  the map) gets alerts at once. An open alert wins over `unknown` too: an alert is a real
+  signal about a device, even one whose own status report never arrived.
+- **Unattached alerts badge the Deployment and move no status** (fixed choice 4). In
+  practice this is `provisioning_required`, which names an `aggregator_uuid` that is not in
+  inventory by definition and often names no Deployment either. One that names no Deployment
+  counts nowhere on the map, and E7's alert list is where it will surface.
+- **Not paginated.** `GET /map/deployments` returns every visible Deployment, since a map
+  showing a first page would hide the rest of the organization. At spec 14.2's order of ten,
+  that is ten rows.
+- **The per-Deployment counts compute every device's status.** That is two batched readers
+  over id lists, constant in query count. At v1 scale (10 Deployments × 1,000 Listeners)
+  the Organization layer passes about 10,000 MACs in one `IN` list. E8.2's performance pass
+  owns measuring it against spec 14.4's 200 ms. A cached rollup is the remedy if it is
+  slow, and E7.4's fan-out cache is the natural home for it.
+- **PR #26's CI went red twice on infrastructure, then green on the third run without
+  changes.** Each run's local gate was green.
+  - Run A, 11 setup errors in `test_auth.py`: `template database "eoe_tpl_f1a08d123e9ebebf"
+    does not exist`. Best-fit mechanism: the pooled Postgres was judged unhealthy by one
+    worker, replaced by a fresh empty server, and that server reused the host port, so a
+    worker holding the old template name cloned against a server without it. Not proven. A
+    targeted fix would have `ephemeral_postgres` re-acquire the pool and template once when
+    a clone reports a missing template. That is a test-harness change outside E6 and is
+    **offered to the owner, not made**.
+  - Run B: `test_stack_keystone` reported "grafana never answered … in 180s: ConnectError
+    ('[Errno 111] Connection refused')". This is D165's published-port refusal; its single
+    recreate did not recover on that runner.
+  - No test was skipped or weakened. Both are recorded here so a recurrence is
+    recognisable.
+- **Process slip, caught.** The E6.4 gate was first started while the QA stack held the
+  gate's host ports (D44). It was stopped within seconds, before any stage reported, the QA
+  stack was brought down with its volumes kept, and the gate was rerun from the start.
+- **Reference:** phase-6 fixed choices 3-5, E6.4; D44, D60, D165, D190, D191.
+
 ## D194 (2026-11-13): How E6.2a placed Deployments and Pods
 
 - **A PATCH is judged by its result.** `apply_coordinates` combines the PATCH with the
