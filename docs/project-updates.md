@@ -1,5 +1,40 @@
 # Project Updates
 
+## 2026-11-13: E4.9 — records move by themselves as devices come online (Gate 77 GREEN)
+
+- **Tasks closed:** E4.9 (spec 8.5). `app/provisioning/records.py` re-derives each record's status
+  from E3's evidence (it reads `device_state`, `config_revision` and `quarantined_report`, and
+  writes none of them):
+  - `confirmed` latches;
+  - a later revision registers and is never a mismatch;
+  - an unknown checksum, or an identity quarantine created after the card, is a mismatch;
+  - two passes leave identical rows.
+
+  It runs as the **`provisioning-records` worker sweep**, the fourth authorized E3 edit (D168):
+  one task, one delegating method and a widened type union in `runner.py`, and nothing else.
+  `GET`/`PATCH /provisioning/records/{id}` adds the operator's single transition, `flashed`.
+  Decisions in **D179**.
+- **Gate:** 77, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1274 backend / 163 vitest / 4 Playwright / 78 `/sim`**, 1519 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. +10 `test_provisioning_records.py` (including the
+  worker's sweep confirming a record on its own), +7 record-endpoint tests, and +2
+  `sim/tests/test_provisioning_journey.py`. Backend stage **253.69s**. Sim-protocol stayed at
+  **190.79s**: the new 81s journey runs in parallel with E3's existing 90s test. Wall clock
+  **8m06s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Test cost found and cut:** the first journey draft took 269s, because each config apply is
+  E3's full publish-and-ack round trip (about 40s on the smallest Pod, about 90s on the
+  8-Listener one). Restructured to cover confirmed, registered and the latch in one connected
+  session on the smallest Pod with two applies: 87s.
+- **Manual verification:** the journey is the hand-observable acceptance, run in isolation
+  (2 passed, 87s). A live `MockAggregator` on a real broker took its retained config, and the
+  records moved as follows:
+  - `generated → flashed → confirmed` on first boot;
+  - a second bundle went `registered` after a later config change, with the first staying
+    `confirmed`;
+  - a conflicting-MAC report from another Aggregator put the Listener's card in `mismatch`
+    with its inventory row unchanged.
+
 ## 2026-11-13: E4.8 — the export archive and the bundle API; a bundle can be generated and downloaded (Gate 76 GREEN)
 
 - **Tasks closed:** E4.8 (spec 8.3, 13; fixed choice 4).

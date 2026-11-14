@@ -88,6 +88,7 @@ from app.models import (
     Deployment,
     utcnow,
 )
+from app.provisioning.records import RecordSweepReport, reconcile_records
 from app.secrets import SecretStore
 from app.services.config_sweep import ServiceConfigSweepReport, service_config_sweep
 from app.services.credentials import (
@@ -525,6 +526,18 @@ class ReconciliationWorker:
                 ),
                 name="reconcile-broker-credential-sweep",
             ),
+            # E4.9, D168: provisioning records re-derived from the evidence
+            # this worker's consumer writes. The body is E4-owned
+            # (`app/provisioning/records.py`) and only READS E3's tables; this
+            # file only registers it, the fourth authorized E3 edit.
+            asyncio.create_task(
+                self._sweep_loop(
+                    "provisioning-records",
+                    self._service_config_interval,
+                    self._provisioning_records_sweep,
+                ),
+                name="reconcile-provisioning-records-sweep",
+            ),
         ]
         #: The sweeps alone — what the heartbeat vouches for. Kept apart from
         #: `_tasks` so that adding a task here never silently widens or
@@ -603,7 +616,7 @@ class ReconciliationWorker:
         self,
         name: str,
         interval: float,
-        sweep: Callable[[], TimeoutSweepReport | DriftSweepReport],
+        sweep: Callable[[], TimeoutSweepReport | DriftSweepReport | RecordSweepReport],
     ) -> None:
         """Run one sweep on a fixed cadence until stop.
 
@@ -629,6 +642,9 @@ class ReconciliationWorker:
                     log.info("%s sweep: %s", name, report)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), interval)
+
+    def _provisioning_records_sweep(self) -> RecordSweepReport:
+        return reconcile_records(self._sessions)
 
     async def _service_config_sweep(self) -> ServiceConfigSweepReport:
         return await service_config_sweep(

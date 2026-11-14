@@ -176,6 +176,9 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/provisioning/bundles"),
     ("GET", f"{API_PREFIX}/provisioning/bundles/{{bundle_id}}"),
     ("GET", f"{API_PREFIX}/provisioning/bundles/{{bundle_id}}/download"),
+    # E4.9 (gate 77): spec 13's record surface; PATCH sets `flashed` only.
+    ("GET", f"{API_PREFIX}/provisioning/records/{{record_id}}"),
+    ("PATCH", f"{API_PREFIX}/provisioning/records/{{record_id}}"),
     ("POST", f"{API_PREFIX}/deployments/{{deployment_id}}/services/stack/rotate"),
     # E5.6, spec 16.4: one Aggregator's own broker login. `MANAGE_SERVICES` to
     # mint and revoke because a broker credential is a grant on the

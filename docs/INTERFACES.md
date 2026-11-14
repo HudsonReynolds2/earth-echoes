@@ -2021,6 +2021,26 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 - `app/provisioning/service.py::create_bundle` is the orchestration that E4.10's UI calls through
   this API.
 
+### Record transitions and the reconciler (E4.9; spec 8.5; D168, D179)
+
+- **`app/provisioning/records.py`:**
+  - `derive_status(db, record)` is a pure read.
+  - `reconcile_records(session_factory) -> RecordSweepReport` is one idempotent pass.
+  - `mark_flashed(record, actor)` is the operator transition.
+- **Rules** (in precedence order): latched `confirmed` > `mismatch` (an identity quarantine for
+  the MAC created at or after the record, or a reported checksum that matches no revision of
+  that device) > `confirmed` (reported checksum = embedded checksum; latches) > `registered`
+  (any `device_state` row, including a LATER revision's checksum) > `flashed` (operator-set) >
+  `generated`.
+- **Evidence keys:** `device_state.(entity_type, entity_id)` = the record's
+  `(target_type, target_id)`, with aggregators keyed by row id (D75).
+- **Runs on the worker** as the `provisioning-records` sweep (D168), on the service-config
+  cadence.
+- **Routes:**
+  - `GET /provisioning/records/{id}` (VIEW).
+  - `PATCH /provisioning/records/{id}` with body `{"status": "flashed"}` only (MANAGE). Returns
+    409 unless the record is `generated`, and is idempotent when already `flashed`. Audited.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

@@ -4,6 +4,44 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D179 (2026-11-13): E4.9's reconciler — re-derived status, two readings the phase document left open, and the one operator transition
+
+- **Decision:**
+  1. **Status is re-derived, never accumulated.** `app/provisioning/records.py::derive_status`
+     reads `device_state`, `config_revision` and `quarantined_report` and nothing else, and
+     writes nothing to them. `reconcile_records` appends to `status_history` only when the
+     derived status differs from the stored one. A second pass (or a restarted worker's first)
+     therefore changes nothing (asserted by diffing every row). Precedence: latched
+     `confirmed` > `mismatch` > `confirmed` > `registered` > `flashed` (if ever marked) >
+     `generated`. A `mismatch` whose evidence clears re-derives to what the evidence now says.
+  2. **Only quarantines created at or after the record count.** "An identity quarantine exists
+     for that MAC" read literally would mark a freshly generated card `mismatch` because of an
+     `unknown_mac` report from before the device was ever in inventory, which is history from
+     before this card existed. Asserted both ways.
+  3. **"Registered then confirmed" names two states, not a guaranteed sequence.** A device
+     reports only after applying its retained desired config. When the embedded revision is
+     still current, its first report already carries the embedded checksum, and the record
+     goes `flashed → confirmed` in one step (observed end to end in
+     `sim/tests/test_provisioning_journey.py`). `registered` is the state of a device on a
+     different but known revision, which the same journey also produces for real.
+  4. **A record with no embedded revision can never reach `confirmed`.** There is no checksum
+     to match, so it settles at `registered` (or `mismatch`). E4.3 records NULLs rather than
+     inventing a revision, per phase-4 §2.
+  5. **The operator's one transition** is `PATCH /provisioning/records/{id}` with
+     `{"status": "flashed"}`, which is a literal: any other value is a 422. It is allowed only
+     from `generated`, re-marking is a no-op (no second audit row), and a card the evidence has
+     moved past is a 409. It is audited as `provisioning.record.flashed`. GET and PATCH join
+     `E0_ROUTES`.
+  6. **The sweep registration** (D168) is the only `runner.py` change: one task, one delegating
+     method, and the sync loop's report-type union widened by `RecordSweepReport`. It runs on
+     the service-config cadence (60s default), first at worker start.
+- **End-to-end cost, and its shape:** each config apply in the SIM journey is E3's full
+  publish-and-ack round trip (about 40s on the smallest Pod, the SIM ledger's known cost). The
+  confirmed / registered / latch claims share one connected session, so they spend two applies
+  instead of four; measured at 87s instead of 269s.
+- **Reference:** spec 8.5, 13; phase-4 E4.9 and the §2 structural choice; D75, D168;
+  `test_provisioning_records.py`, `sim/tests/test_provisioning_journey.py`.
+
 ## D178 (2026-11-13): E4.8 — the archive is stored encrypted, download needs MANAGE, and no login is minted before every card generates
 
 - **Decision:**
