@@ -5,6 +5,11 @@
 - `GET /provisioning/bundles/{id}`: one bundle and its records (VIEW_PROVISIONING).
 - `GET /provisioning/bundles/{id}/download`: the stored archive
   (**MANAGE_PROVISIONING**, audited).
+- `GET /provisioning/records/{id}` (VIEW_PROVISIONING) and
+  `PATCH /provisioning/records/{id}` (MANAGE_PROVISIONING, audited): spec 13's
+  record surface. The PATCH accepts exactly one transition, `flashed`, because
+  it is the only status a person can assert (E4.9, D179). Every other status is
+  the reconciler's.
 
 **Download is MANAGE, not VIEW** (D178), on the E5 stack-download precedent:
 the archive carries every Aggregator's broker login in usable plaintext (spec
@@ -35,6 +40,7 @@ from app.inventory.naming import normalize_mac
 from app.models import DeviceProvisioningRecord, ProvisioningBundle, UserSession
 from app.provisioning.bootstrap import BootstrapRefused
 from app.provisioning.generate import GenerationError
+from app.provisioning.records import RecordTransitionError, mark_flashed, unmark_flashed
 from app.provisioning.service import ArchiveMissing, PodChoice, create_bundle, load_archive
 from app.scoping import require_any_assignment, scope_filter, visible_deployments
 from app.services.credentials import CredentialError
@@ -303,3 +309,66 @@ def download_bundle(
             "Content-Disposition": f'attachment; filename="echoes-provisioning-{bundle.id}.zip"'
         },
     )
+
+
+class PatchRecordIn(BaseModel):
+    """Spec 13 `PATCH /provisioning/records/{id}`. Two allowed values, on
+    purpose: `flashed` marks a generated card written, and `generated`
+    unmarks a flashed one (a mis-click, D187). `registered`, `confirmed` and
+    `mismatch` are statements about evidence, and the reconciler derives them
+    (D179)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["flashed", "generated"]
+
+
+def _resolve_record(
+    db: DbDep, session: UserSession, record_id: uuid.UUID, permission: Permission
+) -> DeviceProvisioningRecord:
+    record = db.get(DeviceProvisioningRecord, record_id)
+    if record is None or not has_permission(
+        session.user.role_assignments, permission, record.deployment_id
+    ):
+        raise not_found("record")
+    return record
+
+
+@router.get("/records/{record_id}", response_model=RecordOut)
+def get_record(
+    record_id: uuid.UUID,
+    db: DbDep,
+    session: Annotated[UserSession, Depends(require_any_assignment)],
+) -> RecordOut:
+    return _record_out(_resolve_record(db, session, record_id, Permission.VIEW_PROVISIONING))
+
+
+@router.patch("/records/{record_id}", response_model=RecordOut)
+def patch_record(
+    record_id: uuid.UUID,
+    body: PatchRecordIn,
+    db: DbDep,
+    actor: Annotated[UserSession, Depends(require_csrf)],
+) -> RecordOut:
+    record = _resolve_record(db, actor, record_id, Permission.MANAGE_PROVISIONING)
+    try:
+        transition = mark_flashed if body.status == "flashed" else unmark_flashed
+        changed = transition(record, actor.user_id)
+    except RecordTransitionError as error:
+        raise AppError("conflict", str(error), status_code=409) from error
+    if changed:
+        record_audit(
+            db,
+            action=(
+                "provisioning.record.flashed"
+                if body.status == "flashed"
+                else "provisioning.record.unflashed"
+            ),
+            entity_type="device_provisioning_record",
+            entity_id=str(record.id),
+            actor_user_id=actor.user_id,
+            scope=record.deployment_id,
+            detail={"target_type": record.target_type, "target_id": record.target_id},
+        )
+        db.commit()
+    return _record_out(record)

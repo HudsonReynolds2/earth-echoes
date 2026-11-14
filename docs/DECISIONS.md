@@ -4,6 +4,217 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D187 (2026-11-13): A card marked flashed by mistake can be unmarked, the same way it was marked
+
+- **Decision:** the **Flashed** column has the same checkboxes and *Select all* as Generated, and
+  an *Unmark N cards* button that returns the checked cards to **Generated**. Each column now
+  carries its own action; the header keeps only *Download bundle*. Owner's request,
+  2026-11-13 ("add the unmark; it should behave the same way").
+- **API:** `PATCH /provisioning/records/{id}` now also accepts `{"status": "generated"}`.
+  - It is allowed only from `flashed` (otherwise a 409) and is idempotent from `generated`.
+  - It is audited as `provisioning.record.unflashed`, and the history keeps both entries.
+  - `registered`, `confirmed` and `mismatch` remain the reconciler's and are refused with a 422.
+    A card a device has spoken for cannot be unmarked: its status is the evidence's.
+- **A reconciler fix this required:** `derive_status` fell back to `flashed` if the card had
+  EVER been marked, so an unmarked card would have jumped back to Flashed on the next sweep.
+  The fallback now reads the operator's LATEST `flashed`/`generated` entry. This changes only
+  the no-evidence branch (when no device has spoken). The evidence rules and their precedence
+  are unchanged, and the E3 revision state machine (test-critical) is not involved.
+- **Pinned by:**
+  - `test_provisioning_records.py`: an unmarked card stays Generated through a sweep and can be
+    re-marked, and only a flashed card can be unmarked.
+  - `test_provisioning_api.py`: the unmark round trip with one audit row, and a 409 from
+    `confirmed`.
+  - `provisioning.test.tsx`: unmark through the board, no checkboxes on the evidence's columns,
+    and none for a viewer.
+
+## D186 (2026-11-13): Two QA-stack foot-guns found bringing the stack back up after gate 79 (recorded, not fixed)
+
+- **The gate rewrites `deploy/dev-certs`.** A QA stack left with the old CA then fails TLS to its
+  own broker (`CERTIFICATE_VERIFY_FAILED`). This is one more reason for D44's rule to take the
+  stack down before a gate. To recover, re-run `app.devbroker --host mosquitto --keep-tls` and
+  restart mosquitto.
+- **Re-running `app.devbroker` re-points EVERY deployment's `mqtt` row at the dev broker,**
+  including one that has moved to its own generated stack (E5 Path B). High Desert silently
+  lost its verified broker. It was restored by re-entering the stack's stored broker
+  credentials on its Services page and re-testing it to verified.
+- **Open:** `devbroker` should leave a row alone whose host is not the dev broker. That is
+  E3/E5-owned tooling, so it is left for a hygiene batch, alongside D181's root fix.
+
+## D185 (2026-11-13): The inheritance chain stacks each rung on two rows
+
+- **Decision:** each rung of the Configuration page's *Inheritance* card (E2.7,
+  `InheritanceChain`) now puts the level and its override count on the first row and the
+  entity's name on a second, full-width row. This is a CSS-only change to `.chain-rung`; the
+  component's markup and tests are unchanged. A right padding to match the left followed the
+  owner's second look, so "overrides" no longer meets the highlighted rung's edge.
+- **Why:** owner feedback from the batch-4 browser test, with a screenshot. In the 290px rail,
+  the three-column row (92px level / name / count) let "ORGANIZATION" overflow into the name
+  column and wrapped names like "Pod 02 · Mesa Rim" one word per line.
+
+## D184 (2026-11-13): Cards are marked flashed one by one, not all at once
+
+- **Decision:** on the tracking board, each card in **Generated** has a checkbox, the column has
+  *Select all*, and the header button marks only the checked cards ("Mark 2 cards flashed";
+  disabled, and reading "Check cards to mark flashed", while nothing is checked). This
+  supersedes E4.10's single "Mark N cards flashed" action, which marked every Generated card.
+- **Why:** owner feedback from the batch-4 browser test. A field tech writes 30 cards over
+  hours or days, not in one sitting, and must be able to record exactly which cards are done.
+- **What persists:** the `flashed` status itself. Each checked card is a separate
+  `PATCH /provisioning/records/{id}` saved on its own record, which E4.9 already provided, so
+  the backend is unchanged. The checkboxes are only a selection and are not saved. After any
+  mark the board re-reads the bundle, including after a failure partway through a batch, so it
+  shows exactly which cards were saved. Unmarking a mis-click followed at the owner's request
+  (D187).
+- **Pinned by** four vitest cases in `frontend/tests/provisioning.test.tsx`:
+  - only the checked cards move;
+  - *Select all*;
+  - a reopened board keeps what was saved;
+  - a failure on the second card leaves exactly one card flashed and says why.
+
+## D183 (2026-11-13): The MQTT manager could run two connection loops for one deployment, and the broker evicted each in turn forever
+
+- **Decision:** `MqttClientManager._begin` (E3-owned `app/controlplane/broker.py`) never starts a
+  second loop for a deployment that already has a live one; the running loop wins. This is
+  the **fifth** E3-owned edit, a guard of four lines, taken on the owner's authorization
+  ("investigate now, fix if small", 2026-11-13).
+- **The defect, found by the E4 walkthrough:** on a freshly started compose stack, the API and
+  the worker start before the migrations create `deployment_service`, so the manager's first
+  `start()` fails and `start_or_retry` retries in the background. `start()` marks the manager
+  running BEFORE its database read. A retry's `start()` was awaiting that read when E5.7b's
+  30-second `refresh()` tick saw the newly provisioned rows and began both deployments' loops,
+  and 7ms later `start()` began them again (both logged at `00:59:54.361` and `.368`). `_begin`
+  overwrote the task map, orphaning live loops. Two loops per deployment share one client
+  identifier, so Mosquitto logged "already connected, closing old connection" about once a
+  second in BOTH processes (about 150 disconnects each in ten minutes) and device reports could
+  be lost in the gaps. `_cancel`'s own docstring named this outcome; nothing guarded it where
+  tasks are created.
+- **Why the gate never saw it:** every test starts a manager against an already-migrated
+  database, so `start()` never fails first.
+- **Pinned by** `tests/test_mqtt_manager_single_loop.py`, which forces the production
+  interleaving (start's read held while a refresh runs; measured "4 connection loops for 2
+  deployments" before the fix) and asserts `_begin` twice keeps the first loop. Both fail
+  without the guard. After rebuilding the QA stack's API and worker: 0 lost connections and no
+  broker takeovers.
+- **Reference:** D64, D137 (E5.7b's refresh), D150 (the third E3 edit), D168 (the fourth).
+
+## D182 (2026-11-13): A config apply to any entity holding a secret 500'd: once a Pod's WiFi password was set, it could never take another change
+
+- **Decision:** `apply_change_plan` (E2-owned `app/config/plan.py`) passes an entity's stored
+  secret MARKERS to `put_overrides` as the keep sentinel `{"$secret_set": true}`, which is
+  `put_overrides`' own documented "preserve the stored secret". `api/config.py` also maps a
+  `PlanError` from the write step to the same 4xx envelope the preview step uses, so this
+  class of failure can never again be a 500. Owner's authorization, 2026-11-13 ("fix it in this
+  batch").
+- **The defect, found by the E4 walkthrough:** `apply_change_plan` merges the target's stored
+  overrides with the change and re-submits the whole map. A stored secret is
+  `{"$secret": name}`, and `put_overrides` accepts only plaintext or the keep sentinel for a
+  secret key, so it rejected the entity's own stored secrets
+  (`network.stream_key` / `network.wifi_password: secret keys take a replacement string or the
+  keep sentinel`), and the API answered 500. Provisioning REQUIRES a Pod's WiFi password, so
+  every provisioned Pod would have been un-configurable from that moment. The `except` that
+  raised was annotated `pragma: no cover - plan validated already`: believed unreachable, and
+  nothing tested a second apply to an entity holding a secret.
+- **Pinned by** `test_config_apply.py::test_a_later_apply_to_an_entity_holding_a_secret_keeps_the_secret`.
+  It fails without the fix and passes with it, and it asserts the stored secret still decrypts
+  to its original value. The test-critical merge-engine suite is untouched and green.
+- **Reference:** D51 (secret markers), D56 (preview == apply), E2.6.
+
+## D181 (2026-11-13): A longer broker retry window for Docker Desktop's wedging forwarder, and the root fix left open
+
+- **Decision (owner's call, 2026-11-13):** `conftest._start_broker_container` makes **six**
+  whole-container attempts instead of three, sleeping `2 × attempt` seconds between them, for a
+  window of roughly 90s. As before (D99, D165), it reacts only to `_TRANSIENT_DOCKER` faults,
+  so every other failure still fails immediately with its own message. A healthy Docker never
+  reaches a second attempt.
+- **Why:** on this host (WSL2 with Docker Desktop's engine), the port forwarder wedged during 3
+  of the day's ~15 full gate runs (gate 65 run 2; gate 75 run 2; gate 78 run 1). Each time,
+  every published-port container start answered `/forwards/expose returned unexpected status:
+  500` for longer than three back-to-back attempts lasted. It is no code defect: each time, a
+  manual check right afterwards showed published ports working, and the same suites passed in
+  isolation.
+- **Left open (the owner asked for a proper fix later):** the retry absorbs the symptom. Root
+  fixes worth evaluating, none taken yet:
+  1. **Avoid published ports in tests.** Run the gate inside a Linux runner container on the
+     test containers' Docker network (gate-64's path) and dial service names, so the forwarder
+     is out of the path.
+  2. **Docker Engine native to WSL.** No Desktop forwarder exists there, because ports are
+     local. Gate-64's record notes one unstable attempt, which was never diagnosed.
+  3. **Docker Desktop resources and network settings** (VM memory, the networking mode), if the
+     wedging is load-induced.
+- **Reference:** D99, D141, D165; the gate-65, gate-75 and gate-78 project-updates entries.
+
+## D180 (2026-11-13): E4.10's UI — S6's board, a record vocabulary of its own, and a wizard built without DES.5's source
+
+- **Decision:**
+  1. **The board is S6's layout:** a bundle header with *Download bundle* and *Mark N cards
+     flashed* (the one bulk action a field tech needs, a primary button per S6), four summary
+     tiles (files, cards expected, confirmed x / y, mismatch with an alert tint), then one column
+     per spec 8.5 status in pipeline order. It re-reads its bundle every 15s
+     (`BOARD_REFRESH_MS`), so it fills in by itself within a beat of the worker's one-minute
+     reconciler.
+  2. **Record status is its own vocabulary.** `RecordChip` / `.record-chip[data-record-status]`
+     uses color, glyph and word, never `StatusChip` or `.status-chip` (D40). Asserted: no
+     `[data-status]` on the board. The colors are ten `--eoe-color-record-*` **var() aliases** of
+     the shared status hues in `tokens.ext.css`, which is exactly E5.12's `.service-chip` form
+     (D154). They are absent from the night sheet on purpose; it inherits them.
+  3. **The wizard is assembled, not drawn.** S6 does not draw it, and phase-4 points at DES.5's
+     wizard-step components, but `Design System.dc.html` (DES.5's source) is **not in the
+     repository**, and no wizard component exists in `src/`. So `.wizard-steps` is a small step
+     rail in its own `app.css` section, built only from existing tokens. The steps are target →
+     card modes → review → generate. The wizard blocks only what the API would refuse on shape
+     (a mixed Pod with no Listener named; Pods without Aggregators are not offered), and it turns
+     the API's two 422s into instructions: `detail.missing` becomes "set these in the Pod's
+     Configuration", and `detail.deployment` becomes "verify the broker on Services (spec
+     16.5)".
+  4. **Permissions mirror the API:** *New bundle*, *Download* and *Mark flashed* render only
+     under `useCan("manage_provisioning", deployment)`. A viewer, or a field tech outside their
+     deployment, sees the board and nothing that changes anything.
+  5. **Download goes through `fetch`**, not an `<a href>`, on `downloadStack`'s reasoning, and
+     the review step warns that the archive carries plaintext broker logins.
+- **Walkthrough amended in the same batch (R1):** `guide/e1-verification.md`'s "/provisioning —
+  empty state naming E4 and E5" is struck through and pointed at the E4 walkthrough.
+- **Reference:** spec 8.2, 8.5; screen S6; phase-4 E4.10; D40, D154, D178, D179;
+  `frontend/tests/provisioning.test.tsx`.
+
+## D179 (2026-11-13): E4.9's reconciler — re-derived status, two readings the phase document left open, and the one operator transition
+
+- **Decision:**
+  1. **Status is re-derived, never accumulated.** `app/provisioning/records.py::derive_status`
+     reads `device_state`, `config_revision` and `quarantined_report` and nothing else, and
+     writes nothing to them. `reconcile_records` appends to `status_history` only when the
+     derived status differs from the stored one. A second pass (or a restarted worker's first)
+     therefore changes nothing (asserted by diffing every row). Precedence: latched
+     `confirmed` > `mismatch` > `confirmed` > `registered` > `flashed` (if ever marked) >
+     `generated`. A `mismatch` whose evidence clears re-derives to what the evidence now says.
+  2. **Only quarantines created at or after the record count.** "An identity quarantine exists
+     for that MAC" read literally would mark a freshly generated card `mismatch` because of an
+     `unknown_mac` report from before the device was ever in inventory, which is history from
+     before this card existed. Asserted both ways.
+  3. **"Registered then confirmed" names two states, not a guaranteed sequence.** A device
+     reports only after applying its retained desired config. When the embedded revision is
+     still current, its first report already carries the embedded checksum, and the record
+     goes `flashed → confirmed` in one step (observed end to end in
+     `sim/tests/test_provisioning_journey.py`). `registered` is the state of a device on a
+     different but known revision, which the same journey also produces for real.
+  4. **A record with no embedded revision can never reach `confirmed`.** There is no checksum
+     to match, so it settles at `registered` (or `mismatch`). E4.3 records NULLs rather than
+     inventing a revision, per phase-4 §2.
+  5. **The operator's one transition** is `PATCH /provisioning/records/{id}` with
+     `{"status": "flashed"}`, which is a literal: any other value is a 422. It is allowed only
+     from `generated`, re-marking is a no-op (no second audit row), and a card the evidence has
+     moved past is a 409. It is audited as `provisioning.record.flashed`. GET and PATCH join
+     `E0_ROUTES`.
+  6. **The sweep registration** (D168) is the only `runner.py` change: one task, one delegating
+     method, and the sync loop's report-type union widened by `RecordSweepReport`. It runs on
+     the service-config cadence (60s default), first at worker start.
+- **End-to-end cost, and its shape:** each config apply in the SIM journey is E3's full
+  publish-and-ack round trip (about 40s on the smallest Pod, the SIM ledger's known cost). The
+  confirmed / registered / latch claims share one connected session, so they spend two applies
+  instead of four; measured at 87s instead of 269s.
+- **Reference:** spec 8.5, 13; phase-4 E4.9 and the §2 structural choice; D75, D168;
+  `test_provisioning_records.py`, `sim/tests/test_provisioning_journey.py`.
+
 ## D178 (2026-11-13): E4.8 — the archive is stored encrypted, download needs MANAGE, and no login is minted before every card generates
 
 - **Decision:**

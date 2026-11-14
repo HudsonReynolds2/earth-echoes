@@ -210,9 +210,18 @@ async def apply_config_change(
     operator no way to tell which devices were told.
     """
     plan = _plan_for(db, actor, body)
-    revisions, changed_by_deployment = apply_change_plan(
-        db, request.app.state.secret_store, plan, body.changes, actor.user_id
-    )
+    try:
+        revisions, changed_by_deployment = apply_change_plan(
+            db, request.app.state.secret_store, plan, body.changes, actor.user_id
+        )
+    except PlanError as error:
+        # D182: a refusal from the write step is the same envelope the preview
+        # step gives, never an unhandled 500.
+        db.rollback()
+        code = "forbidden" if error.status_code == 403 else "validation_error"
+        raise AppError(
+            code, error.message, status_code=error.status_code, detail=error.detail
+        ) from error
     revision_ids_by_deployment: dict[str, list[str]] = {}
     for revision in revisions:
         revision_ids_by_deployment.setdefault(str(revision.deployment_id), []).append(

@@ -428,3 +428,109 @@ def test_another_deployments_operator_sees_nothing(app, owner):
     assert outsider.post("/provisioning/bundles", _pod_body(app)).status_code == 404
     listing = outsider.get("/provisioning/bundles").json()
     assert bundle["id"] not in {item["id"] for item in listing["items"]}
+
+
+# --- E4.9: the record surface (spec 13) ------------------------------------------------
+
+
+class _Patch:
+    """`Client` has no PATCH helper; this keeps the leak collector in the path."""
+
+    def __init__(self, client: Client) -> None:
+        self.client = client
+
+    def __call__(self, path: str, body: dict):
+        headers = {"X-CSRF-Token": self.client.http.cookies["eoe_csrf"]}
+        return _seen(self.client.http.patch(f"{API_PREFIX}{path}", json=body, headers=headers))
+
+
+def test_marking_a_card_flashed_is_the_one_operator_transition(app, owner):
+    bundle = owner.post("/provisioning/bundles", _pod_body(app)).json()
+    record_id = bundle["records"][0]["id"]
+    patch = _Patch(owner)
+
+    response = patch(f"/provisioning/records/{record_id}", {"status": "flashed"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "flashed"
+    assert [e["status"] for e in response.json()["status_history"]] == ["generated", "flashed"]
+    # Again: a no-op, not an error, and no second audit row.
+    assert patch(f"/provisioning/records/{record_id}", {"status": "flashed"}).status_code == 200
+    with app.state.session_factory() as db:
+        audits = db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "provisioning.record.flashed", AuditLog.entity_id == record_id
+            )
+        ).all()
+        assert len(audits) == 1
+    assert owner.get(f"/provisioning/records/{record_id}").json()["status"] == "flashed"
+
+
+def test_a_flashed_card_can_be_unmarked_back_to_generated(app, owner):
+    """D187: the operator's mis-click is retractable, audited as its own action."""
+    bundle = owner.post("/provisioning/bundles", _pod_body(app)).json()
+    record_id = bundle["records"][0]["id"]
+    patch = _Patch(owner)
+    assert patch(f"/provisioning/records/{record_id}", {"status": "flashed"}).status_code == 200
+
+    response = patch(f"/provisioning/records/{record_id}", {"status": "generated"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "generated"
+    assert [e["status"] for e in response.json()["status_history"]] == [
+        "generated",
+        "flashed",
+        "generated",
+    ]
+    # Again: a no-op, not an error, and no second audit row.
+    assert patch(f"/provisioning/records/{record_id}", {"status": "generated"}).status_code == 200
+    with app.state.session_factory() as db:
+        audits = db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "provisioning.record.unflashed",
+                AuditLog.entity_id == record_id,
+            )
+        ).all()
+        assert len(audits) == 1
+
+
+def test_a_card_the_evidence_moved_past_cannot_be_unmarked(app, owner):
+    bundle = owner.post("/provisioning/bundles", _pod_body(app)).json()
+    record_id = bundle["records"][0]["id"]
+    with app.state.session_factory() as db:
+        db.get(DeviceProvisioningRecord, uuid.UUID(record_id)).status = "confirmed"
+        db.commit()
+    response = _Patch(owner)(f"/provisioning/records/{record_id}", {"status": "generated"})
+    assert response.status_code == 409
+    assert "confirmed" in response.json()["error"]["message"]
+
+
+@pytest.mark.parametrize("status", ["registered", "confirmed", "mismatch"])
+def test_every_other_status_is_the_reconcilers_and_is_refused(app, owner, status):
+    bundle = owner.post("/provisioning/bundles", _pod_body(app)).json()
+    response = _Patch(owner)(
+        f"/provisioning/records/{bundle['records'][0]['id']}", {"status": status}
+    )
+    assert response.status_code == 422
+
+
+def test_a_card_the_evidence_moved_past_cannot_be_marked_flashed(app, owner):
+    bundle = owner.post("/provisioning/bundles", _pod_body(app)).json()
+    record_id = bundle["records"][0]["id"]
+    with app.state.session_factory() as db:
+        db.get(DeviceProvisioningRecord, uuid.UUID(record_id)).status = "registered"
+        db.commit()
+    response = _Patch(owner)(f"/provisioning/records/{record_id}", {"status": "flashed"})
+    assert response.status_code == 409
+    assert "registered" in response.json()["error"]["message"]
+
+
+def test_a_viewer_reads_records_but_cannot_flash_them(app, owner):
+    bundle = owner.post("/provisioning/bundles", _pod_body(app)).json()
+    record_id = bundle["records"][0]["id"]
+    viewer = Client(app, Role.VIEWER)
+    assert viewer.get(f"/provisioning/records/{record_id}").status_code == 200
+    assert (
+        _Patch(viewer)(f"/provisioning/records/{record_id}", {"status": "flashed"}).status_code
+        == 404
+    )
+    outsider = Client(app, Role.DEPLOYMENT_OPERATOR)
+    assert outsider.get(f"/provisioning/records/{record_id}").status_code == 404

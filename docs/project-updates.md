@@ -1,5 +1,168 @@
 # Project Updates
 
+## 2026-11-13: Batch-4 browser-test follow-ups: per-card flash, unmark, inheritance layout (Gate 80 GREEN)
+
+- **What changed:** owner feedback from hand-testing batch 4 in the browser.
+  - **D184, per-card flash.** Generated cards carry checkboxes and *Select all*, and the
+    column's button marks only the checked cards. Each card's status is saved as it moves, so
+    30 cards can be flashed over several sittings. The board re-reads after a failure partway
+    through a batch.
+  - **D187, unmark.** The Flashed column has the same controls, with *Unmark N cards*. The PATCH
+    accepts `generated` only from `flashed`, audited as `provisioning.record.unflashed`. The
+    reconciler's no-evidence fallback now follows the operator's LATEST mark. Before, any old
+    mark would have pulled an unmarked card back to Flashed on the next sweep.
+  - **D185, inheritance chain layout.** Each rung stacks on two rows, with padding on both
+    sides, in the 290px rail.
+  - **D186** records two QA-stack foot-guns: the gate rewrites `deploy/dev-certs`, and
+    `devbroker` re-points every deployment at the dev broker.
+  - The records are project-changes #46 and addendum PHASE4-4-01.
+- **Gate:** 80, GREEN on the third run. The entire accumulated suite, no filters.
+  - Run 1 was RED: `test_governance.py::test_every_change_entry_names_an_addendum_that_exists`
+    ("change #46 references missing document project_planning/phase-4-provisioning.md,"). The
+    trailing comma on an *Affects* line was read as part of the path. Fixed in the records.
+  - Run 2 was RED: 1 setup error in `test_publish_revision.py`. Verbatim: "ports are not
+    available: exposing port TCP 127.0.0.1:54373 -> 127.0.0.1:0: /forwards/expose returned
+    unexpected status: 500 … 6 attempts". This is Docker Desktop's forwarder, D181's open root
+    cause and its fourth occurrence. Three forwarding probes then passed.
+  - Run 3 was GREEN.
+- **Tests:** **1280 backend / 181 vitest / 4 Playwright / 78 `/sim`**, 1543 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected.
+- **Manual verification:**
+  - The owner tested per-card marking, reload persistence, unmark and the inheritance panel in
+    the browser on the QA stack ("works great").
+  - On the rebuilt stack I marked a record, unmarked it and waited past a worker sweep. It
+    stayed `generated`, with history `generated, flashed, generated`. A PATCH to `confirmed`
+    was a 422.
+
+## 2026-11-13: E4.11 — fill-in-later and the E4 walkthrough; epic E4 is built (Gate 79 GREEN)
+
+- **Tasks closed:** E4.11 (spec 8.6), the last task of epic E4.
+  - **Fill in details** appears on a registered or confirmed Listener card on the board and
+    writes name and GPS through E1's own `PATCH /listeners/{mac}`, so there is no second write
+    path. It is gated on `manage_devices`, which field techs do not hold.
+  - `guide/e4-verification.md` is written and indexed, and `guide/README.md`'s stale "no E4
+    walkthrough" and release text are corrected. `guide/e1-verification.md` was amended in
+    E4.10.
+- **Two pre-existing defects found by hand-running the walkthrough, both fixed here on the
+  owner's authorization:**
+  - **D182 (E2):** every config apply to an entity holding a secret 500'd. `apply_change_plan`
+    re-submitted the stored `{"$secret": …}` markers, which `put_overrides` rejects. Once a
+    Pod's WiFi password was set (which provisioning requires), it could never take another
+    change. Fixed by passing stored secrets as the keep sentinel, plus a 4xx mapping in the
+    API. The regression test fails without the fix.
+  - **D183 (E3):** a manager whose first `start()` lost the race against the migrations ran two
+    connection loops per deployment (E5.7b's `refresh()` and the retry's `start()`, 7ms apart),
+    so the broker evicted each in turn. That was about 150 disconnects in ten minutes in both
+    the API and the worker on every freshly started compose stack. `_begin` now never starts a
+    second live loop (the fifth E3-owned edit). The deterministic regression test measured
+    "4 connection loops for 2 deployments" before the fix.
+- **Gate:** 79, GREEN on the first run. The entire accumulated suite, no filters.
+- **Tests:** **1277 backend / 176 vitest / 4 Playwright / 78 `/sim`**, 1535 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. Backend stage **230.92s**, sim-protocol **190.94s**,
+  wall clock **7m34s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine, with the QA stack taken
+  down first (D44).
+- **Manual verification: the walkthrough, start to finish, against a clean stack** (compose
+  project `eoe-qa` with its own env file; the owner's `deploy/.env` was not touched). Through
+  the API calls the UI makes:
+  1. Bundles were refused for an unverified deployment.
+  2. High Desert was verified through E5's Path B against a real generated stack (4 tests
+     passed, `services_status: verified`).
+  3. A Pod with no network values was refused, naming all five keys. The values were then set
+     and a Pod config apply succeeded (7 revisions published, after D182).
+  4. A pod bundle was generated with credentials **on**, the Aggregator's login minted through
+     the real dynsec provider. The archive unzipped to the four expected files, its checksums
+     verified, and the planted PSK appeared nowhere.
+  5. All 7 cards were marked flashed. A `MockAggregator` brought up **with only the login and
+     CA from its own card's `settings.yaml`**, with the Pod's six Listeners, took its retained
+     config and reported. With no hand reconciliation, the worker's sweep logged
+     `flashed->confirmed=7` and every card's history read `generated > flashed > confirmed`.
+     The same sweep moved an earlier bundle's seven cards `generated->registered` (devices on
+     a later revision, correctly not a mismatch).
+  6. Fill-in through E1's endpoint set GPS `None → 35.1234, -116.5678`, and the frontend served
+     `/provisioning` 200.
+  7. After D183, the rebuilt API and worker showed 0 lost connections and no broker takeovers.
+
+  **The owner's hands-on browser test is next, before batch 4's PR merges.**
+
+## 2026-11-13: E4.10 — the provisioning wizard and tracking board (Gate 78 GREEN)
+
+- **Tasks closed:** E4.10 (spec 8.5, screen S6). `frontend/src/pages/Provisioning.tsx` replaces
+  E0's `EmptyState` with:
+  - a deployment picker;
+  - **`BundleWizard`**: target (one Pod or the whole Deployment), card mode per Pod (with
+    Listener picks for mixed), review (including the plaintext-login warning), then generate.
+    The API's two 422s are explained as what to fix.
+  - **`BundleBoard`**, following S6: Download, *Mark N cards flashed*, four tiles, and five
+    status columns, re-read every 15s.
+
+  `RecordChip` is the record vocabulary, never `StatusChip` (D40), with ten
+  `--eoe-color-record-*` var() aliases (the D154 form). There is a new `lib/provisioning.ts`
+  client and a stateful MSW fixture. `guide/e1-verification.md`'s `/provisioning` line is
+  amended in this batch. Decisions in **D180**.
+- **Also in this gate:** **D181**, the owner's call on the recurring Docker Desktop forwarder
+  outage. The broker fixture now makes six whole-container attempts with growing pauses (about
+  90s) instead of three, and a real fix is left open as a follow-up.
+- **Gate:** 78, GREEN on the third run. The entire accumulated suite, no filters.
+- **Tests:** **1274 backend / 172 vitest / 4 Playwright / 78 `/sim`**, 1528 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +9 vitest is `tests/provisioning.test.tsx`. Backend
+  stage **229.98s**, sim-protocol **191.58s**, wall clock **7m20s**.
+- **The two red runs (rule R0):**
+  - **Run 1** failed backend-tests with 1 error: `test_reported_consumer.py::test_a_device_publishing_its_report_drives_the_revision_to_applied`
+    setup. The broker fixture gave up after its then-3 new containers on
+    `/forwards/expose returned unexpected status: 500`. This was the third forwarder outage of
+    the day, so it went to the owner, who chose D181.
+  - **Run 2** (with D181) failed backend-tests on 1 test,
+    `test_reconciliation_worker.py::test_publishing_refuses_while_the_flag_is_off`, at its
+    login: `AssertionError: {"error":{"code":"unauthorized","message":"invalid credentials",
+    "detail":null}} assert 401 == 200`. The same account had logged in four times earlier in
+    the module. The failure **did not reproduce**: the module ran 49/49 three times in a row,
+    and with E4.9's suite in one process. Nothing in this batch touches auth or that module.
+    **Open finding, not acted on:** `app/auth/passwords.py::verify_password` maps every argon2
+    `VerificationError` to `False`. Argon2 can raise that class for internal failures as well
+    as mismatches, so a resource failure under a loaded parallel gate would surface as exactly
+    this 401. Unconfirmed; a recurrence gets investigated before any rerun.
+  - **Run 3** was green, on unchanged code.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** `npm run build` (typecheck plus the Vite production build) compiled
+  the new page and components. **The owner's hands-on browser test is the batch-4
+  checkpoint**, with the stack up and a checklist, before batch 4's PR merges.
+
+## 2026-11-13: E4.9 — records move by themselves as devices come online (Gate 77 GREEN)
+
+- **Tasks closed:** E4.9 (spec 8.5). `app/provisioning/records.py` re-derives each record's status
+  from E3's evidence (it reads `device_state`, `config_revision` and `quarantined_report`, and
+  writes none of them):
+  - `confirmed` latches;
+  - a later revision registers and is never a mismatch;
+  - an unknown checksum, or an identity quarantine created after the card, is a mismatch;
+  - two passes leave identical rows.
+
+  It runs as the **`provisioning-records` worker sweep**, the fourth authorized E3 edit (D168):
+  one task, one delegating method and a widened type union in `runner.py`, and nothing else.
+  `GET`/`PATCH /provisioning/records/{id}` adds the operator's single transition, `flashed`.
+  Decisions in **D179**.
+- **Gate:** 77, GREEN. The entire accumulated suite, no filters.
+- **Tests:** **1274 backend / 163 vitest / 4 Playwright / 78 `/sim`**, 1519 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. +10 `test_provisioning_records.py` (including the
+  worker's sweep confirming a record on its own), +7 record-endpoint tests, and +2
+  `sim/tests/test_provisioning_journey.py`. Backend stage **253.69s**. Sim-protocol stayed at
+  **190.79s**: the new 81s journey runs in parallel with E3's existing 90s test. Wall clock
+  **8m06s**.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Test cost found and cut:** the first journey draft took 269s, because each config apply is
+  E3's full publish-and-ack round trip (about 40s on the smallest Pod, about 90s on the
+  8-Listener one). Restructured to cover confirmed, registered and the latch in one connected
+  session on the smallest Pod with two applies: 87s.
+- **Manual verification:** the journey is the hand-observable acceptance, run in isolation
+  (2 passed, 87s). A live `MockAggregator` on a real broker took its retained config, and the
+  records moved as follows:
+  - `generated → flashed → confirmed` on first boot;
+  - a second bundle went `registered` after a later config change, with the first staying
+    `confirmed`;
+  - a conflicting-MAC report from another Aggregator put the Listener's card in `mismatch`
+    with its inventory row unchanged.
+
 ## 2026-11-13: E4.8 — the export archive and the bundle API; a bundle can be generated and downloaded (Gate 76 GREEN)
 
 - **Tasks closed:** E4.8 (spec 8.3, 13; fixed choice 4).

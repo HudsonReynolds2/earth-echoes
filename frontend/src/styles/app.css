@@ -1272,14 +1272,23 @@ tr.row-overridden td {
   padding: 0;
 }
 
+/* Two rows: the level and its count on top, the entity's name beneath at full
+ * width. A three-column row did not fit the 290px rail: "ORGANIZATION"
+ * overflowed its column and names wrapped one word per line. */
 .chain-rung {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) auto;
-  gap: var(--eoe-space-2);
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "level count"
+    "label label";
+  column-gap: var(--eoe-space-2);
+  row-gap: var(--eoe-space-1);
   align-items: baseline;
   padding: var(--eoe-space-2) 0;
   border-left: var(--eoe-border-width-emphasis) solid var(--eoe-color-border);
   padding-left: var(--eoe-space-3);
+  /* Room after the count, so "overrides" never meets the highlighted rung's edge. */
+  padding-right: var(--eoe-space-3);
 }
 
 .chain-rung[data-current] {
@@ -1288,13 +1297,20 @@ tr.row-overridden td {
 }
 
 .chain-level {
+  grid-area: level;
   text-transform: uppercase;
   letter-spacing: var(--eoe-letter-spacing-label);
   font-size: var(--eoe-font-size-2xs);
   color: var(--eoe-color-text-subtle);
 }
 
+.chain-label {
+  grid-area: label;
+  overflow-wrap: anywhere;
+}
+
 .chain-count {
+  grid-area: count;
   font-size: var(--eoe-font-size-sm);
   color: var(--eoe-color-text-muted);
 }
@@ -1803,4 +1819,264 @@ tr.row-noop td {
 .services-verify-heading {
   margin: var(--eoe-space-6) 0 0;
   font-size: var(--eoe-font-size-lg);
+}
+
+/* ── provisioning (E4.10; spec 8.5; screen S6) ─────────────────────────────
+ * The wizard's step rail stands in for DES.5's wizard steps, whose source file
+ * is not in the repository (D180). The board is S6's layout: summary tiles,
+ * then one column per spec 8.5 status in pipeline order. The record chip is
+ * its own vocabulary, not .status-chip (D40), mirroring .service-chip. ───── */
+
+.provisioning-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--eoe-space-4);
+  flex-wrap: wrap;
+}
+
+.record-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  height: var(--eoe-control-height-sm);
+  padding: 0 var(--eoe-space-3);
+  border-radius: var(--eoe-radius-pill);
+  background: var(--record-tint);
+  color: var(--record-color);
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-medium);
+  white-space: nowrap;
+}
+
+.record-chip[data-record-status="generated"] {
+  --record-color: var(--eoe-color-record-generated);
+  --record-tint: var(--eoe-color-record-generated-tint);
+}
+
+.record-chip[data-record-status="flashed"] {
+  --record-color: var(--eoe-color-record-flashed);
+  --record-tint: var(--eoe-color-record-flashed-tint);
+}
+
+.record-chip[data-record-status="registered"] {
+  --record-color: var(--eoe-color-record-registered);
+  --record-tint: var(--eoe-color-record-registered-tint);
+}
+
+.record-chip[data-record-status="confirmed"] {
+  --record-color: var(--eoe-color-record-confirmed);
+  --record-tint: var(--eoe-color-record-confirmed-tint);
+}
+
+.record-chip[data-record-status="mismatch"] {
+  --record-color: var(--eoe-color-record-mismatch);
+  --record-tint: var(--eoe-color-record-mismatch-tint);
+}
+
+.wizard-steps {
+  display: flex;
+  gap: var(--eoe-space-4);
+  margin: 0 0 var(--eoe-space-5);
+  padding: 0;
+  list-style: none;
+  flex-wrap: wrap;
+}
+
+.wizard-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  color: var(--eoe-color-text-subtle);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.wizard-steps li[aria-current="step"] {
+  color: var(--eoe-color-text);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.wizard-steps li[data-done="true"] {
+  color: var(--eoe-color-text-muted);
+}
+
+.wizard-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--eoe-control-height-sm);
+  height: var(--eoe-control-height-sm);
+  border-radius: var(--eoe-radius-round);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border-strong);
+}
+
+.wizard-steps li[aria-current="step"] .wizard-step-index {
+  background: var(--eoe-color-accent);
+  border-color: var(--eoe-color-accent);
+  color: var(--eoe-color-accent-contrast);
+}
+
+.wizard-choice {
+  display: grid;
+  gap: var(--eoe-space-2);
+  margin: 0 0 var(--eoe-space-4);
+  padding: var(--eoe-space-3) var(--eoe-space-4);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-md);
+}
+
+.wizard-choice legend {
+  padding: 0 var(--eoe-space-2);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.wizard-choice label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--eoe-space-2);
+}
+
+.wizard-choice .form-help {
+  display: block;
+}
+
+.wizard-listeners {
+  display: grid;
+  gap: var(--eoe-space-1);
+  margin: var(--eoe-space-2) 0 0 var(--eoe-space-6);
+}
+
+.wizard-nav {
+  justify-content: flex-end;
+}
+
+.bundle-board {
+  display: grid;
+  gap: var(--eoe-space-4);
+}
+
+.bundle-board-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--eoe-space-4);
+  flex-wrap: wrap;
+}
+
+.bundle-board-head h2 {
+  margin: var(--eoe-space-1) 0;
+  font-size: var(--eoe-font-size-xl);
+}
+
+.bundle-board-notice {
+  margin: 0;
+  padding: var(--eoe-space-2) var(--eoe-space-3);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-accent-tint);
+}
+
+.bundle-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--eoe-space-3);
+  margin: 0;
+}
+
+.bundle-tile {
+  padding: var(--eoe-space-3) var(--eoe-space-4);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-md);
+  background: var(--eoe-color-surface);
+}
+
+.bundle-tile[data-alert="true"] {
+  border-color: var(--eoe-color-danger-border);
+  background: var(--eoe-color-record-mismatch-tint);
+}
+
+.bundle-tile dt {
+  color: var(--eoe-color-text-muted);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.bundle-tile dd {
+  margin: var(--eoe-space-1) 0 0;
+  font-size: var(--eoe-font-size-xl);
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.bundle-columns {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(12rem, 1fr));
+  gap: var(--eoe-space-3);
+  overflow-x: auto;
+}
+
+.bundle-column {
+  display: grid;
+  align-content: start;
+  gap: var(--eoe-space-2);
+  padding: var(--eoe-space-3);
+  border-radius: var(--eoe-radius-md);
+  background: var(--eoe-color-surface-raised);
+}
+
+.bundle-column-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bundle-column-count {
+  font-weight: var(--eoe-font-weight-bold);
+}
+
+.bundle-cards {
+  display: grid;
+  gap: var(--eoe-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bundle-card {
+  display: grid;
+  gap: var(--eoe-space-1);
+  padding: var(--eoe-space-2) var(--eoe-space-3);
+  border: var(--eoe-border-width-hairline) solid var(--eoe-color-border);
+  border-radius: var(--eoe-radius-sm);
+  background: var(--eoe-color-surface);
+  font-size: var(--eoe-font-size-sm);
+}
+
+.bundle-card[data-checked] {
+  border-color: var(--eoe-color-accent);
+  background: var(--eoe-color-accent-tint);
+}
+
+.bundle-card-select,
+.bundle-select-all {
+  display: flex;
+  align-items: center;
+  gap: var(--eoe-space-2);
+  cursor: pointer;
+}
+
+.bundle-column-action {
+  display: grid;
+  gap: var(--eoe-space-2);
+  margin-bottom: var(--eoe-space-2);
+}
+
+.bundle-select-all {
+  font-size: var(--eoe-font-size-sm);
+}
+
+.bundle-card-hint {
+  color: var(--eoe-color-record-registered);
+  font-size: var(--eoe-font-size-sm);
+  font-weight: var(--eoe-font-weight-medium);
+}
+
+.bundle-fill-in {
+  margin-top: var(--eoe-space-2);
 }

@@ -325,6 +325,12 @@ structural choice above. The rules, which belong in the code as written here:
 
 - `flashed` — operator-set only, via `PATCH /provisioning/records/{id}`. The platform cannot
   observe a card being written.
+
+  > **Addendum PHASE4-4-01 (2026-11-13, ref project-changes #46):** the operator may also
+  > **unmark** a mis-clicked card, `flashed` → `generated`, through the same PATCH with
+  > `{"status": "generated"}`, and only from `flashed`. The no-evidence fallback follows the
+  > operator's latest mark or unmark. On the board, cards are marked and unmarked one by one,
+  > with per-card checkboxes and *Select all*, instead of all at once (DECISIONS D184, D187).
 - `registered` — a `device_state` row exists for the record's expected identity. First contact
   is exactly that row's existence; no new first-seen column is needed.
 - `confirmed` — that row's checksum equals the embedded revision's checksum, **and the status
