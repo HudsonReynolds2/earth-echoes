@@ -15,6 +15,7 @@ make the pool safe to share between concurrent agents.
 import subprocess
 import sys
 
+import conftest
 import pytest
 from conftest import (
     REPO_ROOT,
@@ -191,3 +192,36 @@ def test_both_modes_hand_out_a_usable_database(migrate: bool):
             engine.dispose()
         has_tables = bool(inspect(create_engine(url)).get_table_names())
     assert has_tables is migrate
+
+
+def _template_that_vanishes_on(misses: int, monkeypatch) -> list[str]:
+    """Make `_acquire_template` hand out a template the server does not have,
+    `misses` times, then the real one. That is exactly what a clone sees when
+    the pooled server was replaced between acquiring the template and cloning
+    it (D195): a name that was true a moment ago, on a server that never had it.
+    """
+    real = conftest._acquire_template
+    handed: list[str] = []
+
+    def acquire(port: int) -> str:
+        name = "eoe_tpl_vanished" if len(handed) < misses else real(port)
+        handed.append(name)
+        return name
+
+    monkeypatch.setattr(conftest, "_acquire_template", acquire)
+    return handed
+
+
+def test_a_template_that_vanished_before_the_clone_is_reacquired_once(monkeypatch):
+    handed = _template_that_vanishes_on(1, monkeypatch)
+    with ephemeral_postgres() as url:
+        assert "alembic_version" in _tables(url)
+    assert handed[0] == "eoe_tpl_vanished" and len(handed) == 2
+
+
+def test_a_template_missing_twice_is_a_real_fault_and_raises(monkeypatch):
+    handed = _template_that_vanishes_on(2, monkeypatch)
+    missing = 'template database "eoe_tpl_vanished" does not exist'
+    with pytest.raises(Exception, match=missing), ephemeral_postgres():
+        pass
+    assert len(handed) == 2

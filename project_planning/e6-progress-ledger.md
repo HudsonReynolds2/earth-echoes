@@ -24,6 +24,7 @@ before the rollup exists (project-changes #47). The rows below are in working or
 | E6.4 Status rollup engine and map endpoints | **gate green** | 83 | gate-83 | D190, D191, D195 | `device_status.with_alerts` (applied in `hierarchy_common`'s readers: inventory and map agree). `app/map/alerts.py` (the E7 seam), `rollup.py` (pure), `service.py`; `GET /map/deployments`, `GET /map/deployments/{id}` (404 out of scope). `STATUS_SEVERITY`/`worstStatus` pinned to the backend. `test_map_endpoints.py` 48 (incl. constant query count at 1 and 1,000 Listeners), `status-severity.test.ts` 2. E3 walkthrough's two `alerting` lines amended. Gate 83 green on its first complete run. |
 | E6.2b Hierarchy markers and clustering | **gate green** | 84 | gate-84 | D196, D197 | Routes `/map`, `/map/deployments/:id`, `/map/pods/:id`; `?device=listener:<MAC>`. `markers.ts` (pure, escaped), `MarkerLayer.tsx` (keyed, in-place; `FitToPoints` once per level), `UnplacedPanel.tsx`, `leafletGlobal.ts`. Lenses (D196 deviation: status-based). Interim selected-Listener card until E6.5. Tests: `map-markers.test.ts` 11, `map-drill.test.tsx` 11, `e2e/map.spec.ts` +2 (drill, cluster→pin, keyboard). Gate 84 green on run 2 (run 1: Docker forwarder 500, and a SIM precondition race, D197). |
 | E6.3 Leaf versus pin logic | **gate green** | 85 | gate-85 | D198 | `leafFan.ts` (pure, upper half), `LeafFan.tsx` (pixel offsets projected per zoom; focused Pod, or zoom ≥ 14), leaf markup with CSS tethers, *Show GPS-less* toggle (remembered), `<n> no GPS` in the Pod label, unplaced Pods count GPS-less Listeners. Tests: `leaf-fan.test.ts` 8, `map-leaves.test.tsx` 4 (incl. leaf → pin on refetch), `map-markers.test.ts` +1, `e2e/map.spec.ts` +1 (polls nearness). Visual check by screenshot found and fixed the label overlap. Gate 85 green on its first run. |
+| H1 Hygiene (owner-approved, project-changes #50) | **gate green** | 86 | gate-86 | D199 | Listener API + import refuse half a GPS pair (D194 rule); migration `1d73e4435c21` adds `ck_listener_gps_pair`/`gps_range`. `ephemeral_postgres` re-acquires a vanished template once (D195). SIM LWT test polls its precondition (D197). Tests: `test_map_coordinates.py` +9 (5 API/import, 4 DB), `test_container_pool.py` +2. Branch `e6-hygiene`, stacked on `e6-batch-2`. Gate 86 green on its first run. Manual: migration applied to `eoe-e6`; psql shows both CHECKs refusing. |
 | E6.5 Device detail drawer | not started | | | | |
 | E6.6 Live map updates | not started | | | | |
 | E6.7 Owner landing view | not started | | | | |
@@ -34,7 +35,7 @@ Batches: one PR per batch, on `e6-batch-N` (rule R3, project-changes #47).
 | Batch | Tasks | Checkpoint |
 |---|---|---|
 | **B1** | E6.0-E6.2a | CP1 |
-| **B2** | E6.4, E6.2b, E6.3 | CP2 |
+| **B2** | E6.4, E6.2b, E6.3 | CP2 (held with CP3, project-changes #51) |
 | **B3** | E6.5, E6.6 | CP3 |
 | **B4** | E6.7, E6.8 | CP4 |
 
@@ -51,22 +52,22 @@ Phase document §7 has the checklist for each checkpoint.
 | CP3 | | | |
 | CP4 | | | |
 
-## Resume here (written 2026-11-14, at the end of batch 2)
+## Resume here (rewritten 2026-11-14, after H1)
 
-**State.** Batch 2 (E6.4, E6.2b, E6.3) is built, gated (gates 83-85) and pushed on
-`e6-batch-2`. Its PR is open and **not merged: it waits for the owner's CP2** (phase-6 §7). The
-owner paused here deliberately. Nothing is half-done, and no uncommitted work exists.
+**State.** Batch 2 (#27) and H1 (gate 86, its own PR) are built and pushed, and neither is
+merged. The owner chose to test batches 2 and 3 together (project-changes #51). So **batch 3
+is built now on `e6-batch-3`, stacked on `e6-hygiene`**. Then CP2 and CP3 run as one
+hands-on session. On approval, merge #27, then H1's PR, then batch 3's PR, each after CI is
+green. When a lower PR merges, GitHub retargets the PR above it to `main`.
 
 **Next, in order:**
 
-1. **CP2 with the owner.** Bring the QA stack up (below), provision a small SIM fleet so
-   markers show real statuses, and give the owner phase-6 §7's CP2 checklist with the exact
-   URL and login. Fix what they report. Merge the PR only on their approval, after CI is
-   green.
-2. **Batch 3** on `e6-batch-3`, branched from `main` after the merge: E6.5 (drawer) and E6.6
-   (live updates). CP3 follows.
-3. **Batch 4**: E6.7 (Owner view) and E6.8 (walkthrough and SIM acceptance). CP4 closes the
-   epic.
+1. **Batch 3:** E6.5 (drawer) and E6.6 (live updates), each to a full gate.
+2. **CP2 + CP3 with the owner.** Bring the QA stack up (below), migrate it by hand, provision
+   a small SIM fleet, and give phase-6 §7's CP2 and CP3 checklists with the exact URL and
+   login.
+3. **Merge** the three PRs in order on approval.
+4. **Batch 4:** E6.7 and E6.8, then CP4.
 
 **QA stack on this WSL host** (`qa-stack.ps1` is Windows-only):
 
@@ -85,6 +86,7 @@ owner paused here deliberately. Nothing is half-done, and no uncommitted work ex
   export DATABASE_URL="${DATABASE_URL/@postgres:5432/@localhost:15432}"
   (cd backend && uv run python -m app.devbroker --host mosquitto --keep-tls)
   docker compose -f deploy/docker-compose.yml -p eoe-e6 --env-file deploy/.env restart mosquitto
+  (cd backend && uv run alembic upgrade head)   # the stack does not migrate on start
   ```
 
   The demo is already seeded in `eoe-e6`. The owner password was printed once, at seed time
@@ -98,12 +100,6 @@ owner paused here deliberately. Nothing is half-done, and no uncommitted work ex
   `docker compose -f deploy/docker-compose.yml -p eoe-e6 --env-file deploy/.env down`
   (keeps volumes).
 
-**Open offers to the owner, not yet answered:**
-
-- A small hygiene batch: D195's pool-template re-acquire in `tests/conftest.py`, and D197's
-  SIM precondition poll.
-- D194: bring Listener GPS under the same both-or-neither API rule (a one-line change).
-
 **Known flakes on record:** D99/D181 Docker forwarder 500s (rerun after three forwarding
-probes pass), D195 (CI pool template, CI keystone Grafana port), and D197 (the SIM
-precondition race).
+probes pass), D195's CI keystone Grafana port (D165). D195's pool template and D197's SIM precondition
+race are fixed by H1 (D199).

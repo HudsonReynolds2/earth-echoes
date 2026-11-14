@@ -1,5 +1,28 @@
 # Project Updates
 
+## 2026-11-14: H1 — owner-approved hygiene: listener GPS pairs, two flakes fixed (Gate 86 GREEN)
+
+- **What changed:**
+  - **Listener GPS.** Create, PATCH and import refuse half a pair with D194's message. A PATCH
+    is judged by its result, and migration `1d73e4435c21` adds `ck_listener_gps_pair` and
+    `ck_listener_gps_range`.
+  - **D195.** `ephemeral_postgres` re-acquires a vanished template once, then raises.
+  - **D197.** The SIM LWT test's precondition polls for up to 5 s before failing.
+  - **Decisions (D199):** with no data-repair step, on the owner's word that no install holds
+    data that matters.
+- **Gate:** 86, GREEN on its first run. The entire accumulated suite, no filters.
+- **Tests:** **1378 backend / 245 vitest / 9 Playwright / 79 `/sim`**, 1711 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_coordinates.py` +9 (3 create, 1
+  PATCH, 1 import, 4 database), `test_container_pool.py` +2 (re-acquire once; twice raises).
+- **Command:** `make gate`
+- **Manual verification:** on the QA project `eoe-e6`, which holds the seeded demo:
+  - Starting the stack did **not** migrate, because this deployment migrates by hand (as
+    `guide/sim-verification.md` §2 says). After `alembic upgrade head`, `listener` carries
+    both new CHECKs.
+  - The upgrade met 0 half rows.
+  - In psql, nulling one axis of a placed demo Listener was refused by
+    `ck_listener_gps_pair`, and latitude 95 was refused by `ck_listener_gps_range`.
+
 ## 2026-11-14: E6.3 — GPS-less Listeners fan out as leaves; batch 2 is built (Gate 85 GREEN)
 
 - **What changed:**

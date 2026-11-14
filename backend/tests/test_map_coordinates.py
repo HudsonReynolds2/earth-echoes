@@ -1,4 +1,6 @@
-"""E6.2a: coordinates on Deployments and Aggregators (spec 9.2; phase-6 fixed choice 2; D189).
+"""E6.2a: coordinates on Deployments and Aggregators, and (D199) on Listeners.
+
+Spec 9.2; phase-6 fixed choice 2; D189.
 
 Three layers hold one rule, "both or neither, and in range":
 
@@ -20,7 +22,16 @@ from test_auth import PASSWORD
 
 from app.auth.passwords import hash_password
 from app.main import API_PREFIX, create_app
-from app.models import Aggregator, AuditLog, Deployment, Organization, Pod, RoleAssignment, User
+from app.models import (
+    Aggregator,
+    AuditLog,
+    Deployment,
+    Listener,
+    Organization,
+    Pod,
+    RoleAssignment,
+    User,
+)
 from app.settings import Settings
 
 pytestmark = [pytest.mark.integration]
@@ -194,6 +205,78 @@ def test_an_aggregator_patch_moves_and_clears_its_position(app, owner):
     assert cleared.json()["gps_lat"] is None
 
 
+# --- Listeners (D199: the owner brought them under the same rule) ---------------
+
+
+def _mac() -> str:
+    return ":".join(["AA", "C0"] + [uuid.uuid4().hex[i : i + 2].upper() for i in (0, 2, 4, 6)])
+
+
+def make_listener(owner, aggregator_id: str, **coords):
+    return owner.post(
+        f"{API_PREFIX}/listeners",
+        json={"mac": _mac(), "name": f"l-{uuid.uuid4().hex[:8]}", "aggregator_id": aggregator_id}
+        | coords,
+        headers=csrf(owner),
+    )
+
+
+@pytest.mark.parametrize(
+    "coords",
+    [{"gps_lat": 41.2}, {"gps_lon": -124.0}, {"gps_lat": 41.2, "gps_lon": None}],
+)
+def test_half_a_pair_is_refused_on_a_listener_create(app, owner, coords):
+    aggregator_id = make_pod(owner, make_deployment(app, owner)["id"])["aggregator"]["id"]
+    response = make_listener(owner, aggregator_id, **coords)
+    assert response.status_code == 422 and response.json()["error"]["message"] == HALF
+    listeners = owner.get(f"{API_PREFIX}/listeners", params={"aggregator_id": aggregator_id})
+    assert listeners.json()["total"] == 0
+
+
+def test_a_listener_patch_is_judged_by_its_result(app, owner):
+    aggregator_id = make_pod(owner, make_deployment(app, owner)["id"])["aggregator"]["id"]
+    created = make_listener(owner, aggregator_id)
+    assert created.status_code == 201, created.text
+    url = f"{API_PREFIX}/listeners/{created.json()['mac']}"
+
+    # Setting one axis on an unplaced Listener is half.
+    one = owner.patch(url, json={"gps_lat": 41.0}, headers=csrf(owner))
+    assert one.status_code == 422 and one.json()["error"]["message"] == HALF
+
+    placed = owner.patch(url, json={"gps_lat": 41.0, "gps_lon": -124.0}, headers=csrf(owner))
+    assert placed.status_code == 200, placed.text
+    moved = owner.patch(url, json={"gps_lat": 41.5}, headers=csrf(owner))
+    assert (moved.json()["gps_lat"], moved.json()["gps_lon"]) == (41.5, -124.0)
+
+    # Nulling one axis would leave half: refused, and nothing changes.
+    half = owner.patch(url, json={"gps_lon": None}, headers=csrf(owner))
+    assert half.status_code == 422 and half.json()["error"]["message"] == HALF
+    assert owner.get(url).json()["gps_lon"] == -124.0
+
+    # A rename leaves the position alone; clearing takes both nulls.
+    renamed = owner.patch(url, json={"name": "renamed"}, headers=csrf(owner))
+    assert (renamed.json()["gps_lat"], renamed.json()["gps_lon"]) == (41.5, -124.0)
+    cleared = owner.patch(url, json={"gps_lat": None, "gps_lon": None}, headers=csrf(owner))
+    assert (cleared.json()["gps_lat"], cleared.json()["gps_lon"]) == (None, None)
+
+
+def test_a_listener_import_row_with_half_a_pair_is_a_row_error(app, owner):
+    pod = make_pod(owner, make_deployment(app, owner)["id"])
+    aggregator_uuid = pod["aggregator"]["aggregator_uuid"]
+    report = owner.post(
+        f"{API_PREFIX}/listeners/import",
+        content=(
+            "mac,name,aggregator_uuid,gps_lat,gps_lon,tags\n"
+            f"{_mac()},whole,{aggregator_uuid},41.1,-124.1,\n"
+            f"{_mac()},half,{aggregator_uuid},41.1,,\n"
+        ).encode(),
+        headers={**csrf(owner), "Content-Type": "text/csv"},
+    )
+    body = report.json()
+    assert body["committed"] is False and body["failed"] == 1, report.text
+    assert body["rows"][1]["error"] == {"code": "validation_error", "message": HALF}
+
+
 # --- Bulk import ----------------------------------------------------------------
 
 
@@ -255,7 +338,7 @@ def test_a_header_with_only_one_coordinate_column_is_malformed(app, owner):
 # --- The database is the last line ----------------------------------------------
 
 
-@pytest.mark.parametrize("model", [Deployment, Aggregator])
+@pytest.mark.parametrize("model", [Deployment, Aggregator, Listener])
 @pytest.mark.parametrize(("lat", "lon"), [(41.0, None), (None, -124.0), (95.0, 0.0), (0.0, -181.0)])
 def test_the_database_refuses_what_the_api_would(app, model, lat, lon):
     # Its own rows, so the test does not depend on what ran before it.
@@ -272,8 +355,13 @@ def test_the_database_refuses_what_the_api_would(app, model, lat, lon):
         db.flush()
         aggregator = Aggregator(pod_id=pod.id, aggregator_uuid=uuid.uuid4().hex)
         db.add(aggregator)
+        db.flush()
+        listener = Listener(
+            mac=_mac(), name="db-listener", aggregator_id=aggregator.id, deployment_id=deployment.id
+        )
+        db.add(listener)
         db.commit()
-        row = deployment if model is Deployment else aggregator
+        row = {Deployment: deployment, Aggregator: aggregator, Listener: listener}[model]
         row.gps_lat, row.gps_lon = lat, lon
         with pytest.raises(IntegrityError, match="gps_"):
             db.flush()
