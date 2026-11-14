@@ -32,6 +32,9 @@ export interface Deployment {
   name: string;
   slug: string;
   tags: string[];
+  /** E6.2a: the marker position, both null when unplaced (D189). */
+  gps_lat: number | null;
+  gps_lon: number | null;
   pod_count: number;
   listener_count: number;
   created_at: string;
@@ -53,6 +56,9 @@ export interface Aggregator {
   balena_uuid: string | null;
   name: string | null;
   tags: string[];
+  /** E6.2a: the Pod marker's position (spec 9.2), both null when unplaced. */
+  gps_lat: number | null;
+  gps_lon: number | null;
   listener_count: number;
   /** Spec 9.3, real as of E3.12 (D60). */
   status: DeviceStatusValue;
@@ -180,6 +186,29 @@ export function patchListener(
   input: { name?: string; gps_lat?: number | null; gps_lon?: number | null },
 ) {
   return request<Listener>(`/listeners/${encodeURIComponent(mac)}`, {
+    method: "PATCH",
+    headers: writeHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+/** A position as a PATCH carries it: both numbers, or both null to clear.
+ * The API refuses half a pair with a 422 (E6.2a, D189). */
+export interface Coordinates {
+  gps_lat: number | null;
+  gps_lon: number | null;
+}
+
+export function patchDeployment(id: string, input: Partial<Coordinates> & { name?: string }) {
+  return request<Deployment>(`/deployments/${id}`, {
+    method: "PATCH",
+    headers: writeHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+export function patchAggregator(id: string, input: Partial<Coordinates> & { name?: string }) {
+  return request<Aggregator>(`/aggregators/${id}`, {
     method: "PATCH",
     headers: writeHeaders(),
     body: JSON.stringify(input),

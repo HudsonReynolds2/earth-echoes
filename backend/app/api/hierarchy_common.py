@@ -8,8 +8,9 @@ deployments,pods,aggregators,listeners}.py composes these.
 
 import uuid
 from datetime import datetime
+from typing import Any, Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -61,6 +62,47 @@ def clean_tags(tags: list[str]) -> list[str]:
     return sorted(cleaned)
 
 
+# --- Map coordinates (E6.2a; spec 9.2; D189) -------------------------------
+
+#: The operator-facing half of the both-or-neither rule. The database CHECK
+#: `gps_pair` is the half no path can skip; this is the half that explains.
+HALF_PAIR_MESSAGE = "give both latitude and longitude, or neither"
+
+
+class CoordinatesIn(BaseModel):
+    """Optional coordinates on a create or PATCH body. Range-checked here, the
+    same bounds as a Listener's; pairing is checked against the RESULT, below,
+    because a PATCH may legitimately move one axis of an existing pair."""
+
+    gps_lat: float | None = Field(default=None, ge=-90, le=90)
+    gps_lon: float | None = Field(default=None, ge=-180, le=180)
+
+
+class _HasCoordinates(Protocol):
+    gps_lat: float | None
+    gps_lon: float | None
+
+
+def require_coordinate_pair(lat: float | None, lon: float | None) -> None:
+    if (lat is None) != (lon is None):
+        raise AppError(
+            "validation_error",
+            HALF_PAIR_MESSAGE,
+            status_code=422,
+            detail={"fields": ["gps_lat", "gps_lon"]},
+        )
+
+
+def apply_coordinates(row: _HasCoordinates, changed: dict[str, Any]) -> None:
+    """Apply a PATCH's coordinate fields, refusing a result that is half a
+    pair. Clearing a position means sending both as null."""
+    lat = changed.get("gps_lat", row.gps_lat)
+    lon = changed.get("gps_lon", row.gps_lon)
+    require_coordinate_pair(lat, lon)
+    row.gps_lat = lat
+    row.gps_lon = lon
+
+
 # --- Out schemas (D7 list items and item responses) ------------------------
 
 
@@ -78,6 +120,9 @@ class DeploymentOut(BaseModel):
     name: str
     slug: str
     tags: list[str]
+    #: E6.2a: the marker position, or both null when unplaced (D189).
+    gps_lat: float | None
+    gps_lon: float | None
     pod_count: int
     listener_count: int
     created_at: datetime
@@ -91,6 +136,9 @@ class AggregatorOut(BaseModel):
     balena_uuid: str | None
     name: str | None
     tags: list[str]
+    #: E6.2a: the Pod marker's position (spec 9.2), or both null (D189).
+    gps_lat: float | None
+    gps_lon: float | None
     listener_count: int
     #: The spec 9.3 displayed status (E3.12, lifting D40). `unknown` where the
     #: device has never spoken — never silently `healthy`, which would report a
@@ -188,6 +236,8 @@ def deployment_out(db: Session, rows: list[Deployment]) -> list[DeploymentOut]:
             name=row.name,
             slug=row.slug,
             tags=row.tags,
+            gps_lat=row.gps_lat,
+            gps_lon=row.gps_lon,
             pod_count=pods.get(row.id, 0),
             listener_count=listeners.get(row.id, 0),
             created_at=row.created_at,
@@ -208,6 +258,8 @@ def aggregator_out(db: Session, rows: list[Aggregator]) -> list[AggregatorOut]:
             balena_uuid=row.balena_uuid,
             name=row.name,
             tags=row.tags,
+            gps_lat=row.gps_lat,
+            gps_lon=row.gps_lon,
             listener_count=counts.get(row.id, 0),
             status=statuses.get(row.id, DeviceStatus.UNKNOWN).value,
             created_at=row.created_at,

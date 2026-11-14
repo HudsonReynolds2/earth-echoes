@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.hierarchy_common import (
+    CoordinatesIn,
     PodOut,
     TagsBody,
     TagsOut,
@@ -22,6 +23,7 @@ from app.api.hierarchy_common import (
     not_found,
     pod_out,
     refuse_delete_with_children,
+    require_coordinate_pair,
 )
 from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
@@ -43,7 +45,7 @@ class PodsQuery(PageParams):
     tag: str | None = None
 
 
-class InlineAggregatorBody(BaseModel):
+class InlineAggregatorBody(CoordinatesIn):
     """E1.3 (spec 13): pod creation either creates or attaches its single
     aggregator in one call. aggregator_uuid is platform-assigned when
     omitted (spec 4.2)."""
@@ -135,6 +137,8 @@ def create_pod(
         )
     if db.get(Deployment, body.deployment_id) is None:
         raise AppError("not_found", "deployment not found", status_code=404)
+    if body.aggregator is not None:
+        require_coordinate_pair(body.aggregator.gps_lat, body.aggregator.gps_lon)
     row = Pod(deployment_id=body.deployment_id, name=body.name)
     db.add(row)
     try:
@@ -161,6 +165,8 @@ def create_pod(
             aggregator_uuid=body.aggregator.aggregator_uuid or uuid.uuid4().hex,
             balena_uuid=body.aggregator.balena_uuid,
             name=body.aggregator.name,
+            gps_lat=body.aggregator.gps_lat,
+            gps_lon=body.aggregator.gps_lon,
         )
         db.add(aggregator)
         try:

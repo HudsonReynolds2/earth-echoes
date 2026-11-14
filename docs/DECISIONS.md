@@ -4,6 +4,38 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D194 (2026-11-13): How E6.2a placed Deployments and Pods
+
+- **A PATCH is judged by its result.** `apply_coordinates` combines the PATCH with the
+  row's current values and refuses half a pair. Moving one axis of a placed Deployment is
+  therefore allowed, nulling one axis is a 422, and clearing a position means sending both
+  nulls. Create bodies are checked directly. The message is shared by the API and
+  `LocationCard`: "give both latitude and longitude, or neither".
+- **Three layers, one rule.** The API's 422 explains the rule. The import reports a half
+  row as a `validation_error` row (checked before insert, so it does not read as the
+  `conflict` the database would raise). The `ck_*_gps_pair` / `ck_*_gps_range` CHECKs catch
+  any path around the API.
+- **Listener GPS is unchanged.** The listener API still accepts half a pair, which is E1's
+  behavior and outside phase-6's authorized edits. Only the frontend's E4.11 dialog refuses
+  it. Recorded, not fixed. Bringing listeners under the same rule is a one-line change if an
+  owner wants it.
+- **Aggregator CSVs gain an optional tail, not new header columns.** The header must be
+  exactly the pre-E6 columns, or those plus `gps_lat,gps_lon`. Every aggregator CSV written
+  before E6 still imports. A header with only one of the two is still malformed.
+- **The fixture moved, deliberately.** Before E6, listener *i* had the same coordinates in
+  every Pod (`47.6+i/100, −121.88−i/100`), so pins would have stacked across Pods and
+  Deployments. Listeners now sit about 130 m N/E/S/W of their own Pod, and Deployments and
+  Aggregators are placed (Redwood Coast near Orick, CA; High Desert near Fort Rock, OR).
+  `test_seed_demo.py` was amended to match. Its old assertion `alder_01.gps_lat == 47.6`
+  pinned the pre-E6 rule; it now pins the new point and adds "no two Pods share a listener
+  point". This is a test changed with its fixture, not weakened. `inventory-fixture.ts`
+  mirrors the seed with the same arithmetic, and `location.test.tsx` pins first-listener
+  equality.
+- **The SIM fleet's origin comes from the slug digest**, like its MAC head. Two fleets land
+  in different places, and the answer is computable from the slug alone, which keeps
+  provisioning idempotent.
+- **Reference:** phase-6 §2 fixed choice 2 and the authorized-edits table; E6.2a.
+
 ## D193 (2026-11-13): How E6.1 built the basemaps
 
 - **Google is shipped, under Google's third-party-renderer rules.** Phase-6 fixed choice 1

@@ -1,5 +1,43 @@
 # Project Updates
 
+## 2026-11-13: E6.2a — Deployments and Pods have a place on the map (Gate 82 GREEN)
+
+- **What changed:**
+  - **Data.** Migration `670aec9e9363` adds nullable `gps_lat`/`gps_lon` and named
+    `gps_pair`/`gps_range` CHECKs to `deployment` and `aggregator` (the Pod marker sits at its
+    Aggregator, spec 9.2). There is no derived fallback (D189).
+  - **API.** The coordinate fields are on create, PATCH, and the Pod-create inline
+    aggregator. A PATCH is judged by its result, and half a pair is a 422 that names the fix.
+    The aggregator CSV may end with `gps_lat,gps_lon`, and pre-E6 headers still import.
+  - **Fixture and fleet.** The demo fixture is placed: Redwood Coast near Orick, CA and High
+    Desert near Fort Rock, OR, with listeners about 130 m around their own Pod instead of all
+    Pods sharing one spot. The SIM fleet is placed by its slug.
+  - **UI.** `LocationCard` lets operators set or clear a location on the deployment and pod
+    pages.
+  - Decisions are in D194, and INTERFACES gains E1/SIM amendments and an E6 entry.
+- **Gate:** 82, GREEN on the second run. The entire accumulated suite, no filters.
+  - Run 1 was RED on `backend-quality` only. Verbatim: "unformatted: File would be
+    reformatted --> alembic/versions/670aec9e9363_map_coordinates.py". Every test passed in
+    that run. The new, uncommitted migration was formatted.
+  - Run 2 was GREEN.
+- **Tests:** **1319 backend / 208 vitest / 6 Playwright / 79 `/sim`**, 1612 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_coordinates.py` (23),
+  `location.test.tsx` (8), and SIM `test_a_fleet_is_placed_on_the_map_deterministically`.
+  `test_seed_demo.py` was amended with its fixture (D194).
+- **Command:** `make gate`
+- **Manual verification:** on a fresh QA stack (project `eoe-e6`, see below), checked as the
+  owner through the live API:
+  - `GET /map/config` offers Esri satellite as the default and OSM, with no Google entry.
+  - Both demo Deployments and all six Aggregators carry their fixture coordinates.
+  - PATCH `{"gps_lon": null}` on a placed Deployment returns 422 "give both latitude and
+    longitude, or neither", and latitude 95 returns 422.
+- **QA stack note:** the existing `eoe-qa` database volume (created during the E4 batch-4
+  browser test) does not accept this checkout's `deploy/.env` credentials, and that `.env`
+  also predated `EOE_FIRMWARE_KEK`.
+  - The `.env` gained a locally generated `EOE_FIRMWARE_KEK`.
+  - `eoe-qa` was stopped with its volumes kept.
+  - CP1 runs on a fresh project, `eoe-e6`. Nothing was deleted.
+
 ## 2026-11-13: E6.0 and E6.1 — the E6 plan, and a live map with switchable basemaps (Gate 81 GREEN)
 
 - **What changed:**

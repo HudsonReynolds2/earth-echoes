@@ -22,6 +22,7 @@ from app.auth.deps import DbDep, require_csrf
 from app.errors import AppError
 from app.inventory.importer import (
     AGGREGATOR_CSV_COLUMNS,
+    AGGREGATOR_CSV_OPTIONAL_TAIL,
     LISTENER_CSV_COLUMNS,
     MAX_BYTES,
     ImportReport,
@@ -46,7 +47,10 @@ RawBody = Annotated[bytes, Depends(_raw_body)]
 
 
 def _rows_from_body(
-    raw: bytes, content_type: str | None, columns: list[str]
+    raw: bytes,
+    content_type: str | None,
+    columns: list[str],
+    optional_tail: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     if len(raw) > MAX_BYTES:
         raise AppError(
@@ -54,7 +58,7 @@ def _rows_from_body(
         )
     media = (content_type or "").split(";")[0].strip().lower()
     if media == "text/csv":
-        return parse_csv_rows(raw.decode("utf-8-sig"), columns)
+        return parse_csv_rows(raw.decode("utf-8-sig"), columns, optional_tail)
     try:
         payload = json.loads(raw)
     except ValueError as error:
@@ -97,5 +101,5 @@ def import_aggregators_endpoint(
     content_type: Annotated[str | None, Header(alias="content-type")] = None,
     partial: bool = False,
 ) -> ImportReport:
-    rows = _rows_from_body(raw, content_type, AGGREGATOR_CSV_COLUMNS)
+    rows = _rows_from_body(raw, content_type, AGGREGATOR_CSV_COLUMNS, AGGREGATOR_CSV_OPTIONAL_TAIL)
     return import_aggregators(db, actor.user.role_assignments, actor.user_id, rows, partial=partial)

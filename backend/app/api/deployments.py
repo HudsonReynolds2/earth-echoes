@@ -11,18 +11,21 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.hierarchy_common import (
+    CoordinatesIn,
     DeploymentOut,
     TagsBody,
     TagsOut,
+    apply_coordinates,
     clean_tags,
     deployment_out,
     get_sole_organization,
     refuse_delete_with_children,
+    require_coordinate_pair,
 )
 from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
@@ -51,7 +54,7 @@ class DeploymentsQuery(PageParams):
     tag: str | None = None
 
 
-class CreateDeploymentBody(BaseModel):
+class CreateDeploymentBody(CoordinatesIn):
     model_config = {"extra": "forbid"}
 
     organization_id: uuid.UUID
@@ -59,7 +62,7 @@ class CreateDeploymentBody(BaseModel):
     slug: str | None = Field(default=None, min_length=1, max_length=63)
 
 
-class PatchDeploymentBody(BaseModel):
+class PatchDeploymentBody(CoordinatesIn):
     model_config = {"extra": "forbid"}
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
@@ -117,8 +120,15 @@ def create_deployment(
     organization = get_sole_organization(db)
     if organization is None or organization.id != body.organization_id:
         raise AppError("not_found", "organization not found", status_code=404)
+    require_coordinate_pair(body.gps_lat, body.gps_lon)
     slug = body.slug if body.slug is not None else next_free_slug(db, slugify(body.name))
-    row = Deployment(organization_id=body.organization_id, name=body.name, slug=slug)
+    row = Deployment(
+        organization_id=body.organization_id,
+        name=body.name,
+        slug=slug,
+        gps_lat=body.gps_lat,
+        gps_lon=body.gps_lon,
+    )
     db.add(row)
     try:
         db.flush()
@@ -170,6 +180,7 @@ def patch_deployment(
         row.slug = changed["slug"]
     if "name" in changed:
         row.name = changed["name"]
+    apply_coordinates(row, changed)
     try:
         db.flush()
     except IntegrityError as error:

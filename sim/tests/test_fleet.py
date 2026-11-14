@@ -289,6 +289,30 @@ def test_a_fleet_plan_computes_unique_identities_for_every_device():
     assert FleetPlan(deployment_slug="x") == FleetPlan(deployment_slug="x")
 
 
+def test_a_fleet_is_placed_on_the_map_deterministically():
+    """E6.2a (D189): every Pod and the Deployment have coordinates, half the
+    Listeners carry GPS around their own Pod and half are leaves, no two
+    placed Listeners share a point, and a second plan computes the same map."""
+    plan = FleetPlan(aggregators=20, listeners_per_aggregator=30, deployment_slug="sim-fleet")
+    pods = [plan.pod_coords(index) for index in plan.indices()]
+    assert len(set(pods)) == 20, "two Pods share a marker position"
+    placed = []
+    for index in plan.indices():
+        pod_lat, pod_lon = pods[index]
+        for listener in range(plan.listeners_per_aggregator):
+            lat, lon = plan.listener_coords(index, listener)
+            if listener % 2:
+                assert (lat, lon) == (None, None)
+                continue
+            assert lat is not None and lon is not None
+            # Within ~300 m of its own Pod, closer to it than to any neighbor.
+            assert abs(lat - pod_lat) < 0.003 and abs(lon - pod_lon) < 0.003
+            placed.append((lat, lon))
+    assert len(placed) == 300 and len(set(placed)) == 300
+    assert plan.deployment_coords() == FleetPlan(deployment_slug="sim-fleet").deployment_coords()
+    assert plan.deployment_coords() != FleetPlan(deployment_slug="other").deployment_coords()
+
+
 def test_two_fleets_in_two_deployments_never_claim_the_same_macs():
     """`listener.mac` is the PRIMARY KEY and it is GLOBAL (E1.1, D31).
 

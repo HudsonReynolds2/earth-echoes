@@ -346,6 +346,13 @@ proven by `backend/tests/test_hierarchy_schema.py`:
   columns, never conflated (spec 4.2): `id` (platform UUID), `aggregator_uuid String(64)`
   unique + indexed (the join key unifying Prometheus/Influx/S3; global uniqueness = the
   within-org rule while v1 is single-org, D32), `balena_uuid` nullable.
+- **E6.2a amendment (D189): `deployment` and `aggregator` gain nullable `gps_lat`/`gps_lon`**,
+  with named CHECKs `ck_<table>_gps_pair` (both or neither) and `ck_<table>_gps_range`. They
+  are map positions (the Pod marker sits at its Aggregator, spec 9.2), NOT catalog keys: no
+  `location.*` setting resolves to them. Exposed on `DeploymentOut`/`AggregatorOut` and
+  accepted on create, PATCH and the Pod-create inline aggregator; a PATCH is judged by its
+  RESULT (`apply_coordinates`), so moving one axis of an existing pair is allowed and half a
+  pair is a 422 `"give both latitude and longitude, or neither"`. Listener GPS is unchanged.
 - **`listener`** — **`mac String(17)` is the PRIMARY KEY** (D31), CHECK-constrained to
   uppercase colon-separated `AA:BB:CC:DD:EE:FF`; FK `aggregator.id`; **`deployment_id` is a
   set-once denormalized stamp** (D32) making `uq_listener_deployment_id` (name unique
@@ -421,7 +428,9 @@ proven by `backend/tests/test_hierarchy_schema.py`:
 - **CSV formats (normative; header exact, `tags` pipe-separated, blank = null):**
   listeners `mac,name,aggregator_uuid,gps_lat,gps_lon,tags` — parents referenced by
   `aggregator_uuid`; aggregators `pod_id,aggregator_uuid,balena_uuid,name,tags` — blank
-  `aggregator_uuid` is platform-generated (spec 4.2). Operator examples:
+  `aggregator_uuid` is platform-generated (spec 4.2). **E6.2a:** the aggregator header may also end with
+  `gps_lat,gps_lon` (`AGGREGATOR_CSV_OPTIONAL_TAIL`; both or neither, and per row both or
+  neither — a half row is a `validation_error` row); pre-E6 headers import unchanged. Operator examples:
   `guide/bulk-import.md` (defers here).
 - **Scope:** per row — a cross-deployment row is a row-level `forbidden`, not a request
   failure. Audit: one `<entity>.import` row per request (counts, flags, created ids).
@@ -442,7 +451,12 @@ hierarchy-only when an owner already exists). Canonical, deterministic contents 
   Basin Flat" (`demo-agg-hd-01`, 6, `basin-flat-NN`, `02:EE:0E:02:01:NN`), "Pod 02 ·
   Mesa Rim" (`demo-agg-hd-02`, 4, `mesa-rim-NN`, `02:EE:0E:02:02:NN`), "Pod 03 · Dry
   Wash" (`demo-agg-hd-03`, 2, `dry-wash-NN`, `02:EE:0E:02:03:NN`). 28 listeners total.
-- **Determinism rules:** even-index listeners carry GPS (47.6+i/100, −121.88−i/100);
+- **Determinism rules:** ~~even-index listeners carry GPS (47.6+i/100, −121.88−i/100);~~
+  *(amended E6.2a, D189: every Deployment and Aggregator is placed — Redwood Coast near
+  Orick CA, High Desert near Fort Rock OR, `app/seed.py` `DEMO_DEPLOYMENT_COORDS` /
+  `DEMO_POD_COORDS` — and even-index listener i sits ~130 m N/E/S/W of its own Pod by
+  `DEMO_LEAF_OFFSETS[(i // 2) % 4]`, rounded to 6 places (`demo_listener_gps`); odd indices
+  stay GPS-less, 15 placed and 13 leaves in all)*;
   each pod's first listener carries the pod's tags; nothing is random.
 
 ### Inventory frontend (E1.8) — E2/E3/E4/E6 extend these surfaces
@@ -2084,6 +2098,17 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 - **Tests never contact a tile host.** vitest builds layer objects only; `e2e/map.spec.ts`
   runs against the `none` basemap and fails on any request to a known tile host.
 
+### Coordinates on Deployments and Aggregators (E6.2a; spec 9.2; D189)
+
+- Columns, API and import: see E1's entity schema and bulk import sections (amended
+  additively). **No derived fallback**: a Deployment or Pod without coordinates is not drawn
+  and belongs in the map's Unplaced panel (E6.2b).
+- **Frontend:** `components/LocationCard.tsx` (`parseCoordinates`, `HALF_PAIR_MESSAGE`) on
+  the deployment page (`deployment-location`) and the pod page (`pod-location`, editing the
+  Aggregator); `patchDeployment`/`patchAggregator` and the `Coordinates` type in
+  `lib/inventory.ts`. Gated on `manage_devices`; saving invalidates every query, so the map
+  re-reads.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform
@@ -2151,6 +2176,12 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 ### Provisioning a fleet (SIM.4; D112) — over the platform's own API
 
 `sim/provision.py`, importable and a CLI (`uv run python provision.py`).
+
+- **E6.2a (D189): a fleet is placed on the map.** `FleetPlan.deployment_coords()` (an origin
+  in the western US derived from the slug digest, like `mac_head`), `pod_coords(index)` (a
+  square grid at `POD_SPACING` ≈ 1.3 km) and `listener_coords(index, listener_index)` (even
+  indices on a `LISTENER_RADIUS` ≈ 165 m ring around their Pod, odd indices `None`). Sent on
+  `POST /deployments`, the Pod-create inline aggregator, and the listener import.
 
 - **`FleetPlan(aggregators=20, listeners_per_aggregator=30, deployment_slug="sim-fleet",
   mac_prefix=None)`** — every identity is a pure function of the slug and two indices, which is

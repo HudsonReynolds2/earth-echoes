@@ -19,8 +19,16 @@ import { Can } from "../../components/Can";
 import { EmptyState } from "../../components/EmptyState";
 import { EntityTable } from "../../components/EntityTable";
 import { PageHeader } from "../../components/PageHeader";
+import { LocationCard } from "../../components/LocationCard";
 import { TagEditor } from "../../components/TagEditor";
-import { createPod, deleteDeployment, getDeployment, listPods, Pod } from "../../lib/inventory";
+import {
+  createPod,
+  deleteDeployment,
+  getDeployment,
+  listPods,
+  patchDeployment,
+  Pod,
+} from "../../lib/inventory";
 import { InventoryOutletContext } from "./InventoryLayout";
 
 const columns = (() => {
@@ -157,6 +165,14 @@ export function DeploymentLevel() {
         listeners inherit from here
       </p>
       <TagEditor entity="deployments" id={row.id} tags={row.tags} deploymentId={row.id} />
+      <LocationCard
+        title="Map location"
+        what="this deployment"
+        value={{ gps_lat: row.gps_lat, gps_lon: row.gps_lon }}
+        deploymentId={row.id}
+        onSave={(coordinates) => patchDeployment(row.id, coordinates)}
+        testId="deployment-location"
+      />
       {remove.isError && (
         <p className="form-error" data-testid="delete-deployment-error">
           {(remove.error as Error).message}
