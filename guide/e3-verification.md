@@ -1273,8 +1273,10 @@ Keep the pod page open in one window and drive a change from a terminal.
 
 - [ ] The **Configuration** pages show no status chips. That part of D40 still applies: those
       screens describe configuration, not devices, and a dot there would be decoration.
-- [ ] The Map is still E6's and alerts are still E7's. The `alerting` status exists in the
-      vocabulary and nothing can produce it yet.
+- [ ] ~~The Map is still E6's and alerts are still E7's. The `alerting` status exists in the
+      vocabulary and nothing can produce it yet.~~ *(amended 2026-11-14, E6.4, D191: an open
+      `duplicate_identity` alert on a Listener now makes it `alerting` here and on the map.
+      Grafana alerts are still E7's. The map is verified with the E6 walkthrough.)*
 
 ## 13. The whole loop, from the UI (E3.13)
 
@@ -1328,6 +1330,7 @@ The failure worth trusting the platform about.
       supersedes. LWT flips Aggregator status in real time and Listener liveness follows spec
       6.5. Identity conflicts quarantine. All of it is visible on the timeline and pushed over
       the websocket.
-- [ ] What is still deliberately absent: the Map (E6), alerts and the `alerting` status (E7),
+- [ ] What is still deliberately absent *(amended 2026-11-14, E6.4: the Map and the
+      `alerting` status from inventory alerts now exist; Grafana alerts remain E7's)*: the Map (E6), alerts and the `alerting` status (E7),
       provisioning bundles (E4), service onboarding and connection tests (E5), and the
       fleet-scale simulator (SIM).

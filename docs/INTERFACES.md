@@ -1368,7 +1368,7 @@ reimplement their logic.** Signatures, verbatim:
 - **Channel registry:** `device_status`, `reconciliation`. **E7 adds `alerts`** by adding a
   member and an emitter; the filtering is channel-agnostic and needs no change.
 - **`controlplane/device_status.py` is THE spec 9.3 derivation** — `aggregator_status`,
-  `listener_status`, `rollup`. Reachability outranks reconciliation (an offline device shows
+  `listener_status`, `rollup`. **E6.4 (D191) adds `with_alerts(status, open_alerts)`**: any open alert makes a device `alerting`, `unknown` included; `hierarchy_common`'s `aggregator_statuses`/`listener_statuses` apply it, so the inventory tables and the map agree. Reachability outranks reconciliation (an offline device shows
   `offline`, not `drifted` — the drift cannot be repaired until it is back). `failed` is
   `degraded`, not offline. `pending`/`draft` are healthy: a change in flight is not a fault.
   **`unknown` is a first-class value** for a device that has never spoken and must never be
@@ -2108,6 +2108,74 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
   Aggregator); `patchDeployment`/`patchAggregator` and the `Coordinates` type in
   `lib/inventory.ts`. Gated on `manage_devices`; saving invalidates every query, so the map
   re-reads.
+
+### The marker rollup and the map reads (E6.4; spec 9.2, 9.3, 16.5; D190, D191, D195)
+
+- **`app/map/alerts.py` — E7 EXTENDS THIS.** `listener_alert_counts(db, macs)`,
+  `aggregator_alert_counts(db, aggregator_ids)`, `unattached_alert_counts(db, deployment_ids)`:
+  open alerts per device, and those naming a Deployment but no device in inventory. One query
+  each. Today the source is open `inventory_alert` rows; E7 adds Grafana alerts to the same
+  counts and nothing downstream changes.
+- **`app/map/rollup.py::roll_up(statuses, *, services_status=None) -> MarkerRollup(status,
+  counts)`** — pure. Ordering is `device_status.rollup`/`SEVERITY`; only
+  `services_status == "degraded"` adds a degraded voice (D190); `counts` has every status in
+  severity order, zeros included, devices only.
+- **`GET /api/v1/map/deployments`** (any assignment, scoped by `visible_deployments(...,
+  VIEW_STATUS)`, not paginated): `[{id, name, slug, gps_lat, gps_lon, status, counts,
+  alert_count, services_status, pod_count, listener_count}]`. `alert_count` = attached alerts
+  on its devices + unattached alerts naming it; unattached alerts never change `status`.
+- **`GET /api/v1/map/deployments/{id}`** (out-of-scope or missing = 404, D35):
+  `{deployment: <row above>, pods: [{id, name, aggregator_id, aggregator_uuid,
+  aggregator_name, gps_lat, gps_lon (the Aggregator's), aggregator_status, status, counts,
+  alert_count, listener_count}], listeners: [{mac, name, pod_id, aggregator_id, gps_lat,
+  gps_lon, status, alert_count}]}`.
+- **Query count is constant in the number of devices**, held by a statement counter in
+  `test_map_endpoints.py` at 1 and 1,000 Listeners.
+- **Frontend:** `STATUS_SEVERITY` and `worstStatus` in `components/StatusChip.tsx`, pinned to
+  the backend's `SEVERITY` by `tests/status-severity.test.ts`.
+
+### Markers, drill routes and clustering (E6.2b; spec 9.2; D196)
+
+- **Routes:** `/map` (one marker per placed Deployment), `/map/deployments/:deploymentId` (its
+  Pods as squares, its Listeners as clustered pins), `/map/pods/:podId` (the same Deployment,
+  fitted to that Pod). A selected device is `?device=listener:<MAC>` — **E6.5's drawer reads
+  this same grammar, and E7's alert rows link into it.** Crumbs are real links.
+- **`components/map/markers.ts`** — pure builders: `deploymentMarkerHtml`, `podMarkerHtml`,
+  `listenerPinHtml`, `clusterHtml`, `accessibleName`, `isDimmed`, `escapeHtml` (EVERY name is
+  escaped: DivIcon takes raw HTML), sizes `DEPLOYMENT_SIZE`/`LISTENER_SIZE`/`CLUSTER_SIZE`/
+  `podMarkerSize`. Level = shape, status = `data-status` (color + glyph via the status-chip
+  custom properties, whose selectors now include `.map-marker` and `.map-cluster`) + a word,
+  alerts = `.map-alert-badge`. `unknown` carries `data-unknown`, a dashed outline and a dash —
+  never `data-status`.
+- **`components/map/MarkerLayer.tsx`** — `MarkerLayer({specs, cluster})` keeps Leaflet markers
+  keyed by `MarkerSpec.key` (`deployment:<id>`, `pod:<id>`, `listener:<mac>`) and updates them
+  IN PLACE (position, icon, label, status); `FitToPoints({fitKey, points})` fits once per
+  `fitKey`, never on a refetch. Markers are `role="button"` with an `aria-label`, focusable,
+  and open on Enter/Space.
+- **`leafletGlobal.ts`** must be imported before `leaflet.markercluster` (a UMD plugin that
+  extends `window.L`). `MapView` sets `minZoom 2`/`maxZoom 19` itself, because clustering needs
+  a max zoom even with no tile layer.
+- **Lenses:** Reconciliation keeps `drifted` and `degraded` bright; Alerts keeps devices with
+  an alert bright; Status dims nothing.
+- **`components/map/UnplacedPanel.tsx`** lists unplaced Deployments/Pods, linking to the
+  inventory page's Map location card for `manage_devices`.
+
+### GPS-less Listeners as leaves (E6.3; spec 9.2; D198)
+
+- **`components/map/leafFan.ts::leafOffsets(count)`** — pure, deterministic PIXEL offsets on
+  rings over the UPPER half of the Pod (9 o'clock → 12 → 3 o'clock; the label hangs below).
+  `FIRST_RING` 48px, `LEAF_SPACING` 26px; `ringCapacity(ring)` fills inner rings first.
+- **`components/map/LeafFan.tsx`** projects each leaf at the current zoom (re-projected on
+  `zoomend`), so a leaf never claims a geographic position. Leaves show for the focused Pod on
+  `/map/pods/:id`, and for every placed Pod on the Deployment view at zoom ≥ `LEAF_ZOOM` (14).
+- **Leaf markup:** `listenerPinHtml({…, leaf: {dx, dy}})` adds `.map-marker-leaf` (hollow,
+  dashed) and a `.map-tether` CSS line drawn back along the offset — no Leaflet vector layer.
+  Accessible name ends "no GPS, drawn beside its pod". A Pod's label carries
+  `<n> no GPS` (`.map-nogps-badge`).
+- **Toggle:** *Show GPS-less*, remembered in `localStorage["eoe.map.showLeaves"]` (`off` to
+  hide; default on). An unplaced Pod's Unplaced row counts its GPS-less Listeners.
+- **Leaf → pin:** a Listener that gains GPS is a pin on the next read; every inventory edit
+  invalidates all queries in the same tab (E6.6 adds the live path).
 
 ## Owned by SIM
 
