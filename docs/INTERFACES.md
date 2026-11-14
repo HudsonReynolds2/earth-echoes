@@ -2160,6 +2160,23 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 - **`components/map/UnplacedPanel.tsx`** lists unplaced Deployments/Pods, linking to the
   inventory page's Map location card for `manage_devices`.
 
+### GPS-less Listeners as leaves (E6.3; spec 9.2; D198)
+
+- **`components/map/leafFan.ts::leafOffsets(count)`** — pure, deterministic PIXEL offsets on
+  rings over the UPPER half of the Pod (9 o'clock → 12 → 3 o'clock; the label hangs below).
+  `FIRST_RING` 48px, `LEAF_SPACING` 26px; `ringCapacity(ring)` fills inner rings first.
+- **`components/map/LeafFan.tsx`** projects each leaf at the current zoom (re-projected on
+  `zoomend`), so a leaf never claims a geographic position. Leaves show for the focused Pod on
+  `/map/pods/:id`, and for every placed Pod on the Deployment view at zoom ≥ `LEAF_ZOOM` (14).
+- **Leaf markup:** `listenerPinHtml({…, leaf: {dx, dy}})` adds `.map-marker-leaf` (hollow,
+  dashed) and a `.map-tether` CSS line drawn back along the offset — no Leaflet vector layer.
+  Accessible name ends "no GPS, drawn beside its pod". A Pod's label carries
+  `<n> no GPS` (`.map-nogps-badge`).
+- **Toggle:** *Show GPS-less*, remembered in `localStorage["eoe.map.showLeaves"]` (`off` to
+  hide; default on). An unplaced Pod's Unplaced row counts its GPS-less Listeners.
+- **Leaf → pin:** a Listener that gains GPS is a pin on the next read; every inventory edit
+  invalidates all queries in the same tab (E6.6 adds the live path).
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform

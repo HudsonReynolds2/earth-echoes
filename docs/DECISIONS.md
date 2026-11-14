@@ -4,6 +4,31 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D198 (2026-11-14): How E6.3 drew GPS-less Listeners
+
+- **Tethers are CSS, not Leaflet polylines.** The first build drew each tether as a
+  react-leaflet `<Polyline>`. Leaflet's vector layers need an SVG or canvas renderer, and
+  jsdom has neither, so the component crashed under test. The leaf already knows its pixel
+  offset from the Pod, so the tether is now a dashed CSS line inside the leaf's own markup,
+  sized and rotated from that offset. It follows the theme, needs no re-projection, and
+  renders anywhere.
+- **The fan uses the upper half only.** Full rings put leaves on top of the Pod's label and
+  the floating "no GPS" badge. That was found by looking at a real-browser screenshot, not by
+  a test. Leaves now fan from 9 o'clock over the top to 3 o'clock, and the "<n> no GPS"
+  count moved into the label line. `leaf-fan.test.ts` pins `dy ≤ 0` for every leaf.
+- **A test that passed while the feature was broken.** The first Playwright check asserted
+  that leaves were apart from each other. It passed while they were drawn 24,000 px away:
+  measured mid zoom animation, projected at the pre-fit zoom. Separation was the wrong
+  property. The test now polls until every leaf is within 100 px of its Pod. The positions
+  themselves were right once the zoom settled (72–84 px from the Pod).
+- **Leaves show for the focused Pod, or from zoom 14.** On `/map/pods/:id` the operator asked
+  for that Pod, so its leaves always show. On the Deployment view they appear from zoom 14,
+  because a 50-leaf fan per Pod at Deployment zoom would bury the Pods.
+- **Leaf → pin is a refetch, not a special path.** Every inventory save invalidates every
+  query in the tab, so the map rereads and the Listener draws as a pin. E6.6 brings the same
+  change to other tabs.
+- **Reference:** phase-6 §4 E6.3; spec 9.2; D196.
+
 ## D197 (2026-11-14): A SIM test's "previous test left this device online" precondition races the retained offline
 
 - **What happened:** gate 84's first run failed

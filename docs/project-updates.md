@@ -1,5 +1,32 @@
 # Project Updates
 
+## 2026-11-14: E6.3 — GPS-less Listeners fan out as leaves; batch 2 is built (Gate 85 GREEN)
+
+- **What changed:**
+  - **The fan.** GPS-less Listeners fan out over the upper half of their Pod as hollow,
+    dashed leaves on CSS tethers (`leafFan.ts`, `LeafFan.tsx`), placed by pixel offset and
+    re-projected per zoom, so a leaf never claims a geographic position.
+  - **When leaves show.** For the focused Pod on its route, and for every Pod from zoom 14 on
+    the Deployment view. The *Show GPS-less* toggle is remembered per browser.
+  - **Counts.** The Pod label carries "<n> no GPS", and an unplaced Pod's row counts its
+    GPS-less Listeners. A Listener that gains GPS draws as a pin on the next read.
+  - **Decisions (D198):** tethers moved from Leaflet polylines to CSS (jsdom has no vector
+    renderer), the fan moved to the upper half after a screenshot showed leaves on the label,
+    and a Playwright check that asserted separation was replaced by one that asserts
+    nearness.
+- **Gate:** 85, GREEN on its first run. The entire accumulated suite, no filters.
+- **Tests:** **1367 backend / 245 vitest / 9 Playwright / 79 `/sim`**, 1700 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `leaf-fan.test.ts` (8), `map-leaves.test.tsx`
+  (4), `map-markers.test.ts` +1, `e2e/map.spec.ts` +1.
+- **Command:** `make gate`
+- **Manual verification:** in Chromium against a mocked API, I took screenshots of a Pod with
+  three GPS-less Listeners and inspected them.
+  - The first screenshot showed leaves overlapping the Pod's label and badge. That was fixed,
+    and the second shows three leaves fanned over the Pod, clear of the label, which reads
+    "Sleeping · 3 listeners · 3 no GPS".
+  - The leaves measured 72–84 px from the Pod once the zoom settled.
+  - The live-stack check with a reporting SIM fleet is the owner's CP2.
+
 ## 2026-11-14: E6.2b — Deployment, Pod and Listener markers, drill routes and clusters (Gate 84 GREEN)
 
 - **What changed:**

@@ -138,20 +138,21 @@ export function podMarkerHtml(input: {
   showLabel: boolean;
 }): string {
   const size = podMarkerSize(input.listeners);
+  // In the label, not floating over the marker: the space above a Pod is
+  // where its leaves fan out (E6.3).
   const noGps =
     input.unplacedListeners > 0
-      ? `<span class="map-nogps-badge">${input.unplacedListeners} no GPS</span>`
+      ? ` · <span class="map-nogps-badge">${input.unplacedListeners} no GPS</span>`
       : "";
   const label = input.showLabel
     ? `<span class="map-marker-label">${escapeHtml(input.name)}` +
-      `<span class="map-marker-status">${statusLabel(input.status)} · ${input.listeners} listeners</span></span>`
+      `<span class="map-marker-status">${statusLabel(input.status)} · ${input.listeners} listeners${noGps}</span></span>`
     : "";
   return (
     `<div class="${classes("pod", input.dimmed, false)}" ${statusAttribute(input.status)}>` +
     `<span class="map-marker-shape" style="width:${size}px;height:${size}px">` +
     `${glyph(input.status)}${badge(input.alerts)}</span>` +
     label +
-    noGps +
     `</div>`
   );
 }
@@ -161,9 +162,20 @@ export function listenerPinHtml(input: {
   alerts: number;
   dimmed: boolean;
   selected: boolean;
+  /** A GPS-less Listener drawn beside its Pod (E6.3): hollow and dashed, so
+   * it never reads as a surveyed position, even in greyscale. `dx`/`dy` are
+   * its pixel offset FROM the Pod; the tether is drawn back along it. */
+  leaf?: { dx: number; dy: number };
 }): string {
+  const leaf = input.leaf ? " map-marker-leaf" : "";
+  // A CSS line from the leaf's center back to its Pod: no vector layer, so it
+  // follows the theme, needs no re-projection, and renders anywhere.
+  const tether = input.leaf
+    ? `<span class="map-tether" aria-hidden="true" style="width:${Math.hypot(input.leaf.dx, input.leaf.dy).toFixed(1)}px;transform:rotate(${((Math.atan2(-input.leaf.dy, -input.leaf.dx) * 180) / Math.PI).toFixed(1)}deg)"></span>`
+    : "";
   return (
-    `<div class="${classes("listener", input.dimmed, input.selected)}" ${statusAttribute(input.status)}>` +
+    `<div class="${classes("listener", input.dimmed, input.selected)}${leaf}" ${statusAttribute(input.status)}>` +
+    tether +
     `<span class="map-marker-shape">${glyph(input.status)}${badge(input.alerts)}</span>` +
     `</div>`
   );

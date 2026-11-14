@@ -659,8 +659,7 @@ h2 {
   text-align: center;
 }
 
-.map-services-chip,
-.map-nogps-badge {
+.map-services-chip {
   position: absolute;
   left: 0;
   transform: translateX(-50%);
@@ -678,8 +677,11 @@ h2 {
   top: calc(var(--eoe-space-12) + var(--eoe-space-4));
 }
 
+/* Inside the Pod's label line, dashed like a leaf so the two read together. */
 .map-nogps-badge {
-  top: calc(-1 * var(--eoe-space-10));
+  padding: 0 var(--eoe-space-1);
+  border: var(--eoe-border-width-hairline) dashed var(--eoe-color-border-strong);
+  border-radius: var(--eoe-radius-pill);
 }
 
 .map-cluster {
@@ -744,6 +746,33 @@ h2 {
   display: flex;
   justify-content: space-between;
   gap: var(--eoe-space-3);
+}
+
+/* E6.3: a GPS-less Listener, drawn beside its Pod. Hollow and dashed, so
+ * shape alone says "not a real position", in color or greyscale. */
+.map-marker-leaf .map-marker-shape {
+  background: var(--eoe-color-surface);
+  border-style: dashed;
+  box-shadow: var(--eoe-shadow-sm);
+}
+
+/* The tether from a leaf back to its Pod: a dashed line from the leaf's
+ * center, sized and rotated inline from the leaf's own pixel offset, and
+ * drawn under the leaf. */
+.map-tether {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 0;
+  border-top: var(--eoe-border-width-hairline) dashed var(--eoe-color-border-strong);
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.map-leaf-toggle {
+  left: calc(var(--eoe-space-12) + var(--eoe-space-4));
+  right: auto;
+  font-size: var(--eoe-font-size-sm);
 }
 
 .map-selected {

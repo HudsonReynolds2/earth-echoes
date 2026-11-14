@@ -122,6 +122,21 @@ describe("marker markup", () => {
   });
 });
 
+describe("leaves", () => {
+  it("draw hollow, with a tether back to the Pod along their own offset", () => {
+    const leaf = parse(
+      listenerPinHtml({ ...base, status: "healthy", selected: false, leaf: { dx: 0, dy: -48 } }),
+    );
+    expect(leaf).toHaveClass("map-marker-leaf");
+    const tether = leaf.querySelector<HTMLElement>(".map-tether")!;
+    // 48px long, pointing straight down from a leaf at 12 o'clock to its Pod.
+    expect(tether.style.width).toBe("48px");
+    expect(tether.style.transform).toBe("rotate(90.0deg)");
+    const pin = parse(listenerPinHtml({ ...base, status: "healthy", selected: false }));
+    expect(pin.querySelector(".map-tether")).toBeNull();
+  });
+});
+
 describe("accessible names", () => {
   it("say level, name, status and alerts", () => {
     expect(accessibleName("pod", "Pod 01 · Alder Creek", "degraded", 1, "8 listeners")).toBe(

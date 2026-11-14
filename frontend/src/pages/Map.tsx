@@ -14,7 +14,7 @@
  * is a cluster's icon, with the server's severity order.
  */
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ContextBar, Crumb } from "../components/ContextBar";
@@ -30,6 +30,7 @@ import {
   podMarkerHtml,
   podMarkerSize,
 } from "../components/map/markers";
+import { LeafFan } from "../components/map/LeafFan";
 import { FitToPoints, MarkerLayer, MarkerSpec } from "../components/map/MarkerLayer";
 import { MapView } from "../components/map/MapView";
 import { UnplacedItem, UnplacedPanel } from "../components/map/UnplacedPanel";
@@ -46,6 +47,26 @@ import {
 } from "../lib/map";
 
 const TABS: MapTab[] = ["Status", "Reconciliation", "Alerts"];
+
+const LEAVES_KEY = "eoe.map.showLeaves";
+
+/** Per-viewer convenience: on unless this viewer turned it off. Storage can
+ * be absent or throw, and the map must work without it. */
+function recallShowLeaves(): boolean {
+  try {
+    return window.localStorage.getItem(LEAVES_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function rememberShowLeaves(on: boolean): void {
+  try {
+    window.localStorage.setItem(LEAVES_KEY, on ? "on" : "off");
+  } catch {
+    // Not remembered; leaves show by default next time.
+  }
+}
 
 export function Map() {
   const { deploymentId, podId } = useParams();
@@ -216,6 +237,15 @@ function DeploymentLayer({
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const selected = params.get("device");
+  const [showLeaves, setShowLeaves] = useState(recallShowLeaves);
+  const selectListener = useCallback(
+    (mac: string) => {
+      const next = new URLSearchParams(params);
+      next.set("device", `listener:${mac}`);
+      setParams(next);
+    },
+    [params, setParams],
+  );
 
   const pods = detail?.pods ?? [];
   const listeners = detail?.listeners ?? [];
@@ -271,13 +301,9 @@ function DeploymentLayer({
           dimmed: isDimmed(tab, row.status, row.alert_count),
           selected: selected === `listener:${row.mac}`,
         }),
-        onSelect: () => {
-          const next = new URLSearchParams(params);
-          next.set("device", `listener:${row.mac}`);
-          setParams(next);
-        },
+        onSelect: () => selectListener(row.mac),
       })),
-    [listeners, tab, selected, params, setParams],
+    [listeners, tab, selected, selectListener],
   );
 
   if (missing) {
@@ -308,7 +334,15 @@ function DeploymentLayer({
       kind: "pod",
       fixAt: `/inventory/pods/${row.id}`,
       deploymentId: detail!.deployment.id,
-      note: row.aggregator_id === null ? "no aggregator yet" : `${row.listener_count} listeners`,
+      // A GPS-less Listener orbits its Pod; an unplaced Pod leaves it nowhere
+      // to orbit, so it is counted here instead (E6.3).
+      note:
+        row.aggregator_id === null
+          ? "no aggregator yet"
+          : `${row.listener_count} listeners` +
+            ((unplacedListenersByPod[row.id] ?? 0) > 0
+              ? `, ${unplacedListenersByPod[row.id]} without GPS`
+              : ""),
     }));
 
   const chosen = selected?.startsWith("listener:")
@@ -327,6 +361,17 @@ function DeploymentLayer({
           )}
           <TabNote tab={tab} />
           <UnplacedPanel items={unplaced} />
+          <label className="map-control map-leaf-toggle" data-testid="map-leaf-toggle">
+            <input
+              type="checkbox"
+              checked={showLeaves}
+              onChange={(event) => {
+                setShowLeaves(event.target.checked);
+                rememberShowLeaves(event.target.checked);
+              }}
+            />
+            Show GPS-less
+          </label>
           {chosen && (
             <section className="map-control map-selected" data-testid="map-selected">
               <span className="eyebrow">Listener</span>
@@ -353,6 +398,16 @@ function DeploymentLayer({
       }
     >
       <MarkerLayer specs={listenerSpecs} cluster />
+      {showLeaves && (
+        <LeafFan
+          pods={pods}
+          listeners={listeners}
+          focusPodId={podId}
+          tab={tab}
+          selected={selected}
+          onSelect={selectListener}
+        />
+      )}
       <MarkerLayer specs={podSpecs} cluster={false} />
       <FitToPoints
         fitKey={`${detail?.deployment.id ?? "loading"}:${podId ?? ""}:${points.length > 0}`}

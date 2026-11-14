@@ -97,6 +97,17 @@ function deploymentRow(id: string, name: string, lat: number, lon: number, statu
   };
 }
 
+const LEAVES = [1, 2, 3].map((n) => ({
+  mac: `02:EE:0E:01:01:A${n}`,
+  name: `leaf-${n}`,
+  pod_id: POD_A,
+  aggregator_id: "agg-a",
+  gps_lat: null,
+  gps_lon: null,
+  status: "sleeping",
+  alert_count: 0,
+}));
+
 const LISTENERS = [0, 1, 2, 3, 4, 5].map((n) => ({
   mac: `02:EE:0E:01:01:0${n + 1}`,
   name: `pin-${n + 1}`,
@@ -162,7 +173,7 @@ test.describe("markers", () => {
               listener_count: 2,
             },
           ],
-          listeners: LISTENERS,
+          listeners: [...LISTENERS, ...LEAVES],
         },
       }),
     );
@@ -215,5 +226,87 @@ test.describe("markers", () => {
     await expect(redwood).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(new RegExp(`/map/deployments/${DEP}$`));
+  });
+});
+
+test.describe("leaves", () => {
+  test("a Pod's GPS-less Listeners fan out around it on dashed tethers", async ({ page }) => {
+    await page.route(`${API}/auth/me`, (route) =>
+      route.fulfill({
+        json: {
+          id: "u1",
+          email: "owner@example.com",
+          is_active: true,
+          assignments: [{ role: "owner", deployment_id: null }],
+        },
+      }),
+    );
+    await page.route(`${API}/pods/${POD_A}`, (route) =>
+      route.fulfill({ json: { id: POD_A, deployment_id: DEP, name: "Pod 01 · Alder Creek" } }),
+    );
+    await page.route(`${API}/map/deployments/${DEP}`, (route) =>
+      route.fulfill({
+        json: {
+          deployment: deploymentRow(DEP, "Redwood Coast", 41.213, -124.004, "healthy"),
+          pods: [
+            {
+              id: POD_A,
+              name: "Pod 01 · Alder Creek",
+              aggregator_id: "agg-a",
+              aggregator_uuid: "demo-agg-rc-01",
+              aggregator_name: null,
+              gps_lat: 41.221,
+              gps_lon: -124.012,
+              aggregator_status: "healthy",
+              status: "sleeping",
+              counts: { ...ZERO, healthy: 1, sleeping: 3 },
+              alert_count: 0,
+              listener_count: 3,
+            },
+          ],
+          listeners: LEAVES,
+        },
+      }),
+    );
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto(`/map/pods/${POD_A}`);
+    const leaves = page.getByRole("button", { name: /no GPS, drawn beside its pod$/ });
+    await expect(leaves).toHaveCount(3);
+    await expect(page.locator(".map-marker-leaf .map-tether")).toHaveCount(3);
+    await expect(page.getByText("3 no GPS")).toBeVisible();
+    // Each leaf sits within a short tether of its Pod in real layout, once the
+    // zoom has settled. Polling for NEARNESS, not just separation: a leaf
+    // projected at the wrong zoom is still "apart", thousands of px away.
+    const pod = page.getByRole("button", { name: /^Pod Pod 01 · Alder Creek/ });
+    const centre = async (handle: typeof pod) => {
+      const box = (await handle.boundingBox())!;
+      return [box.x + box.width / 2, box.y + box.height / 2];
+    };
+    await expect
+      .poll(async () => {
+        const [px, py] = await centre(pod);
+        const centres = await leaves.evaluateAll((elements) =>
+          elements.map((element) => {
+            const box = element.getBoundingClientRect();
+            return [box.x + box.width / 2, box.y + box.height / 2];
+          }),
+        );
+        return Math.max(...centres.map(([x, y]) => Math.hypot(x - px, y - py)));
+      })
+      .toBeLessThan(100);
+    const centres = await leaves.evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        return [box.x + box.width / 2, box.y + box.height / 2];
+      }),
+    );
+    for (let a = 0; a < centres.length; a += 1) {
+      for (let b = a + 1; b < centres.length; b += 1) {
+        expect(
+          Math.hypot(centres[a][0] - centres[b][0], centres[a][1] - centres[b][1]),
+        ).toBeGreaterThan(20);
+      }
+    }
+    if (process.env.EOE_SHOT) await page.screenshot({ path: process.env.EOE_SHOT });
   });
 });
