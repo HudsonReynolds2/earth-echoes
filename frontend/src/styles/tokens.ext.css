@@ -176,4 +176,22 @@
   --eoe-color-service-wait-tint: var(--eoe-color-status-degraded-tint);
   --eoe-color-service-none: var(--eoe-color-status-offline);
   --eoe-color-service-none-tint: var(--eoe-color-status-offline-tint);
+
+  /* ── E4.10 additions: provisioning records (all additive) ──────────────
+   * A record's status (spec 8.5) is where a CARD is in its journey, its own
+   * five-value vocabulary, and it never renders through StatusChip's device
+   * states (D40). Same form as the E5.12 block above: var() ALIASES of the
+   * shared status hues, so green means good everywhere, nothing can drift,
+   * and the night theme comes free. Deliberately absent from the night sheet
+   * for the same reason. Glyphs and words live in RecordChip. */
+  --eoe-color-record-generated: var(--eoe-color-status-offline);
+  --eoe-color-record-generated-tint: var(--eoe-color-status-offline-tint);
+  --eoe-color-record-flashed: var(--eoe-color-status-sleeping);
+  --eoe-color-record-flashed-tint: var(--eoe-color-status-sleeping-tint);
+  --eoe-color-record-registered: var(--eoe-color-status-degraded);
+  --eoe-color-record-registered-tint: var(--eoe-color-status-degraded-tint);
+  --eoe-color-record-confirmed: var(--eoe-color-status-healthy);
+  --eoe-color-record-confirmed-tint: var(--eoe-color-status-healthy-tint);
+  --eoe-color-record-mismatch: var(--eoe-color-status-alerting);
+  --eoe-color-record-mismatch-tint: var(--eoe-color-status-alerting-tint);
 }

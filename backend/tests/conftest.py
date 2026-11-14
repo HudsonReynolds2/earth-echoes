@@ -1013,10 +1013,17 @@ def _start_broker_container(
     conf: Path,
     host_port: int | None,
     env: dict[str, str],
-    attempts: int = 3,
+    attempts: int = 6,
 ) -> str:
     """Create, populate and start one broker, returning it only once the HOST
     can reach its published port.
+
+    **Six whole-container attempts with a growing pause** (D181). Docker
+    Desktop's forwarder has wedged for longer than three back-to-back attempts
+    could outlast: gates 75 and 78 each lost a broker after every one of three
+    new containers hit `/forwards/expose ... 500`. Pausing 2s, 4s, 6s… between
+    containers stretches the window to roughly 90s. A healthy Docker never
+    reaches the second attempt, so this costs nothing there.
 
     **Retries the whole container, exactly as `_start_ephemeral_postgres` has
     always done, and for the identical fault.** Docker Desktop's forwarder drops
@@ -1081,6 +1088,7 @@ def _start_broker_container(
                 last = f"broker {name} would not start: {started.stderr.strip()}"
                 subprocess.run([docker_cli(), "rm", "-f", "-v", name], capture_output=True, env=env)
                 print(f"ephemeral broker: wedged forward, new container ({attempt}/{attempts})")
+                time.sleep(2 * attempt)  # D181: give a wedged forwarder room to recover
                 continue
             assert started.returncode == 0, f"broker would not start: {started.stderr}"
 

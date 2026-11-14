@@ -1,5 +1,48 @@
 # Project Updates
 
+## 2026-11-13: E4.10 — the provisioning wizard and tracking board (Gate 78 GREEN)
+
+- **Tasks closed:** E4.10 (spec 8.5, screen S6). `frontend/src/pages/Provisioning.tsx` replaces
+  E0's `EmptyState` with:
+  - a deployment picker;
+  - **`BundleWizard`**: target (one Pod or the whole Deployment), card mode per Pod (with
+    Listener picks for mixed), review (including the plaintext-login warning), then generate.
+    The API's two 422s are explained as what to fix.
+  - **`BundleBoard`**, following S6: Download, *Mark N cards flashed*, four tiles, and five
+    status columns, re-read every 15s.
+
+  `RecordChip` is the record vocabulary, never `StatusChip` (D40), with ten
+  `--eoe-color-record-*` var() aliases (the D154 form). There is a new `lib/provisioning.ts`
+  client and a stateful MSW fixture. `guide/e1-verification.md`'s `/provisioning` line is
+  amended in this batch. Decisions in **D180**.
+- **Also in this gate:** **D181**, the owner's call on the recurring Docker Desktop forwarder
+  outage. The broker fixture now makes six whole-container attempts with growing pauses (about
+  90s) instead of three, and a real fix is left open as a follow-up.
+- **Gate:** 78, GREEN on the third run. The entire accumulated suite, no filters.
+- **Tests:** **1274 backend / 172 vitest / 4 Playwright / 78 `/sim`**, 1528 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. The +9 vitest is `tests/provisioning.test.tsx`. Backend
+  stage **229.98s**, sim-protocol **191.58s**, wall clock **7m20s**.
+- **The two red runs (rule R0):**
+  - **Run 1** failed backend-tests with 1 error: `test_reported_consumer.py::test_a_device_publishing_its_report_drives_the_revision_to_applied`
+    setup. The broker fixture gave up after its then-3 new containers on
+    `/forwards/expose returned unexpected status: 500`. This was the third forwarder outage of
+    the day, so it went to the owner, who chose D181.
+  - **Run 2** (with D181) failed backend-tests on 1 test,
+    `test_reconciliation_worker.py::test_publishing_refuses_while_the_flag_is_off`, at its
+    login: `AssertionError: {"error":{"code":"unauthorized","message":"invalid credentials",
+    "detail":null}} assert 401 == 200`. The same account had logged in four times earlier in
+    the module. The failure **did not reproduce**: the module ran 49/49 three times in a row,
+    and with E4.9's suite in one process. Nothing in this batch touches auth or that module.
+    **Open finding, not acted on:** `app/auth/passwords.py::verify_password` maps every argon2
+    `VerificationError` to `False`. Argon2 can raise that class for internal failures as well
+    as mismatches, so a resource failure under a loaded parallel gate would surface as exactly
+    this 401. Unconfirmed; a recurrence gets investigated before any rerun.
+  - **Run 3** was green, on unchanged code.
+- **Command:** `make gate` in WSL2 against Docker Desktop's engine.
+- **Manual verification:** `npm run build` (typecheck plus the Vite production build) compiled
+  the new page and components. **The owner's hands-on browser test is the batch-4
+  checkpoint**, with the stack up and a checklist, before batch 4's PR merges.
+
 ## 2026-11-13: E4.9 — records move by themselves as devices come online (Gate 77 GREEN)
 
 - **Tasks closed:** E4.9 (spec 8.5). `app/provisioning/records.py` re-derives each record's status

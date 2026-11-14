@@ -144,4 +144,10 @@ export const server = setupServer(
   http.get("http://api.test/api/v1/deployments/:id/services", ({ params }) =>
     HttpResponse.json(fixtureServices(String(params.id))),
   ),
+  // E4.10: the Provisioning page lists a deployment's bundles on render. The
+  // default is none; tests that provision install the stateful handlers from
+  // provisioning-fixture.ts with server.use.
+  http.get("http://api.test/api/v1/provisioning/bundles", () =>
+    HttpResponse.json({ items: [], total: 0, limit: 100, offset: 0 }),
+  ),
 );

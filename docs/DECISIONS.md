@@ -4,6 +4,63 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D181 (2026-11-13): A longer broker retry window for Docker Desktop's wedging forwarder, and the root fix left open
+
+- **Decision (owner's call, 2026-11-13):** `conftest._start_broker_container` makes **six**
+  whole-container attempts instead of three, sleeping `2 × attempt` seconds between them, for a
+  window of roughly 90s. As before (D99, D165), it reacts only to `_TRANSIENT_DOCKER` faults,
+  so every other failure still fails immediately with its own message. A healthy Docker never
+  reaches a second attempt.
+- **Why:** on this host (WSL2 with Docker Desktop's engine), the port forwarder wedged during 3
+  of the day's ~15 full gate runs (gate 65 run 2; gate 75 run 2; gate 78 run 1). Each time,
+  every published-port container start answered `/forwards/expose returned unexpected status:
+  500` for longer than three back-to-back attempts lasted. It is no code defect: each time, a
+  manual check right afterwards showed published ports working, and the same suites passed in
+  isolation.
+- **Left open (the owner asked for a proper fix later):** the retry absorbs the symptom. Root
+  fixes worth evaluating, none taken yet:
+  1. **Avoid published ports in tests.** Run the gate inside a Linux runner container on the
+     test containers' Docker network (gate-64's path) and dial service names, so the forwarder
+     is out of the path.
+  2. **Docker Engine native to WSL.** No Desktop forwarder exists there, because ports are
+     local. Gate-64's record notes one unstable attempt, which was never diagnosed.
+  3. **Docker Desktop resources and network settings** (VM memory, the networking mode), if the
+     wedging is load-induced.
+- **Reference:** D99, D141, D165; the gate-65, gate-75 and gate-78 project-updates entries.
+
+## D180 (2026-11-13): E4.10's UI — S6's board, a record vocabulary of its own, and a wizard built without DES.5's source
+
+- **Decision:**
+  1. **The board is S6's layout:** a bundle header with *Download bundle* and *Mark N cards
+     flashed* (the one bulk action a field tech needs, a primary button per S6), four summary
+     tiles (files, cards expected, confirmed x / y, mismatch with an alert tint), then one column
+     per spec 8.5 status in pipeline order. It re-reads its bundle every 15s
+     (`BOARD_REFRESH_MS`), so it fills in by itself within a beat of the worker's one-minute
+     reconciler.
+  2. **Record status is its own vocabulary.** `RecordChip` / `.record-chip[data-record-status]`
+     uses color, glyph and word, never `StatusChip` or `.status-chip` (D40). Asserted: no
+     `[data-status]` on the board. The colors are ten `--eoe-color-record-*` **var() aliases** of
+     the shared status hues in `tokens.ext.css`, which is exactly E5.12's `.service-chip` form
+     (D154). They are absent from the night sheet on purpose; it inherits them.
+  3. **The wizard is assembled, not drawn.** S6 does not draw it, and phase-4 points at DES.5's
+     wizard-step components, but `Design System.dc.html` (DES.5's source) is **not in the
+     repository**, and no wizard component exists in `src/`. So `.wizard-steps` is a small step
+     rail in its own `app.css` section, built only from existing tokens. The steps are target →
+     card modes → review → generate. The wizard blocks only what the API would refuse on shape
+     (a mixed Pod with no Listener named; Pods without Aggregators are not offered), and it turns
+     the API's two 422s into instructions: `detail.missing` becomes "set these in the Pod's
+     Configuration", and `detail.deployment` becomes "verify the broker on Services (spec
+     16.5)".
+  4. **Permissions mirror the API:** *New bundle*, *Download* and *Mark flashed* render only
+     under `useCan("manage_provisioning", deployment)`. A viewer, or a field tech outside their
+     deployment, sees the board and nothing that changes anything.
+  5. **Download goes through `fetch`**, not an `<a href>`, on `downloadStack`'s reasoning, and
+     the review step warns that the archive carries plaintext broker logins.
+- **Walkthrough amended in the same batch (R1):** `guide/e1-verification.md`'s "/provisioning —
+  empty state naming E4 and E5" is struck through and pointed at the E4 walkthrough.
+- **Reference:** spec 8.2, 8.5; screen S6; phase-4 E4.10; D40, D154, D178, D179;
+  `frontend/tests/provisioning.test.tsx`.
+
 ## D179 (2026-11-13): E4.9's reconciler — re-derived status, two readings the phase document left open, and the one operator transition
 
 - **Decision:**

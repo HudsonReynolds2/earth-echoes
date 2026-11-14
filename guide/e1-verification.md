@@ -184,7 +184,9 @@ placeholders pretending to be data:
 - [ ] **/configuration** — ~~empty state naming E2~~ *(amended 2026-08-04, E2.7: the
       live inheritance editor now lives here — verify it via
       [the E2 walkthrough](e2-verification.md); its Publish affordances name **E3**)*.
-- [ ] **/provisioning** — empty state naming **E4** and **E5**.
+- [ ] **/provisioning** — ~~empty state naming **E4** and **E5**~~ *(amended 2026-11-13, E4.10:
+      the generation wizard and bundle tracking board now live here — verify them via the E4
+      walkthrough, `guide/e4-verification.md`)*.
 - [ ] **Overview → Needs attention** — names **E3/E7**.
 - [ ] **Deployment cards** — "Device status arrives with E3 · services with E5".
 - [ ] **Listener detail** — footer "Live status arrives with E3 · telemetry with E5"
