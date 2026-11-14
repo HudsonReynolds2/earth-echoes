@@ -10,7 +10,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -18,6 +18,28 @@ from pydantic_settings import (
 )
 
 CONFIG_FILE_ENV = "EOE_CONFIG_FILE"
+
+
+def parse_bounds(raw: str) -> tuple[float, float, float, float]:
+    """`EOE_MAP_IMAGE_BOUNDS` as (south, west, north, east).
+
+    Strict on purpose: a swapped pair would put the image on the wrong side of
+    the planet, and a silent clamp would hide that.
+    """
+    parts = [part.strip() for part in raw.split(",")]
+    if len(parts) != 4:
+        raise ValueError("EOE_MAP_IMAGE_BOUNDS must be four numbers: south,west,north,east")
+    try:
+        south, west, north, east = (float(part) for part in parts)
+    except ValueError as error:
+        raise ValueError(
+            "EOE_MAP_IMAGE_BOUNDS must be four numbers: south,west,north,east"
+        ) from error
+    if not (-90 <= south < north <= 90):
+        raise ValueError("EOE_MAP_IMAGE_BOUNDS: need -90 <= south < north <= 90")
+    if not (-180 <= west < east <= 180):
+        raise ValueError("EOE_MAP_IMAGE_BOUNDS: need -180 <= west < east <= 180")
+    return south, west, north, east
 
 
 class TomlFileSource(PydanticBaseSettingsSource):
@@ -114,6 +136,45 @@ class Settings(BaseSettings):
     worker_heartbeat_path: str = Field(
         default="/tmp/eoe-worker.heartbeat", validation_alias="EOE_WORKER_HEARTBEAT_PATH"
     )
+
+    # E6.1 (spec 9.1, 14.5, 15.1; phase-6 fixed choice 1; D188): which map
+    # basemaps the frontend offers, served at runtime by `GET /map/config` so
+    # an operator changes basemaps without rebuilding the frontend.
+    # `map_offline` removes every source that fetches from the internet.
+    map_offline: bool = Field(default=False, validation_alias="EOE_MAP_OFFLINE")
+    # A Google Maps Platform key for the Map Tiles API. A BROWSER key, not a
+    # secret: it must reach the browser to fetch tiles, so it does not go
+    # through SecretStore, and it must be HTTP-referrer-restricted in the
+    # Google console. Unset means no Google basemap is offered.
+    map_google_api_key: str | None = Field(default=None, validation_alias="EOE_MAP_GOOGLE_API_KEY")
+    # A .pmtiles file the browser can fetch with HTTP range requests.
+    map_pmtiles_url: str | None = Field(default=None, validation_alias="EOE_MAP_PMTILES_URL")
+    # An operator-supplied georeferenced image and its bounds, as
+    # "south,west,north,east" in decimal degrees. Both or neither.
+    map_image_url: str | None = Field(default=None, validation_alias="EOE_MAP_IMAGE_URL")
+    map_image_bounds: str | None = Field(default=None, validation_alias="EOE_MAP_IMAGE_BOUNDS")
+
+    @field_validator(
+        "map_google_api_key", "map_pmtiles_url", "map_image_url", "map_image_bounds", mode="before"
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        # Compose passes `${EOE_MAP_IMAGE_URL:-}` as an empty string when the
+        # operator sets nothing; that means "not configured", not "configured
+        # as empty".
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _map_image_pair(self) -> "Settings":
+        # Fail at startup, naming the variables, rather than serve a basemap
+        # the browser cannot place.
+        if (self.map_image_url is None) != (self.map_image_bounds is None):
+            raise ValueError("EOE_MAP_IMAGE_URL and EOE_MAP_IMAGE_BOUNDS must be set together")
+        if self.map_image_bounds is not None:
+            parse_bounds(self.map_image_bounds)
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

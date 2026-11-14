@@ -46,6 +46,10 @@ only the published host side moved, so the stack coexists with other local servi
 | `EOE_DRIFT_SWEEP_SECONDS` | no | drift re-comparison cadence, default 300 (E3.7) |
 | `EOE_BROKER_REFRESH_SECONDS` | no | how often both hosts reload broker coordinates, default 30 (E5.7b, D137) |
 | `EOE_SERVICE_CONFIG_SWEEP_SECONDS` | no | deployment-service config sweep cadence, default 60 (E5.7b, D137) |
+| `EOE_MAP_OFFLINE` | no (default `false`) | remove every internet basemap (E6.1, D188). Additive row, owned by E6 |
+| `EOE_MAP_GOOGLE_API_KEY` | no | Google Map Tiles API **browser** key; offers the Google satellite basemap. Public by design, must be referrer-restricted, not a SecretStore secret (E6.1, D188). Additive row, owned by E6 |
+| `EOE_MAP_PMTILES_URL` | no | offline PMTiles basemap URL, raster or vector (E6.1). Additive row, owned by E6 |
+| `EOE_MAP_IMAGE_URL`, `EOE_MAP_IMAGE_BOUNDS` | no, both or neither | operator georeferenced image; bounds `south,west,north,east`, validated fail-loud at startup (E6.1). Additive row, owned by E6 |
 
 No secret defaults are committed; `deploy/.env.example` documents names only, never values.
 Settings precedence: environment variable over TOML config file over default (D5).
@@ -2046,6 +2050,39 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
     - `generated` unmarks a mis-click (D187). It returns 409 unless the record is `flashed`,
       and is idempotent when already `generated`. Audited as `provisioning.record.unflashed`.
     - Any other value is a 422.
+
+## Owned by E6
+
+### Basemaps and `GET /map/config` (E6.1; spec 9.1, 14.5, 15.1; D188, D193)
+
+- **The tile-source interface is `frontend/src/lib/basemaps.ts`.** A closed id set
+  (`esri_imagery`, `osm`, `google_satellite`, `pmtiles`, `image`, `none`), one definition and
+  one async layer factory per id (`LAYER_FACTORIES: Record<BasemapId, ...>`). Components call
+  `createBasemapLayer(entry)` and never name a tile server. The same id list lives in
+  `backend/app/map/basemaps.py`; `test_map_config.py` and `basemaps.test.ts` pin both.
+- **`GET /api/v1/map/config`** (`require_any_assignment`; every role holds `VIEW_STATUS`):
+  `{offline, default, sources: [{id, url, bounds, api_key}]}`. The server decides which
+  sources are offered from the `EOE_MAP_*` settings; the frontend owns URL templates,
+  attribution and zoom limits. Online default `esri_imagery`; offline default is the first of
+  `pmtiles`, `image`, else `none`. Offline mode removes every online source.
+- **Google** (only with a key) uses the Map Tiles API: a session from `createSession`, tiles
+  from `/v1/2dtiles`, and the "Google Maps" mark plus the per-viewport copyright from
+  `/tile/v1/viewport`, refreshed on every `moveend`, as Google's third-party-renderer policy
+  requires. Nothing caches tiles beyond the browser's honoring of response headers.
+- **PMTiles** reads the archive header: raster archives draw with `pmtiles`'
+  `leafletRasterLayer`, vector archives with `protomaps-leaflet`. Both are dynamic imports in
+  their own chunks, never in the main bundle.
+- **The viewer's basemap** is remembered per browser under `localStorage["eoe.map.basemap"]`
+  (try/catch both ways) and dropped if the server no longer offers it.
+- **For E8's CSP:** `BASEMAPS[id].host` names each online source's host —
+  `server.arcgisonline.com`, `tile.openstreetmap.org`, `tile.googleapis.com` (`img-src`, plus
+  `connect-src` for Google's two JSON calls) — and the PMTiles/image origin is the operator's
+  configured URL (`connect-src` for PMTiles range requests, `img-src` for the image).
+- **Frontend:** `components/map/MapView.tsx` (react-leaflet `MapContainer`, `BasemapLayer`,
+  the switcher, an `overlay` slot for DOM drawn over the map), `lib/map.ts` (query keys under
+  `["map", ...]`). Leaflet's controls are relit from tokens in `app.css`'s map section.
+- **Tests never contact a tile host.** vitest builds layer objects only; `e2e/map.spec.ts`
+  runs against the `none` basemap and fails on any request to a known tile host.
 
 ## Owned by SIM
 

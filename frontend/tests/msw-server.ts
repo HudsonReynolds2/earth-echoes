@@ -52,6 +52,18 @@ export const adminUsers = {
   offset: 0,
 };
 
+/** E6.1: what `GET /map/config` returns with no `EOE_MAP_*` settings: the two
+ * keyless online sources plus the plain background, satellite by default. */
+export const mapConfigFixture = {
+  offline: false,
+  default: "esri_imagery",
+  sources: [
+    { id: "esri_imagery", url: null, bounds: null, api_key: null },
+    { id: "osm", url: null, bounds: null, api_key: null },
+    { id: "none", url: null, bounds: null, api_key: null },
+  ],
+};
+
 export const server = setupServer(
   http.get("http://api.test/api/v1/health", () => HttpResponse.json(healthPayload)),
   http.get("http://api.test/api/v1/users", () => HttpResponse.json(adminUsers)),
@@ -150,4 +162,6 @@ export const server = setupServer(
   http.get("http://api.test/api/v1/provisioning/bundles", () =>
     HttpResponse.json({ items: [], total: 0, limit: 100, offset: 0 }),
   ),
+  // E6.1: the map's basemap configuration.
+  http.get("http://api.test/api/v1/map/config", () => HttpResponse.json(mapConfigFixture)),
 );

@@ -179,8 +179,11 @@ In a private/incognito window per account:
 Every surface E1 does NOT fill must say exactly which epic fills it — no fakes, no
 placeholders pretending to be data:
 
-- [ ] **/map** — the reserved map region plus the six-state status legend (the one place
-      the status vocabulary legitimately shows, as a legend); the copy names **E6**.
+- [ ] **/map** — ~~the reserved map region plus the six-state status legend (the one place
+      the status vocabulary legitimately shows, as a legend); the copy names **E6**~~
+      *(amended 2026-11-13, E6.1: the region is now a live map with satellite imagery and a
+      basemap switcher, still with the six-state legend; verify it with the E6 walkthrough.
+      Device markers arrive with E6.2b)*.
 - [ ] **/configuration** — ~~empty state naming E2~~ *(amended 2026-08-04, E2.7: the
       live inheritance editor now lives here — verify it via
       [the E2 walkthrough](e2-verification.md); its Publish affordances name **E3**)*.

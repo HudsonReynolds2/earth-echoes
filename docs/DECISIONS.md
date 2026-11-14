@@ -4,6 +4,36 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D193 (2026-11-13): How E6.1 built the basemaps
+
+- **Google is shipped, under Google's third-party-renderer rules.** Phase-6 fixed choice 1
+  made E6.1 check the Map Tiles API policies before shipping the Google source. They allow a
+  third-party renderer, provided three conditions hold:
+  - the Google mark is shown, as text ("Google Maps") where the logo does not fit;
+  - the per-viewport copyright from `/tile/v1/viewport` is displayed;
+  - tiles are not pre-fetched or cached beyond the response headers. Offline use is
+    prohibited, which offline mode already guarantees.
+
+  The layer opens a session, refreshes the copyright on every `moveend`, and caches nothing
+  itself. The phase document's stop-and-ask did not trigger.
+- **`GET /map/config` is gated on `require_any_assignment`, not on
+  `require_permission(VIEW_STATUS)`.** The latter without a path scope is an org-level check,
+  so it would 403 a Deployment Operator assigned to one Deployment. Every role holds
+  `VIEW_STATUS`, and the response is platform configuration, not scoped data.
+- **PMTiles serves both raster and vector archives.** The operator configures one URL, and
+  the archive header picks the renderer: `pmtiles`' raster layer for imagery, and
+  `protomaps-leaflet` (light flavor) for a vector street map. protomaps-leaflet bundles its
+  own `pmtiles` copy, so it is handed the URL, not our archive object. Both are dynamic
+  imports. The production build shows them as separate 19 KB and 127 KB chunks.
+- **Blank settings mean unset.** Compose passes `${EOE_MAP_*:-}` as `""`. A `before`
+  validator turns blank strings into `None`. Otherwise an empty `EOE_MAP_IMAGE_BOUNDS` would
+  fail startup on every default install.
+- **Library pins:** `leaflet` 1.9.4, `react-leaflet` 4.2.1 (the React 18 line), `pmtiles`
+  4.5.0, `protomaps-leaflet` 5.1.0, and `@types/leaflet` 1.9.20, all exact in
+  `package.json`. `leaflet.markercluster` arrives with E6.2b. Leaflet's attribution prefix is
+  set to a plain "Leaflet" link, without the default flag graphic.
+- **Reference:** phase-6 §2 fixed choices 1 and 7, E6.1; D188.
+
 ## D192 (2026-11-13): A docs-only task gets no gate of its own
 
 - **Decision:** a task that changes only planning documents and records gets no full gate of

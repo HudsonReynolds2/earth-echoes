@@ -191,6 +191,8 @@ E0_ROUTES = {
     ("POST", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
     ("DELETE", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
     ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
+    # E6.1: the basemap configuration the map reads (D188).
+    ("GET", f"{API_PREFIX}/map/config"),
 }
 
 E0_TABLES = {

@@ -1,5 +1,49 @@
 # Project Updates
 
+## 2026-11-13: E6.0 and E6.1 — the E6 plan, and a live map with switchable basemaps (Gate 81 GREEN)
+
+- **What changed:**
+  - **E6.0, docs only.** The phase document `phase-6-map-monitoring.md` and
+    `e6-progress-ledger.md`, plus project-changes #47-#49, addenda PLAN-3-05, SPEC-9-01 and
+    DES-7-04, and DECISIONS D188-D192.
+    - Owner-fixed choices: Leaflet with switchable basemaps and Esri satellite by default
+      (D188); coordinate columns on Aggregator and Deployment with no derived fallback (D189);
+      only services `degraded` moves a Deployment marker (D190).
+    - By the owner's instruction, this task got no gate of its own (D192). This gate covers it.
+  - **E6.1.** `GET /api/v1/map/config` and the `EOE_MAP_*` settings (blank means unset).
+    `lib/basemaps.ts` is the spec 14.5 tile-source interface: a closed id set with one factory
+    each.
+    - Google is served through the Map Tiles API, under its third-party-renderer rules.
+    - PMTiles handles raster and vector archives, in lazy chunks.
+    - `MapView` replaces the Map page's EmptyState, and Leaflet's controls are relit from
+      tokens.
+    - The E1 walkthrough's `/map` line is amended. Decisions are in D193.
+- **Gate:** 81, GREEN on the third run. The entire accumulated suite, no filters.
+  - Run 1 was RED: `test_repo_layout.py::test_compose_env_pins_every_variable_the_compose_file_interpolates`.
+    Verbatim: "compose interpolates these but compose_env does not pin them:
+    {'EOE_MAP_PMTILES_URL', 'EOE_MAP_GOOGLE_API_KEY', 'EOE_MAP_IMAGE_BOUNDS',
+    'EOE_MAP_IMAGE_URL', 'EOE_MAP_OFFLINE'}". This was a real omission: the five new compose
+    variables were not pinned for the container tests (D87). Fixed by pinning them to the
+    compose defaults. No test was weakened.
+  - Run 2 was RED: 1 setup error in `test_publish_revision.py`. Verbatim: "ports are not
+    available: exposing port TCP 127.0.0.1:54721 -> 127.0.0.1:0: /forwards/expose returned
+    unexpected status: 500 … 6 attempts (D99: Docker's forwarder under load)". This is Docker
+    Desktop's forwarder, D181's open root cause, now on its fifth occurrence. Three forwarding
+    probes then passed.
+  - Run 3 was GREEN.
+- **Tests:** **1296 backend / 200 vitest / 6 Playwright / 78 `/sim`**, 1580 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_config.py` (16), `basemaps.test.ts`
+  (14), `map-page.test.tsx` (5) and `e2e/map.spec.ts` (2, which fails on any tile-host
+  request).
+- **Command:** `make gate`
+- **Manual verification:**
+  - In a real browser, the Map page loaded **real Esri satellite tiles (28)** and **real
+    OpenStreetMap tiles (28)**. I inspected a screenshot: the satellite imagery fills the
+    region, the legend and switcher are in place, and the attribution reads "Leaflet | Powered
+    by Esri · Source: Esri, Maxar, Earthstar Geographics…".
+  - `npm run build` shows the PMTiles libraries as separate lazy chunks (19 KB, 127 KB).
+  - The owner's hands-on check is CP1, after E6.2a.
+
 ## 2026-11-13: Batch-4 browser-test follow-ups: per-card flash, unmark, inheritance layout (Gate 80 GREEN)
 
 - **What changed:** owner feedback from hand-testing batch 4 in the browser.
