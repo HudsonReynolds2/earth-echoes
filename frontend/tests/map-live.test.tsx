@@ -183,7 +183,9 @@ describe("a live update on the map", () => {
     );
     expect(lastLocation).toContain(`device=listener:${LEAF_MAC}`);
     expect(lastLocation).toContain("panel=timeline");
-  });
+    // It waits out one coalescing window on purpose, so it needs headroom
+    // beyond vitest's 5 s default on a loaded runner.
+  }, 15_000);
 
   it("turns a burst of 200 events into at most one refetch per window", async () => {
     const state = countedDetail();

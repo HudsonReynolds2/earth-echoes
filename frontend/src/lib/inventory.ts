@@ -47,7 +47,14 @@ export interface Deployment {
  * healthy is exactly what D40 existed to prevent.
  */
 export type DeviceStatusValue =
-  "healthy" | "sleeping" | "degraded" | "offline" | "alerting" | "drifted" | "unknown";
+  | "healthy"
+  | "sleeping"
+  | "degraded"
+  | "offline"
+  | "unreachable"
+  | "alerting"
+  | "drifted"
+  | "unknown";
 
 export interface Aggregator {
   id: string;

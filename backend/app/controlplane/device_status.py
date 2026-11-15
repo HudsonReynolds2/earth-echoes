@@ -38,6 +38,10 @@ class DeviceStatus(StrEnum):
     SLEEPING = "sleeping"
     DEGRADED = "degraded"
     OFFLINE = "offline"
+    #: E6.9 (D202; spec 9.3 addendum SPEC-9-02): a Listener whose Aggregator
+    #: is offline. Nothing fresh is known about it, only the last thing its
+    #: Aggregator said, so it is neither its stale liveness nor `offline`.
+    UNREACHABLE = "unreachable"
     ALERTING = "alerting"  # E7
     DRIFTED = "drifted"
     UNKNOWN = "unknown"
@@ -50,6 +54,9 @@ class DeviceStatus(StrEnum):
 SEVERITY: tuple[DeviceStatus, ...] = (
     DeviceStatus.ALERTING,
     DeviceStatus.OFFLINE,
+    # Below `offline`: the Aggregator that makes it unreachable is itself
+    # offline in the same Pod, and that is the thing to go and fix.
+    DeviceStatus.UNREACHABLE,
     DeviceStatus.DEGRADED,
     DeviceStatus.DRIFTED,
     DeviceStatus.SLEEPING,
@@ -110,6 +117,27 @@ def _from_revision(revision_state: str | None) -> DeviceStatus:
     if revision_state == "failed":
         return DeviceStatus.DEGRADED
     return DeviceStatus.HEALTHY
+
+
+def behind_aggregator(status: DeviceStatus, aggregator_online: bool | None) -> DeviceStatus:
+    """A Listener's status once its Aggregator's own verdict is counted (E6.9;
+    D202).
+
+    A Listener's liveness is whatever its Aggregator last REPORTED (E3.9), and
+    an offline Aggregator reports nothing. So under an Aggregator whose LWT
+    verdict is `offline`, the Listener's stored liveness is history, and
+    showing it as `streaming` (or as its own `offline`) would state a fact
+    nobody has observed. It is `unreachable` instead, whatever it last was,
+    including a Listener never heard from: the reason it cannot be heard is
+    known.
+
+    `aggregator_online is None` (an Aggregator that has never spoken) changes
+    nothing: that is the ordinary `unknown` case, not a path known to be down.
+    Applied BEFORE `with_alerts`, so an open alert still wins. A separate
+    function, like `with_alerts`, so `listener_status` keeps the signature
+    E3's suite pins.
+    """
+    return DeviceStatus.UNREACHABLE if aggregator_online is False else status
 
 
 def with_alerts(status: DeviceStatus, open_alerts: int) -> DeviceStatus:

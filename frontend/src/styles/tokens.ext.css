@@ -35,6 +35,12 @@
   --eoe-color-status-offline: #6b736d; /* neutral grey */
   --eoe-color-status-offline-tint: #eceeeb;
   --eoe-color-status-offline-glyph: "■"; /* square */
+  /* E6.9 (D202): a Listener behind an offline Aggregator. Okabe-Ito yellow,
+   * darkened to 5.8:1 on surface, 4.9:1 on its tint; a hollow hexagon, the
+   * only one in the set, for "nothing fresh is known". */
+  --eoe-color-status-unreachable: #7a6400;
+  --eoe-color-status-unreachable-tint: #f4eed3;
+  --eoe-color-status-unreachable-glyph: "⬡"; /* hollow hexagon */
   --eoe-color-status-alerting: #b8430e; /* vermillion */
   --eoe-color-status-alerting-tint: #f8e7de;
   --eoe-color-status-alerting-glyph: "✕"; /* cross */

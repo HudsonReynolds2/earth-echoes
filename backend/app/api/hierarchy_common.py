@@ -318,10 +318,23 @@ def listener_statuses(db: Session, macs: list[str]) -> dict[str, DeviceStatus]:
     }
     latest = _latest_revision_states(db, "listener", macs)
     alerts = listener_alert_counts(db, macs)
+    # E6.9 (D202): each Listener's Aggregator's LWT verdict, one query. A
+    # Listener under an offline Aggregator is `unreachable`.
+    path = {
+        mac: online
+        for mac, online in db.execute(
+            select(Listener.mac, AggregatorStatus.online)
+            .join(AggregatorStatus, AggregatorStatus.aggregator_id == Listener.aggregator_id)
+            .where(Listener.mac.in_(macs))
+        ).all()
+    }
     return {
         mac: device_status.with_alerts(
-            device_status.listener_status(
-                liveness_state=liveness.get(mac), revision_state=latest.get(mac)
+            device_status.behind_aggregator(
+                device_status.listener_status(
+                    liveness_state=liveness.get(mac), revision_state=latest.get(mac)
+                ),
+                path.get(mac),
             ),
             alerts.get(mac, 0),
         )

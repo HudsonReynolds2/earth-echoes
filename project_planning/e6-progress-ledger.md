@@ -27,6 +27,7 @@ before the rollup exists (project-changes #47). The rows below are in working or
 | H1 Hygiene (owner-approved, project-changes #50) | **gate green** | 86 | gate-86 | D199 | Listener API + import refuse half a GPS pair (D194 rule); migration `1d73e4435c21` adds `ck_listener_gps_pair`/`gps_range`. `ephemeral_postgres` re-acquires a vanished template once (D195). SIM LWT test polls its precondition (D197). Tests: `test_map_coordinates.py` +9 (5 API/import, 4 DB), `test_container_pool.py` +2. Branch `e6-hygiene`, stacked on `e6-batch-2`. Gate 86 green on its first run. Manual: migration applied to `eoe-e6`; psql shows both CHECKs refusing. |
 | E6.5 Device detail drawer | **gate green** | 87 | gate-87 | D200 | `GET /map/devices/{entity_type}/{id}` (`MapDeviceOut`, one shape, four kinds; status from the marker's readers); `GET /provisioning/records?target_type=&target_id=`. `DeviceDrawer.tsx` (five tabs, `panelsFor`), `LeaderLine.tsx` (`leaderSegment`, `data-marker-key`), `?device=`/`?panel=`, Details control, halo on pods/deployments, `--eoe-width-drawer`. Tests: `test_map_devices.py` 10, `map-drawer.test.tsx` 17, `map-drill.test.tsx` deep-link amended, `e2e/map.spec.ts` +1 (leader line geometry, Esc focus). Gate 87 green on run 2 (run 1: `E0_ROUTES` not yet extended; Docker forwarder 500, D181). Manual: screenshots in both themes found and fixed three defects. |
 | E6.6 Live map updates | **gate green** | 88 | gate-88 | D201 | `useLiveUpdates` invalidates the map on `device_status` and `reconciliation` through `createCoalescer` (2 s, leading + trailing; `isLiveMapQuery` skips `["map","config"]`). `MAP_POLL_MS` 30 s on the layer, detail and device reads (interim for services/alerts). Import and services refresh now invalidate the map. Tests: `map-live.test.tsx` 6 (one refetch, in place, view and drawer unchanged; 200 events, one per window; config untouched), `test_map_live.py` 1 (the disconnect LWT carries the Deployment `/ws` filters on). Gate 88 green on its first run. Manual: live SIM `disconnect` turned SIM Pod 000 Offline in headless Chromium with no reload. |
+| E6.9 Unreachable Listeners (project-changes #52, #53) | **gate green** | 89 | gate-89 | D202, D203 | `UNREACHABLE` + `behind_aggregator` in `device_status`; applied in `listener_statuses` (one more constant query). `SEVERITY` places it below `offline`. Frontend vocabulary, tokens (both themes), glyph subset re-cut with U+2B21, drawer note. Tests: `test_unreachable.py` (pure + inventory/map/drawer agreement), `map-drawer.test.tsx` +1, legend test now seven, E3 walkthrough amended. Gate 89 green on its first run. Manual: screenshot shows the hexagon rendering, seven-status legend and drawer note. |
 | E6.7 Owner landing view | not started | | | | |
 | E6.8 Walkthrough and SIM acceptance | not started | | | | |
 
@@ -37,7 +38,7 @@ Batches: one PR per batch, on `e6-batch-N` (rule R3, project-changes #47).
 | **B1** | E6.0-E6.2a | CP1 |
 | **B2** | E6.4, E6.2b, E6.3 | CP2 (held with CP3, project-changes #51) |
 | **B3** | E6.5, E6.6 | CP3 |
-| **B4** | E6.7, E6.8 | CP4 |
+| **B4** | E6.9, E6.7, E6.8 | CP4 |
 
 **Each batch is branched from `main` only after the previous batch's PR has merged.** Every E6
 batch changes the UI, so each PR waits for the owner's hands-on check before it is merged.

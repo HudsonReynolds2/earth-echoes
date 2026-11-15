@@ -1237,7 +1237,11 @@ was rewritten rather than deleted, and this section is where you check that it w
 - [ ] Now publish an `online` status for `demo-agg-rc-01` as in §8. Reload: the aggregator
       card reads **Streaming**.
 - [ ] Publish `offline`: it reads **Offline**.
-- [ ] Report a Listener as `sleeping` (§9). It reads **Sleeping** — its own status, its own
+- [ ] *(Amended by E6.9, D202.)* Every Listener under that aggregator now reads
+      **Unreachable** (hollow hexagon), whatever it last reported: its liveness came from the
+      aggregator, which is no longer reporting. Publish `online` again: they return to their
+      reported status.
+- [ ] Report a Listener as `sleeping` (§9), with its aggregator online. It reads **Sleeping** — its own status, its own
       glyph, and healthy. A duty-cycled fleet at night must not look like an outage.
 - [ ] Drive a revision to `drifted` (§7) on a device that is ONLINE. It reads **Drifted**. Now
       take the same device offline: it reads **Offline**, not Drifted. Reachability outranks

@@ -412,10 +412,22 @@ function StatusPanel({
   if (device.entity_type === "listener" && device.liveness) {
     const { liveness } = device;
     const grace = liveness.grace;
+    // E6.9 (D202): behind an offline Aggregator, liveness is history.
+    const cutOff = device.aggregator?.online === false;
     return (
       <>
         <AlertList alerts={device.alerts} />
-        <Facts title="Liveness">
+        {cutOff && device.aggregator && (
+          <p className="device-drawer-note" data-testid="device-drawer-unreachable">
+            <strong>Unreachable.</strong> Its aggregator{" "}
+            <span className="mono">
+              {device.aggregator.name ?? device.aggregator.aggregator_uuid}
+            </span>{" "}
+            has been offline since {utc(device.aggregator.online_changed_at)}, so nothing fresh is
+            known about this listener. Below is the last thing the aggregator reported.
+          </p>
+        )}
+        <Facts title={cutOff ? "Last reported liveness" : "Liveness"}>
           <Fact term="State">
             {liveness.state ?? "Not reported yet"}
             {liveness.changed_at ? ` · since ${utc(liveness.changed_at)}` : ""}

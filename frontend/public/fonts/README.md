@@ -16,7 +16,7 @@ there is no Google Fonts URL and no `@import` anywhere in the styles, and
 | `ibm-plex-mono-latin-400-normal.woff2`  | IBM Plex Mono     | 400    | identifiers: MACs, UUIDs, topics, hashes |
 | `ibm-plex-mono-latin-600-normal.woff2`  | IBM Plex Mono     | 600    | uppercase eyebrow labels                 |
 | `source-serif-4-latin-600-normal.woff2` | Source Serif 4    | 600    | display only: page titles, hero metric   |
-| `eoe-status-glyphs.woff2`               | EOE Status Glyphs | 400    | the six status shapes, nothing else      |
+| `eoe-status-glyphs.woff2`               | EOE Status Glyphs | 400    | the seven status shapes, nothing else    |
 
 Latin subsets only, ~160 KB for the whole set. Only weights the CSS actually uses are
 vendored: a face appearing at a weight that is not in this table is being synthesised, which
@@ -25,15 +25,17 @@ is a styling bug rather than a missing file.
 ## eoe-status-glyphs.woff2 — why a seventh file exists
 
 Status is three channels: color + shape + label. The shape is what survives greyscale, color
-blindness, and a tablet in direct sun. The six shapes are Geometric Shapes and Dingbats
-codepoints — `●` U+25CF, `◐` U+25D0, `▲` U+25B2, `■` U+25A0, `✕` U+2715, `◆` U+25C6 — and
+blindness, and a tablet in direct sun. The seven shapes are Geometric Shapes, Dingbats and
+Miscellaneous Symbols and Arrows codepoints — `●` U+25CF, `◐` U+25D0, `▲` U+25B2, `■` U+25A0,
+`✕` U+2715, `◆` U+25C6, and `⬡` U+2B21 (E6.9's `unreachable`, D202) — and
 **none of them exists in IBM Plex Sans, IBM Plex Mono, or Source Serif 4**, in the full
 families, not merely in these subsets. Left to system fallback they render inconsistently
 across platforms and become tofu on a minimal air-gapped host, which deletes the channel
 without any visible error.
 
-So the shapes are vendored too: Noto Sans Symbols 2 (OFL 1.1), subsetted to exactly those six
-codepoints. 568 bytes. `--eoe-font-family-glyph` names it and `.status-glyph::before` is its
+So the shapes are vendored too: Noto Sans Symbols 2 (OFL 1.1), subsetted to exactly those
+seven codepoints. 596 bytes (568 before E6.9 added the hexagon; `⊘`, the first choice, is not
+in Noto Sans Symbols 2). `--eoe-font-family-glyph` names it and `.status-glyph::before` is its
 only consumer.
 
 ### Re-cutting it (adding or changing a status glyph)
@@ -46,7 +48,7 @@ re-cut the subset and widen the range in `fonts.css`:
 pip install fonttools brotli
 curl -LO https://github.com/google/fonts/raw/main/ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf
 pyftsubset NotoSansSymbols2-Regular.ttf \
-  --unicodes=U+25CF,U+25D0,U+25B2,U+25A0,U+2715,U+25C6 \
+  --unicodes=U+25CF,U+25D0,U+25B2,U+25A0,U+2715,U+25C6,U+2B21 \
   --flavor=woff2 --no-hinting --desubroutinize --name-IDs='' \
   --output-file=eoe-status-glyphs.woff2
 ```

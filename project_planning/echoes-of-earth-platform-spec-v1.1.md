@@ -515,6 +515,8 @@ For Aggregators, MQTT LWT is the authoritative real-time online/offline signal. 
 
 For Listeners, there is no LWT, since Listeners never hold an MQTT session (Section 6.4). Online/offline instead derives from the Aggregator-tracked liveness state in Section 6.5: `streaming` and `sleeping` both display as healthy, and `offline` (a missed wake window past grace) displays as offline, the Listener equivalent of the LWT signal.
 
+> **Addendum SPEC-9-02 (2026-11-14, ref project-changes #52):** a seventh displayed status, **unreachable**, covers a Listener whose Aggregator's LWT verdict is offline. Such a Listener's liveness is only what its Aggregator last reported, and an offline Aggregator reports nothing, so the stored state is history rather than a current fact. It displays as unreachable regardless of what it last reported, including a Listener never heard from; an open alert still takes precedence. In the parent rollup it ranks immediately below offline, so the Pod reads offline through its Aggregator. Its shape is a hollow hexagon, its color a darkened Okabe–Ito yellow. Rationale in DECISIONS.md D202.
+
 ---
 
 ## 10. Telemetry integration

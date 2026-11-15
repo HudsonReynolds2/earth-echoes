@@ -1,5 +1,32 @@
 # Project Updates
 
+## 2026-11-14: E6.9 — a Listener behind an offline Aggregator reads Unreachable (Gate 89 GREEN)
+
+- **What changed:**
+  - **The status.** A seventh status, `unreachable`, chosen by the owner (project-changes
+    #52-#53; SPEC-9-02). `device_status.behind_aggregator` turns any Listener under an offline
+    Aggregator unreachable, never-heard ones included, before alerts are counted.
+  - **One derivation.** `listener_statuses` applies it, so the inventory tables, markers,
+    clusters and the drawer agree. It ranks just below `offline`, so the Pod still reads
+    Offline.
+  - **Frontend.** The vocabulary and severity gain it; tokens in both themes (darkened
+    Okabe–Ito yellow); the glyph subset is re-cut with `⬡` U+2B21 (596 bytes). The drawer
+    explains it and shows the stale liveness as "Last reported liveness".
+  - **Also recorded:** D203, PR #28's CI port race and the stacked-merge slip.
+- **Gate:** 89, GREEN on its first run. The entire accumulated suite, no filters.
+- **Tests:** **1426 backend / 269 vitest / 10 Playwright / 79 `/sim`**, 1784 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_unreachable.py` (pure rule, plus the
+  inventory, map and drawer agreeing), `map-drawer.test.tsx` +1. Amended with the feature: the
+  legend test (seven statuses), the services wizard's device-word guard (stricter), and the E3
+  walkthrough's status section.
+- **Command:** `make gate`
+- **Manual verification:** a Chromium screenshot of an Unreachable Listener's drawer against a
+  mocked API.
+  - The hexagon renders from the vendored subset, not as tofu.
+  - The legend shows seven statuses.
+  - The note names the offline Aggregator and since when, followed by the last reported
+    liveness.
+
 ## 2026-11-14: E6.6 — live map updates; batch 3 is built (Gate 88 GREEN)
 
 - **What changed:**

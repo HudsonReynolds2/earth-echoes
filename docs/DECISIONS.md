@@ -4,6 +4,64 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D203 (2026-11-14): Two things from merging batches 2-3: a CI port race, and a stacked-merge slip
+
+- **A new CI-only flake.** PR #28's first CI run failed `sim-protocol` with 4 setup errors in
+  `sim/tests/test_fleet.py`. Verbatim: "OSError: [Errno 98] error while attempting to bind on
+  address ('127.0.0.1', 58007): [errno 98] address already in use" → "the API server thread
+  died before it started serving".
+  - The test API server's port is chosen free and then bound, and another process on the
+    runner took it in between.
+  - It is unrelated to H1: #29 carried H1's changes and passed every check.
+  - A rerun of the failed jobs passed. No test was skipped or changed.
+  - A targeted fix would bind port 0 and read back the port, rather than pick-then-bind. That
+    is SIM harness code, offered and not made.
+- **The stacked-merge slip.** `gh pr merge 27 --delete-branch` deleted `e6-batch-2`, and GitHub
+  closed #28 instead of retargeting it. A closed PR's base cannot change. The fix:
+  1. re-push `e6-batch-2` at `eaf2259`, already in `main`;
+  2. reopen #28 and retarget it to `main` through the REST API (`gh pr edit --base` fails on a
+     deprecated Projects-classic GraphQL field in this repo);
+  3. wait for its rerun CI (green), then merge.
+
+  #29 was retargeted before any branch was deleted. No commit was lost, and no unreviewed code
+  merged. **Rule:** for stacked PRs, retarget the next PR first and delete merged branches last.
+- **Reference:** project-changes #51; D195, D199.
+
+## D202 (2026-11-14): `unreachable`, the status of a Listener behind an offline Aggregator
+
+- **The owner's call.** Offered a new status or Offline-with-a-reason, the owner chose the new
+  status (project-changes #52).
+- **The rule.** `behind_aggregator(status, aggregator_online)`: an Aggregator verdict of `False`
+  makes any Listener `unreachable`, whatever it last reported, never-heard included. `None`
+  (the Aggregator never spoke) and `True` change nothing. It is applied before `with_alerts`,
+  so an open alert still wins. It is a separate function, like `with_alerts`, so
+  `listener_status` keeps E3's pinned signature.
+- **Why never-heard Listeners too.** `unknown` means "no information about why". Here the reason
+  it cannot be heard is known and actionable: the path is down. D60's honesty rule is
+  satisfied, because nothing is claimed about the Listener itself.
+- **Severity: just below `offline`.** The Aggregator causing it is `offline` in the same Pod,
+  and that is the fault to fix. A Pod therefore still reads Offline, and its counts say how
+  many Listeners are cut off.
+- **One derivation (D60).** It lives in `hierarchy_common.listener_statuses`, so the inventory
+  tables, map markers, clusters, the drawer, and (from E6.7) the Owner view all agree. It adds
+  one query (the Aggregators' verdicts per Listener), and the query count stays constant in
+  fleet size.
+- **The drawer keeps the history.** It shows the last reported liveness under "Last reported
+  liveness", after a note naming the offline Aggregator and since when.
+- **Visual vocabulary:**
+  - **Shape.** `⬡` U+2B21, a hollow hexagon: the only hexagon in the set, and hollow for "no
+    fresh data". The first choice, `⊘`, is not in Noto Sans Symbols 2. The vendored subset was
+    re-cut per `public/fonts/README.md` (568 → 596 bytes).
+  - **Color.** Okabe–Ito yellow, the one hue the palette did not use, darkened:
+    - light: `#7a6400` on tint `#f4eed3` (5.8:1 on surface, 4.9:1 on tint);
+    - dark: `#d9c24a` on tint `#2a2712` (9.3:1 and 8.4:1).
+- **Tests changed with the feature, not weakened.**
+  - `shell.test.tsx`'s legend test pinned the six-state list and now pins seven.
+  - `services-wizard.test.tsx`'s device-word guard gains "Unreachable" (stricter).
+  - The E3 walkthrough's status section is amended: its Sleeping step follows an
+    aggregator-offline step, and would otherwise now read Unreachable.
+- **Reference:** spec 6.5, 9.3; E3.9, E3.12; D27, D60, D191, D201.
+
 ## D201 (2026-11-14): How E6.6 made the map live
 
 - **Leading and trailing, not trailing only.** The map refetches on the first event at once,

@@ -237,7 +237,7 @@ describe("the per-service result row", () => {
     // component itself must not be here: one vocabulary rendered as another is
     // exactly what D40 forbids.
     expect(document.querySelectorAll(".status-chip")).toHaveLength(0);
-    for (const word of ["Streaming", "Sleeping", "Offline", "Alerting", "Drifted"]) {
+    for (const word of ["Streaming", "Sleeping", "Offline", "Unreachable", "Alerting", "Drifted"]) {
       expect(screen.queryByText(word)).toBeNull();
     }
     expect(document.querySelectorAll(".service-chip").length).toBeGreaterThan(0);

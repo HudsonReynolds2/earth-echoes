@@ -2147,6 +2147,14 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
   `test_map_endpoints.py` at 1 and 1,000 Listeners.
 - **Frontend:** `STATUS_SEVERITY` and `worstStatus` in `components/StatusChip.tsx`, pinned to
   the backend's `SEVERITY` by `tests/status-severity.test.ts`.
+- **E6.9 amendment (D202; SPEC-9-02): seven statuses.** `DeviceStatus.UNREACHABLE`
+  (`"unreachable"`), a Listener whose Aggregator's `aggregator_status.online` is `False`.
+  `device_status.behind_aggregator(status, aggregator_online)` applies it, inside
+  `hierarchy_common.listener_statuses`, before `with_alerts`. `SEVERITY` (worst first):
+  alerting, offline, **unreachable**, degraded, drifted, sleeping, healthy, unknown. Every
+  `counts` dict gains the `unreachable` key. Frontend: `DEVICE_STATUSES` and `STATUS_SEVERITY`
+  include it; tokens `--eoe-color-status-unreachable{,-tint,-glyph}` (glyph `⬡` U+2B21, in the
+  vendored subset).
 
 ### Markers, drill routes and clustering (E6.2b; spec 9.2; D196)
 

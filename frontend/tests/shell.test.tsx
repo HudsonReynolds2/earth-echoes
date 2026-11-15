@@ -59,14 +59,24 @@ describe("shell and routing", () => {
   });
 
   // The legend is the accessibility contract for the whole status vocabulary:
-  // six states, each carrying a glyph as well as a color.
-  it("renders all six device statuses in the map legend", async () => {
+  // every state, each carrying a glyph as well as a color. Seven since E6.9
+  // added `unreachable` at the owner's direction (D202).
+  it("renders all seven device statuses in the map legend", async () => {
     renderAt("/map");
     const legend = await screen.findByTestId("status-legend");
     const statuses = [...legend.querySelectorAll("[data-status]")].map(
       (element) => element.getAttribute("data-status") ?? "",
     );
-    expect(statuses).toEqual(["healthy", "sleeping", "degraded", "offline", "alerting", "drifted"]);
+    expect(statuses).toEqual([
+      "healthy",
+      "sleeping",
+      "degraded",
+      "offline",
+      "unreachable",
+      "alerting",
+      "drifted",
+    ]);
+    expect(legend).toHaveTextContent("Unreachable");
   });
 
   it("renders the 404 view for unknown routes", () => {
