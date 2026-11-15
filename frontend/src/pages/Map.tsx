@@ -12,6 +12,10 @@
  *
  * Every status comes from the API's rollup (E6.4). The only one computed here
  * is a cluster's icon, with the server's severity order.
+ *
+ * - E6.5: `?device=<kind>:<id>` opens the device drawer on any level, and
+ *   `?panel=` names its tab. Both live in the URL, so a link reopens the same
+ *   drawer and a live refetch (E6.6) cannot close it.
  */
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -30,20 +34,29 @@ import {
   podMarkerHtml,
   podMarkerSize,
 } from "../components/map/markers";
+import { DeviceDrawer } from "../components/map/DeviceDrawer";
 import { LeafFan } from "../components/map/LeafFan";
+import { LeaderLine, findMarker } from "../components/map/LeaderLine";
 import { FitToPoints, MarkerLayer, MarkerSpec } from "../components/map/MarkerLayer";
 import { MapView } from "../components/map/MapView";
 import { UnplacedItem, UnplacedPanel } from "../components/map/UnplacedPanel";
-import { StatusCell, StatusLegend } from "../components/StatusChip";
+import { StatusLegend } from "../components/StatusChip";
 import { getPod } from "../lib/inventory";
 import {
+  DrawerPanel,
+  DrawerTarget,
   MapDeployment,
+  MAP_POLL_MS,
   MapDeploymentDetail,
+  formatDrawerTarget,
   getMapConfig,
   getMapDeployment,
   getMapDeployments,
+  getMapDevice,
   isPlaced,
   mapKeys,
+  parseDrawerPanel,
+  parseDrawerTarget,
 } from "../lib/map";
 
 const TABS: MapTab[] = ["Status", "Reconciliation", "Alerts"];
@@ -68,9 +81,96 @@ function rememberShowLeaves(on: boolean): void {
   }
 }
 
+/** A MAC as the API spells it, so a link with `aa-bb-…` still finds the
+ * marker keyed `listener:AA:BB:…`. Anything else is left alone. */
+function canonicalMac(value: string): string {
+  const hex = value.replace(/[^0-9a-fA-F]/g, "");
+  return hex.length === 12 ? hex.toUpperCase().match(/../g)!.join(":") : value;
+}
+
+export interface Drawer {
+  target: DrawerTarget | null;
+  panel: DrawerPanel;
+  /** The marker the drawer belongs to: its halo, line and focus return. */
+  markerKey: string | null;
+  open: (target: DrawerTarget) => void;
+  close: () => void;
+  setPanel: (panel: DrawerPanel) => void;
+}
+
+function useDrawer(): Drawer {
+  const [params, setParams] = useSearchParams();
+  const raw = parseDrawerTarget(params.get("device"));
+  const target = useMemo(
+    () => (raw && raw.kind === "listener" ? { ...raw, id: canonicalMac(raw.id) } : raw),
+    // Keyed by value: a new URLSearchParams each render must not mean a new target.
+    [raw?.kind, raw?.id],
+  );
+  const panel = parseDrawerPanel(params.get("panel"));
+  // Shares the drawer's own query: an Aggregator's marker is its Pod's.
+  const device = useQuery({
+    queryKey: mapKeys.device(target?.kind ?? "listener", target?.id ?? ""),
+    queryFn: () => getMapDevice(target!.kind, target!.id),
+    enabled: target?.kind === "aggregator",
+  });
+  const markerKey =
+    target === null
+      ? null
+      : target.kind === "aggregator"
+        ? device.data?.pod_id
+          ? `pod:${device.data.pod_id}`
+          : null
+        : formatDrawerTarget(target);
+
+  const open = useCallback(
+    (next: DrawerTarget) => {
+      const updated = new URLSearchParams(params);
+      updated.set("device", formatDrawerTarget(next));
+      updated.delete("panel");
+      setParams(updated);
+    },
+    [params, setParams],
+  );
+  const close = useCallback(() => {
+    // Focus returns to the marker the drawer belonged to, or to the map if
+    // that marker is folded into a cluster or not on this level.
+    const map = document.querySelector<HTMLElement>(".leaflet-container");
+    const marker = markerKey && map ? findMarker(map, markerKey) : null;
+    (marker ?? map)?.focus();
+    const updated = new URLSearchParams(params);
+    updated.delete("device");
+    updated.delete("panel");
+    setParams(updated);
+  }, [params, setParams, markerKey]);
+  const setPanel = useCallback(
+    (next: DrawerPanel) => {
+      const updated = new URLSearchParams(params);
+      if (next === "status") updated.delete("panel");
+      else updated.set("panel", next);
+      setParams(updated, { replace: true });
+    },
+    [params, setParams],
+  );
+  return { target, panel, markerKey, open, close, setPanel };
+}
+
+function DrawerOverlay({ drawer }: { drawer: Drawer }) {
+  if (drawer.target === null) return null;
+  return (
+    <DeviceDrawer
+      target={drawer.target}
+      panel={drawer.panel}
+      onPanel={drawer.setPanel}
+      onClose={drawer.close}
+      onOpen={drawer.open}
+    />
+  );
+}
+
 export function Map() {
   const { deploymentId, podId } = useParams();
   const [tab, setTab] = useState<MapTab>("Status");
+  const drawer = useDrawer();
   const config = useQuery({ queryKey: mapKeys.config, queryFn: getMapConfig });
 
   // A Pod route names the Pod; the map reads its Deployment.
@@ -85,11 +185,13 @@ export function Map() {
     queryKey: mapKeys.deployments,
     queryFn: getMapDeployments,
     enabled: activeDeployment === undefined && podId === undefined,
+    refetchInterval: MAP_POLL_MS,
   });
   const detail = useQuery({
     queryKey: mapKeys.deployment(activeDeployment ?? ""),
     queryFn: () => getMapDeployment(activeDeployment!),
     enabled: activeDeployment !== undefined,
+    refetchInterval: MAP_POLL_MS,
   });
 
   const crumbs: Crumb[] = [{ label: "Organization", to: "/map" }];
@@ -122,7 +224,7 @@ export function Map() {
             is reachable and that you are signed in.
           </EmptyState>
         ) : activeDeployment === undefined && podId === undefined ? (
-          <OrganizationLayer config={config.data} rows={layer.data} tab={tab} />
+          <OrganizationLayer config={config.data} rows={layer.data} tab={tab} drawer={drawer} />
         ) : (
           <DeploymentLayer
             config={config.data}
@@ -130,6 +232,7 @@ export function Map() {
             missing={detail.isError || pod.isError}
             podId={podId}
             tab={tab}
+            drawer={drawer}
           />
         )}
         <div className="map-legend-slot">
@@ -162,10 +265,12 @@ function OrganizationLayer({
   config,
   rows,
   tab,
+  drawer,
 }: {
   config: Parameters<typeof MapView>[0]["config"];
   rows: MapDeployment[] | undefined;
   tab: MapTab;
+  drawer: Drawer;
 }) {
   const navigate = useNavigate();
   const specs: MarkerSpec[] = useMemo(
@@ -183,10 +288,11 @@ function OrganizationLayer({
           alerts: row.alert_count,
           services: row.services_status,
           dimmed: isDimmed(tab, row.status, row.alert_count),
+          selected: drawer.markerKey === `deployment:${row.id}`,
         }),
         onSelect: () => navigate(`/map/deployments/${row.id}`),
       })),
-    [rows, tab, navigate],
+    [rows, tab, navigate, drawer.markerKey],
   );
   const unplaced: UnplacedItem[] = (rows ?? [])
     .filter((row) => !isPlaced(row))
@@ -202,6 +308,7 @@ function OrganizationLayer({
   return (
     <MapView
       config={config}
+      drawerOpen={drawer.target !== null}
       overlay={
         <>
           {rows !== undefined && specs.length === 0 && (
@@ -212,10 +319,12 @@ function OrganizationLayer({
           )}
           <TabNote tab={tab} />
           <UnplacedPanel items={unplaced} />
+          <DrawerOverlay drawer={drawer} />
         </>
       }
     >
       <MarkerLayer specs={specs} cluster={false} />
+      <LeaderLine markerKey={drawer.target ? drawer.markerKey : null} />
       <FitToPoints fitKey={`org:${points.length > 0}`} points={points} />
     </MapView>
   );
@@ -227,25 +336,20 @@ function DeploymentLayer({
   missing,
   podId,
   tab,
+  drawer,
 }: {
   config: Parameters<typeof MapView>[0]["config"];
   detail: MapDeploymentDetail | undefined;
   missing: boolean;
   podId: string | undefined;
   tab: MapTab;
+  drawer: Drawer;
 }) {
   const navigate = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const selected = params.get("device");
+  const selected = drawer.markerKey;
   const [showLeaves, setShowLeaves] = useState(recallShowLeaves);
-  const selectListener = useCallback(
-    (mac: string) => {
-      const next = new URLSearchParams(params);
-      next.set("device", `listener:${mac}`);
-      setParams(next);
-    },
-    [params, setParams],
-  );
+  const { open } = drawer;
+  const selectListener = useCallback((mac: string) => open({ kind: "listener", id: mac }), [open]);
 
   const pods = detail?.pods ?? [];
   const listeners = detail?.listeners ?? [];
@@ -280,10 +384,13 @@ function DeploymentLayer({
           unplacedListeners: unplacedListenersByPod[row.id] ?? 0,
           dimmed: isDimmed(tab, row.status, row.alert_count),
           showLabel: true,
+          selected: selected === `pod:${row.id}`,
         }),
-        onSelect: () => navigate(`/map/pods/${row.id}`),
+        // On its own route, a Pod opens its drawer; elsewhere it drills in.
+        onSelect: () =>
+          row.id === podId ? open({ kind: "pod", id: row.id }) : navigate(`/map/pods/${row.id}`),
       })),
-    [pods, tab, unplacedListenersByPod, navigate],
+    [pods, tab, unplacedListenersByPod, navigate, selected, podId, open],
   );
 
   const listenerSpecs: MarkerSpec[] = useMemo(
@@ -345,13 +452,16 @@ function DeploymentLayer({
               : ""),
     }));
 
-  const chosen = selected?.startsWith("listener:")
-    ? listeners.find((row) => `listener:${row.mac}` === selected)
-    : undefined;
+  const level: DrawerTarget | null = focus
+    ? { kind: "pod", id: focus.id }
+    : detail
+      ? { kind: "deployment", id: detail.deployment.id }
+      : null;
 
   return (
     <MapView
       config={config}
+      drawerOpen={drawer.target !== null}
       overlay={
         <>
           {detail !== undefined && podSpecs.length === 0 && listenerSpecs.length === 0 && (
@@ -372,28 +482,17 @@ function DeploymentLayer({
             />
             Show GPS-less
           </label>
-          {chosen && (
-            <section className="map-control map-selected" data-testid="map-selected">
-              <span className="eyebrow">Listener</span>
-              <strong>{chosen.name}</strong>
-              <span className="mono">{chosen.mac}</span>
-              <StatusCell status={chosen.status} />
-              <Link to={`/inventory/listeners/${encodeURIComponent(chosen.mac)}`}>
-                Open in inventory
-              </Link>
-              <button
-                type="button"
-                className="btn-tertiary"
-                onClick={() => {
-                  const next = new URLSearchParams(params);
-                  next.delete("device");
-                  setParams(next);
-                }}
-              >
-                Close
-              </button>
-            </section>
+          {level && (
+            <button
+              type="button"
+              className="map-control map-details"
+              data-testid="map-details"
+              onClick={() => open(level)}
+            >
+              {level.kind === "pod" ? "Pod details" : "Deployment details"}
+            </button>
           )}
+          <DrawerOverlay drawer={drawer} />
         </>
       }
     >
@@ -409,6 +508,7 @@ function DeploymentLayer({
         />
       )}
       <MarkerLayer specs={podSpecs} cluster={false} />
+      <LeaderLine markerKey={drawer.target ? drawer.markerKey : null} />
       <FitToPoints
         fitKey={`${detail?.deployment.id ?? "loading"}:${podId ?? ""}:${points.length > 0}`}
         points={points}

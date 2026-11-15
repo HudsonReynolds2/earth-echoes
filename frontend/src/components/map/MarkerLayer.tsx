@@ -45,11 +45,13 @@ function iconFor(html: string, size: number): L.DivIcon {
   return L.divIcon({ html, className: "map-marker-anchor", iconSize: [size, size] });
 }
 
-function label(marker: L.Marker, text: string) {
+function label(marker: L.Marker, text: string, key: string) {
   const element = marker.getElement();
   if (element) {
     element.setAttribute("aria-label", text);
     element.setAttribute("role", "button");
+    // E6.5: how the drawer's leader line and focus return find this marker.
+    element.dataset.markerKey = key;
   }
 }
 
@@ -119,7 +121,7 @@ export function MarkerLayer({ specs, cluster }: { specs: MarkerSpec[]; cluster: 
         // so naming and the keyboard handler are attached on every add, once
         // per element.
         marker.on("add", () => {
-          label(marker, markers.get(spec.key)?.spec.label ?? spec.label);
+          label(marker, markers.get(spec.key)?.spec.label ?? spec.label, spec.key);
           const element = marker.getElement();
           if (element && element.dataset.keyed !== "true") {
             element.dataset.keyed = "true";
@@ -144,7 +146,7 @@ export function MarkerLayer({ specs, cluster }: { specs: MarkerSpec[]; cluster: 
       }
       if (previous.label !== spec.label || previous.html !== spec.html) {
         marker.options.title = spec.label;
-        label(marker, spec.label);
+        label(marker, spec.label, spec.key);
       }
       if (previous.status !== spec.status) {
         (marker.options as StatusMarkerOptions).status = spec.status;

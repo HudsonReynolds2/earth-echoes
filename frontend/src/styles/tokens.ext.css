@@ -150,6 +150,9 @@
   --eoe-color-warning-border: #e0cba0;
   --eoe-width-configrail: 290px;
 
+  /* E6.5: the map's device drawer (V2 S2). */
+  --eoe-width-drawer: 420px;
+
   /* ── E5.12 additions: deployment services onboarding (all additive) ────
    * A service connection's status is its OWN vocabulary — untested /
    * verified / failed, plus the four-value spec 16.5 rollup — and it never

@@ -1,5 +1,74 @@
 # Project Updates
 
+## 2026-11-14: E6.6 — live map updates; batch 3 is built (Gate 88 GREEN)
+
+- **What changed:**
+  - **Live events.** `useLiveUpdates` now refreshes the map on `device_status` and
+    `reconciliation` events, coalesced by `createCoalescer`: one refetch at once, then at most
+    one per 2 s window. The basemap configuration is never refetched.
+  - **Polling and mutations.** The three map reads poll every 30 s, as an interim for services
+    and alerts, which emit no event. A committed bulk import and a services test now refresh
+    the map in the same tab.
+  - **Decisions (D201):** leading-and-trailing coalescing, the config exclusion, and why the
+    drawer survives an update by construction.
+- **Gate:** 88, GREEN on its first run. The entire accumulated suite, no filters.
+- **Tests:** **1389 backend / 268 vitest / 10 Playwright / 79 `/sim`**, 1746 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `map-live.test.tsx` (6), `test_map_live.py` (1).
+- **Command:** `make gate`
+- **Manual verification:** on the QA project `eoe-e6`, end to end, signed in as a temporary
+  verification owner (deactivated afterwards; its password was never written to the repo).
+  - **Endpoints.** `GET /map/devices/listener/02-ee-0e-01-01-01` returned alder-creek-01 with
+    the default 30 s grace. The records filter returned 0, and an unknown Pod returned 404.
+  - **Fleet.** A 2 × 3 SIM fleet was provisioned, then run with `--scenario disconnect`.
+  - **Live update.** Headless Chromium had the fleet's Deployment open, with a page-lifetime
+    marker set in `window`. Without a reload (the marker survived), both Pods moved from "No
+    status yet" to SIM Pod 000 **Offline** and SIM Pod 001 **Streaming** within 31 s. The
+    fleet log shows sim-000 was killed without a DISCONNECT, so its offline came from the will.
+  - **Observed, not changed.** Pod 000's Listeners still read Streaming after their Aggregator
+    died. A Listener's status is the liveness its Aggregator last reported (E3.9). Raised to
+    the owner at the combined CP2+CP3.
+
+## 2026-11-14: E6.5 — the device drawer (Gate 87 GREEN)
+
+- **What changed:**
+  - **Backend.** `GET /map/devices/{entity_type}/{id}` gives one shape for a Listener,
+    Aggregator, Pod or Deployment. Status and counts come from the marker's own readers. A
+    Listener adds its liveness as reported, and the wake grace with the level it resolves from.
+    `GET /provisioning/records?target_type=&target_id=` is a filtered, scoped read of existing
+    rows.
+  - **The drawer.** `DeviceDrawer.tsx` follows V2·S2: Status, Config (E2.7's
+    `ProvenanceTable`, read-only), Timeline, Card and Telemetry (an `EmptyState` naming E7).
+    It has Resync and *Open in inventory*, an Esc hint and Close, and focus in and back out.
+  - **Around it.** `LeaderLine.tsx` joins the marker to the drawer, the map dims behind it,
+    and the halo follows the selection. `?device=` and `?panel=` hold the state, and a
+    *Deployment details* / *Pod details* control opens those levels. E6.2b's interim card is
+    gone.
+  - **Decisions (D200):** one nullable shape for four kinds; tabs that do not apply are
+    absent; the leader line hides rather than guesses; `E0_ROUTES` extended deliberately.
+- **Gate:** 87, GREEN on the second run. The entire accumulated suite, no filters.
+  - Run 1 was RED on two items:
+    - `test_e0_readiness.py::test_route_surface_is_exactly_the_e0_contract`. Verbatim:
+      "public surface drifted; added={('GET', '/api/v1/map/devices/{entity_type}/{entity_id}'),
+      ('GET', '/api/v1/provisioning/records')} removed=set()". The new routes had not yet been
+      added to `E0_ROUTES`, which that test requires each epic to do by hand. Fixed.
+    - 1 setup error in `test_command_channel.py`. Verbatim: "ports are not available: exposing
+      port TCP 127.0.0.1:54659 -> 127.0.0.1:0: /forwards/expose returned unexpected status: 500
+      … 6 attempts". This is Docker Desktop's forwarder (D99/D181). No test containers had
+      leaked, and three forwarding probes passed before the rerun.
+  - Run 2 was GREEN.
+- **Tests:** **1388 backend / 262 vitest / 10 Playwright / 79 `/sim`**, 1739 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_devices.py` (10), `map-drawer.test.tsx`
+  (17), `e2e/map.spec.ts` +1 (leader-line geometry to within a pixel, Esc returns focus).
+  Amended with the feature: the deep-link tests in `map-drill.test.tsx` and `e2e/map.spec.ts`
+  now assert the drawer instead of the interim card.
+- **Command:** `make gate`
+- **Manual verification:** I took Chromium screenshots of a Listener's drawer, in both themes,
+  against a mocked API.
+  - The first set showed three defects: a blank *Pod details* control in the light theme, an
+    Aggregator jump that read as plain text, and a clipped Telemetry tab. All three were fixed
+    and re-shot.
+  - The live-stack check with a reporting SIM fleet is the owner's combined CP2+CP3.
+
 ## 2026-11-14: H1 — owner-approved hygiene: listener GPS pairs, two flakes fixed (Gate 86 GREEN)
 
 - **What changed:**

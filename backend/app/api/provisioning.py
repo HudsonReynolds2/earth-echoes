@@ -5,6 +5,9 @@
 - `GET /provisioning/bundles/{id}`: one bundle and its records (VIEW_PROVISIONING).
 - `GET /provisioning/bundles/{id}/download`: the stored archive
   (**MANAGE_PROVISIONING**, audited).
+- `GET /provisioning/records?target_type=&target_id=` (VIEW_PROVISIONING, E6.5):
+  one device's records across bundles, newest first, in the D7 envelope. The
+  map drawer's Card tab reads the first.
 - `GET /provisioning/records/{id}` (VIEW_PROVISIONING) and
   `PATCH /provisioning/records/{id}` (MANAGE_PROVISIONING, audited): spec 13's
   record surface. The PATCH accepts exactly one transition, `flashed`, because
@@ -109,6 +112,18 @@ class BundleDetailOut(BundleOut):
 
 class BundlesQuery(PageParams):
     deployment_id: uuid.UUID | None = None
+
+
+class RecordsQuery(PageParams):
+    """E6.5: a filtered read of existing rows. The pair is the D75 identity
+    every record carries: an Aggregator's platform UUID, or a Listener's MAC
+    (normalized here, so either spelling finds it)."""
+
+    target_type: Literal["aggregator", "listener"]
+    target_id: str = Field(min_length=1, max_length=100)
+
+
+RECORD_SORTABLE = {"created_at": DeviceProvisioningRecord.created_at}
 
 
 def _bundle_out(bundle: ProvisioningBundle, record_count: int) -> BundleOut:
@@ -332,6 +347,40 @@ def _resolve_record(
     ):
         raise not_found("record")
     return record
+
+
+@router.get("/records", response_model=ListResponse[RecordOut])
+def list_records(
+    db: DbDep,
+    session: Annotated[UserSession, Depends(require_any_assignment)],
+    query: Annotated[RecordsQuery, Query()],
+) -> ListResponse[RecordOut]:
+    """One device's provisioning records, newest first (E6.5).
+
+    Scoped by each record's own `deployment_id`, so a record outside the
+    caller's VIEW_PROVISIONING scope is simply absent: an empty list, never a
+    403 that would confirm the device has records (D35).
+    """
+    target_id = query.target_id
+    if query.target_type == "listener":
+        target_id = normalize_mac(target_id)
+    statement = select(DeviceProvisioningRecord).where(
+        DeviceProvisioningRecord.target_type == query.target_type,
+        DeviceProvisioningRecord.target_id == target_id,
+    )
+    scope = visible_deployments(session.user.role_assignments, Permission.VIEW_PROVISIONING)
+    statement = scope_filter(statement, DeviceProvisioningRecord.deployment_id, scope)
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    windowed = PageParams(limit=query.limit, offset=query.offset, sort=query.sort or "-created_at")
+    records = db.scalars(
+        apply_page(statement, windowed, RECORD_SORTABLE).order_by(DeviceProvisioningRecord.id)
+    )
+    return ListResponse(
+        items=[_record_out(record) for record in records],
+        total=total,
+        limit=query.limit,
+        offset=query.offset,
+    )
 
 
 @router.get("/records/{record_id}", response_model=RecordOut)

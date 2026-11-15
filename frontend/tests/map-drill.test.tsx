@@ -173,13 +173,14 @@ describe("the deployment layer", () => {
     expect(cluster).toHaveTextContent("9");
   });
 
-  it("opens the selected Listener from a deep link", async () => {
+  it("opens the selected Listener's drawer from a deep link", async () => {
+    // E6.5 replaced E6.2b's interim card with the drawer, on the same URL.
     actAs("owner");
     renderAt(`/map/deployments/${FIXTURE_IDS.redwoodCoast}?device=listener:${ALERTING_MAC}`);
-    const card = await screen.findByTestId("map-selected");
-    expect(card).toHaveTextContent("alder-creek-03");
-    expect(card).toHaveTextContent(ALERTING_MAC);
-    await userEvent.click(within(card).getByRole("button", { name: "Close" }));
-    expect(screen.queryByTestId("map-selected")).toBeNull();
+    const panel = await screen.findByTestId("device-drawer");
+    await waitFor(() => expect(panel).toHaveTextContent("alder-creek-03"));
+    expect(panel).toHaveTextContent(ALERTING_MAC);
+    await userEvent.click(within(panel).getByRole("button", { name: /Close/ }));
+    expect(screen.queryByTestId("device-drawer")).toBeNull();
   });
 });

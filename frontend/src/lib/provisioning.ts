@@ -104,6 +104,17 @@ export function listBundles(deploymentId: string) {
   return request<ListEnvelope<Bundle>>(`/provisioning/bundles?${query.toString()}`);
 }
 
+/** E6.5: one device's records across bundles, newest first. The drawer's
+ * Card tab shows the first. Records outside the caller's scope are absent. */
+export function listDeviceRecords(targetType: "aggregator" | "listener", targetId: string) {
+  const query = new URLSearchParams({
+    target_type: targetType,
+    target_id: targetId,
+    limit: "5",
+  });
+  return request<ListEnvelope<ProvisioningRecord>>(`/provisioning/records?${query.toString()}`);
+}
+
 export function getBundle(bundleId: string) {
   return request<BundleDetail>(`/provisioning/bundles/${bundleId}`);
 }
@@ -161,6 +172,11 @@ export async function downloadBundle(bundleId: string): Promise<{ blob: Blob; fi
 /** Flat query keys, the inventory client's convention. */
 export const bundlesKey = (deploymentId: string) => ["provisioning-bundles", deploymentId];
 export const bundleKey = (bundleId: string) => ["provisioning-bundle", bundleId];
+export const deviceRecordsKey = (targetType: string, targetId: string) => [
+  "provisioning-records",
+  targetType,
+  targetId,
+];
 
 /** How often the board re-reads a bundle so it "fills in by itself". The
  * worker's reconciler runs every minute; 15s keeps the board within a beat of

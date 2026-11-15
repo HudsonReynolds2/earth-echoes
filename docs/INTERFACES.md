@@ -353,6 +353,11 @@ proven by `backend/tests/test_hierarchy_schema.py`:
   accepted on create, PATCH and the Pod-create inline aggregator; a PATCH is judged by its
   RESULT (`apply_coordinates`), so moving one axis of an existing pair is allowed and half a
   pair is a 422 `"give both latitude and longitude, or neither"`. Listener GPS is unchanged.
+- **H1 amendment (D199): `listener` gets the same rule.** Migration `1d73e4435c21` adds
+  `ck_listener_gps_pair` and `ck_listener_gps_range`; `POST /listeners` refuses half a pair,
+  `PATCH /listeners/{mac}` is judged by its result (`apply_coordinates`, only when the PATCH
+  touches a coordinate), and the listener import reports a half row as a `validation_error`
+  row. Same message.
 - **`listener`** — **`mac String(17)` is the PRIMARY KEY** (D31), CHECK-constrained to
   uppercase colon-separated `AA:BB:CC:DD:EE:FF`; FK `aggregator.id`; **`deployment_id` is a
   set-once denormalized stamp** (D32) making `uq_listener_deployment_id` (name unique
@@ -1378,6 +1383,14 @@ reimplement their logic.** Signatures, verbatim:
   for the six real states and a muted dash for `unknown`. The honesty guard now asserts that
   status renders only where the API reported one, and that config routes still show none.
 - **Frontend:** `lib/useLiveUpdates.ts`, mounted once in `Shell`. One socket per tab.
+- **E6.6 amendment (D201):** both channels also invalidate the map, **coalesced**:
+  `createCoalescer(action, MAP_COALESCE_MS = 2000)` runs at once, folds anything inside the
+  window into one trailing run, so the map refetches at most once per window per tab.
+  `isLiveMapQuery` matches every `["map", …]` query except `["map", "config"]`. The map's
+  queries (layer, detail, `["map","device",…]`) also poll every `MAP_POLL_MS` (30 s, in
+  `lib/map.ts`) for the two inputs that emit no event: `services_status` and
+  `inventory_alert`. **E7's `alerts` channel should call the same coalescer and retire the
+  alert half of the poll.**
 - **Suites:** `backend/tests/test_websockets.py` (gate 50, including the two-scope
   acceptance and the commit-only bus property), `frontend/tests/live-updates.test.ts`.
 
@@ -2029,6 +2042,7 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
 | `POST /provisioning/bundles` | `MANAGE_PROVISIONING` in the body's deployment | 201 `BundleDetailOut`. Body `{deployment_id, scope, pods[]}`. 422 (`detail.missing` / `detail.deployment`), 404 (D35), 503. Audited `provisioning.bundle.generate`. |
 | `GET /provisioning/bundles` | `VIEW_PROVISIONING`, scoped | D7 envelope of `BundleOut` (no records), filter `deployment_id`, sort `generated_at` (default newest first). |
 | `GET /provisioning/bundles/{id}` | `VIEW_PROVISIONING` | `BundleDetailOut`: the bundle plus its `records[]` (status and history). |
+| `GET /provisioning/records?target_type=&target_id=` | `VIEW_PROVISIONING`, scoped by each record's `deployment_id` | **E6.5.** D7 envelope of `RecordOut`, one device's records across bundles, default sort `-created_at`. `target_type` is `aggregator` (platform UUID) or `listener` (MAC, normalized). Both required. Out-of-scope records are absent (empty list), never a 403. |
 | `GET /provisioning/bundles/{id}/download` | **`MANAGE_PROVISIONING`** | `application/zip`, the stored archive, verified against `archive_checksum`. Audited `provisioning.bundle.download`; the detail is the byte count only. |
 
 - **Bundles are immutable.** Regenerating makes a new row, and the old archive still downloads
@@ -2176,6 +2190,43 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
   hide; default on). An unplaced Pod's Unplaced row counts its GPS-less Listeners.
 - **Leaf → pin:** a Listener that gains GPS is a pin on the next read; every inventory edit
   invalidates all queries in the same tab (E6.6 adds the live path).
+
+### The device drawer (E6.5; spec 9.2; V2·S2; D200)
+
+- **`GET /map/devices/{entity_type}/{id}`** (`VIEW_STATUS`; 404 for missing and out of scope
+  alike, D35; 422 for an unknown `entity_type`). `entity_type` is `listener` (by MAC, any
+  spelling), `aggregator`, `pod` or `deployment` (by UUID). One `MapDeviceOut` shape:
+  `{entity_type, id, name, status, deployment_id, deployment_name, pod_id, pod_name, gps_lat,
+  gps_lon, alerts[], revision_state, liveness, aggregator, counts, listener_count, pod_count,
+  services_status}`; sections that do not apply are null. `liveness` (Listener) is E3.9's
+  columns as reported plus `grace: {seconds, source, source_entity_id}`, the effective
+  `listener.wake_grace_seconds` and the level it resolves from. `aggregator` is
+  `{id, name, aggregator_uuid, status, online, online_changed_at, revision_state}`. Status and
+  counts come from the marker's own readers and `roll_up`, so the drawer and the marker
+  cannot disagree. `alerts[]` (max 50, newest first) are open `inventory_alert` rows with their
+  `detail`: a Pod lists its Aggregator's and Listeners', a Deployment adds unattached ones
+  naming it (D191). **E7 extends `alerts[]` with Grafana alerts; it does not add a second
+  list.**
+- **URL grammar:** `?device=<kind>:<id>` (E6.2b's grammar, widened to four kinds; a MAC's
+  own colons are part of the id) and `?panel=status|config|timeline|card|telemetry` (absent
+  = status). `lib/map.ts`: `parseDrawerTarget`, `formatDrawerTarget`, `parseDrawerPanel`,
+  `getMapDevice`, `mapKeys.device(kind, id)` (under `["map"]`, so E6.6's invalidation covers
+  it), `sendAggregatorCommand`.
+- **`components/map/DeviceDrawer.tsx`**: tabs per kind (`panelsFor`): Listener and Aggregator
+  get all five; a Pod's Timeline and Card are its Aggregator's; a Deployment has Status,
+  Config, Telemetry. Card needs `view_provisioning`; the Config tab's *Edit at this level*
+  link needs `manage_config`; Resync (Aggregator, or a Pod's Aggregator) needs
+  `manage_devices`. Esc closes; focus moves to the title on open and back to the marker on
+  close.
+- **`components/map/LeaderLine.tsx`**: finds the marker by `data-marker-key` (set by
+  `MarkerLayer` on every marker element, the same key it diffs by) and draws an SVG line to
+  the drawer's left edge, hidden when the marker is off screen, clustered, or under the
+  drawer. `leaderSegment` is the pure geometry.
+- **Map chrome:** `MapView({drawerOpen})` sets `data-drawer-open` on `.map-view` (tiles and
+  unselected markers dim); `podMarkerHtml`/`deploymentMarkerHtml` take `selected`. On the
+  Deployment and Pod routes a *Deployment details* / *Pod details* control opens that level's
+  drawer, and clicking the focused Pod opens its drawer instead of re-drilling. Token
+  `--eoe-width-drawer`.
 
 ## Owned by SIM
 

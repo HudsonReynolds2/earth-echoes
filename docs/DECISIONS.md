@@ -4,6 +4,92 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D201 (2026-11-14): How E6.6 made the map live
+
+- **Leading and trailing, not trailing only.** The map refetches on the first event at once,
+  and folds everything else inside the 2 s window into one refetch at its end. A lone
+  `disconnect` then shows within a round trip rather than after a 2 s wait, and a burst still
+  costs at most one refetch per window. The trailing run reads the server after the whole
+  burst, so nothing is missed. `createCoalescer` is pure and tested under fake timers. The
+  app-level tests count real requests: one for a single event, two for 200 (one per window).
+- **The basemap configuration is excluded.** It is under `["map"]` for the one-key
+  invalidation phase-6 asks for, but no device event can change it, so `isLiveMapQuery` skips
+  `["map","config"]`. A test holds that.
+- **The 30 s poll is on the three map reads only** (layer, detail, device). It is documented
+  in `lib/map.ts` as interim for services and alerts, which emit no event today.
+- **Same-tab mutations.** Every inventory edit already invalidated the whole cache (E1, E4.11,
+  E6.2a). Two paths did not, and now do:
+  - a committed bulk import invalidates everything;
+  - the services page's refresh adds `["map"]`, because a test result moves
+    `services_status`, which the Deployment marker's chip shows.
+- **The drawer survives an update by construction.** Its device and tab live in the URL, and
+  its query keeps data during a refetch, so it never flashes "Loading". The vitest acceptance
+  asserts the same drawer element, the same selected tab, the same URL, the same marker
+  element (updated in place), and no `fitBounds` or `setView` after the event.
+- **The backend acceptance runs the real consumer.** `test_map_live.py` sends a
+  disconnect-shaped sequence through `ReportedConsumer`: an `online`, then a will stamped
+  earlier. It records what the real `publish` was given and asserts the following:
+  - the LWT event carries the Aggregator's Deployment;
+  - `/ws`'s `Subscription` delivers it to that Deployment's sessions and to org-wide ones,
+    and not to another Deployment's;
+  - it survives JSON;
+  - the map read it triggers shows the Pod and Deployment offline.
+  The end-to-end SIM run with no reload is E6.8's, as phase-6 says.
+- **Test setup note:** the shared MSW server answers `/auth/me` with 401, and `Shell` opens the
+  socket only for a session. A live-update test must sign in first, as `map-live.test.tsx`
+  does in its `beforeEach`.
+- **Reference:** phase-6 §4 E6.6; spec 9.2, 13; E3.12; D59, D60, D196, D200.
+
+## D200 (2026-11-14): How E6.5 built the device drawer
+
+- **One endpoint, one shape, four kinds.** `GET /map/devices/{entity_type}/{id}` returns
+  `MapDeviceOut` with nullable sections rather than a discriminated union. The drawer renders
+  what is there. It lives in `app/map/service.py` beside the layer reads, and its Pod and
+  Deployment status and counts come from the same `_Fleet` and `roll_up` as their markers.
+  `test_pod_and_deployment_drawers_agree_with_their_markers` holds that for every Pod, the
+  Deployment and every Listener.
+- **The grace is the effective config, with its provenance.** Spec 6.5 and V2 show "Grace
+  30s · inherited". The drawer reads `listener.wake_grace_seconds` through E2's redacted
+  `effective_for`, so "inherited from the Deployment" names the real level. It is the
+  platform's desired value. The device's applied value can lag it during a pending revision,
+  and the Config tab and Timeline show that.
+- **`_latest_revision_states` is imported under an alias, not renamed.** It is E1/E3 code
+  outside phase-6's authorized edits. Importing it as `latest_revision_states` changes nothing
+  that owns it.
+- **How each level's drawer opens.**
+  - A Listener (pin or leaf) opens its drawer on click, as E6.2b's interim card did.
+  - Clicking a Pod still drills to its route, because that is how the map is navigated. On
+    the Pod's own route, clicking it opens its drawer.
+  - A *Deployment details* / *Pod details* control on those routes opens that level's drawer.
+  - An Aggregator is reached from its Pod's or Listener's drawer. Its marker (for the halo and
+    line) is its Pod's, because the Pod marker sits at the Aggregator's position (spec 9.2).
+- **Tabs that do not apply are absent, not empty.** A Deployment has no single timeline or
+  card, so it shows Status, Config and Telemetry. A Pod's Timeline and Card are its
+  Aggregator's, because the Aggregator is the device the Pod's card provisions.
+- **The tab is in the URL** (`?panel=`), written with `replace` so the back button walks
+  between devices, not tabs.
+- **The leader line hides rather than guesses.** It is drawn only when the marker element is
+  on screen and left of the drawer: not clustered, not panned away, not under the drawer.
+  jsdom has no layout, so the geometry is a pure function tested in vitest, and the real line
+  is asserted in Playwright to within a pixel of the leaf's center and the drawer's edge.
+- **Visual check, by screenshot, in both themes.** It found three defects, all fixed:
+  - the *Pod details* control was blank in the light theme, because the base `button` rule's
+    white text sat on the surface background;
+  - the Aggregator jump read as plain text;
+  - the Telemetry tab was clipped by the drawer's width.
+- **A test changed with its feature.** `map-drill.test.tsx`'s deep-link test, and the drill
+  step in `e2e/map.spec.ts`, asserted E6.2b's interim `map-selected` card. D196 recorded that
+  E6.5 would replace that card with the drawer on the same URL. Both now assert the drawer
+  opens on that URL with the same name and MAC. Nothing was weakened.
+- **The route surface grew, deliberately.** Gate 87's first run failed
+  `test_route_surface_is_exactly_the_e0_contract`: the two new GETs were not yet in
+  `E0_ROUTES`. That test exists to make each epic extend the list by hand, alongside
+  `INTERFACES.md`, and both are now listed. The test is doing its job, not being weakened.
+- **New token:** `--eoe-width-drawer` (420px), in the extension sheet with the other widths.
+- **Also recorded here:** `docs/INTERFACES.md` gains H1's listener pair rule (D199). It belongs
+  with E1's schema, and H1's PR predates this section.
+- **Reference:** phase-6 §4 E6.5; spec 6.5, 9.2; V2·S2; D60, D191, D196, D199.
+
 ## D199 (2026-11-14): The owner's hygiene batch: listener half-pairs refused, two flakes fixed
 
 The owner answered D194's, D195's and D197's offers at CP2 time: "Yes fix the flaky tests. and

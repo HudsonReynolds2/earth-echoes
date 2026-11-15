@@ -14,7 +14,7 @@ import {
   listeners,
   pods,
 } from "./inventory-fixture";
-import { mapDeploymentFixture, mapDeploymentsFixture } from "./map-fixture";
+import { mapDeploymentFixture, mapDeploymentsFixture, mapDeviceFixture } from "./map-fixture";
 import { fixtureServices, fixtureServicesStatus } from "./services-fixture";
 
 export const healthPayload = {
@@ -168,6 +168,20 @@ export const server = setupServer(
   // E6.4: the map's two drill levels (tests/map-fixture.ts).
   http.get("http://api.test/api/v1/map/deployments", () =>
     HttpResponse.json(mapDeploymentsFixture()),
+  ),
+  // E6.5: the drawer's Status tab, and the Card tab's filtered read (no
+  // records by default; tests that need one supply it with server.use).
+  http.get("http://api.test/api/v1/map/devices/:kind/:id", ({ params }) => {
+    const device = mapDeviceFixture(String(params.kind), decodeURIComponent(String(params.id)));
+    return device
+      ? HttpResponse.json(device)
+      : HttpResponse.json(
+          { error: { code: "not_found", message: "device not found", detail: null } },
+          { status: 404 },
+        );
+  }),
+  http.get("http://api.test/api/v1/provisioning/records", () =>
+    HttpResponse.json({ items: [], total: 0, limit: 5, offset: 0 }),
   ),
   http.get("http://api.test/api/v1/map/deployments/:id", ({ params }) => {
     const detail = mapDeploymentFixture(String(params.id));

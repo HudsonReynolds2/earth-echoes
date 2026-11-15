@@ -25,8 +25,8 @@ before the rollup exists (project-changes #47). The rows below are in working or
 | E6.2b Hierarchy markers and clustering | **gate green** | 84 | gate-84 | D196, D197 | Routes `/map`, `/map/deployments/:id`, `/map/pods/:id`; `?device=listener:<MAC>`. `markers.ts` (pure, escaped), `MarkerLayer.tsx` (keyed, in-place; `FitToPoints` once per level), `UnplacedPanel.tsx`, `leafletGlobal.ts`. Lenses (D196 deviation: status-based). Interim selected-Listener card until E6.5. Tests: `map-markers.test.ts` 11, `map-drill.test.tsx` 11, `e2e/map.spec.ts` +2 (drill, cluster→pin, keyboard). Gate 84 green on run 2 (run 1: Docker forwarder 500, and a SIM precondition race, D197). |
 | E6.3 Leaf versus pin logic | **gate green** | 85 | gate-85 | D198 | `leafFan.ts` (pure, upper half), `LeafFan.tsx` (pixel offsets projected per zoom; focused Pod, or zoom ≥ 14), leaf markup with CSS tethers, *Show GPS-less* toggle (remembered), `<n> no GPS` in the Pod label, unplaced Pods count GPS-less Listeners. Tests: `leaf-fan.test.ts` 8, `map-leaves.test.tsx` 4 (incl. leaf → pin on refetch), `map-markers.test.ts` +1, `e2e/map.spec.ts` +1 (polls nearness). Visual check by screenshot found and fixed the label overlap. Gate 85 green on its first run. |
 | H1 Hygiene (owner-approved, project-changes #50) | **gate green** | 86 | gate-86 | D199 | Listener API + import refuse half a GPS pair (D194 rule); migration `1d73e4435c21` adds `ck_listener_gps_pair`/`gps_range`. `ephemeral_postgres` re-acquires a vanished template once (D195). SIM LWT test polls its precondition (D197). Tests: `test_map_coordinates.py` +9 (5 API/import, 4 DB), `test_container_pool.py` +2. Branch `e6-hygiene`, stacked on `e6-batch-2`. Gate 86 green on its first run. Manual: migration applied to `eoe-e6`; psql shows both CHECKs refusing. |
-| E6.5 Device detail drawer | not started | | | | |
-| E6.6 Live map updates | not started | | | | |
+| E6.5 Device detail drawer | **gate green** | 87 | gate-87 | D200 | `GET /map/devices/{entity_type}/{id}` (`MapDeviceOut`, one shape, four kinds; status from the marker's readers); `GET /provisioning/records?target_type=&target_id=`. `DeviceDrawer.tsx` (five tabs, `panelsFor`), `LeaderLine.tsx` (`leaderSegment`, `data-marker-key`), `?device=`/`?panel=`, Details control, halo on pods/deployments, `--eoe-width-drawer`. Tests: `test_map_devices.py` 10, `map-drawer.test.tsx` 17, `map-drill.test.tsx` deep-link amended, `e2e/map.spec.ts` +1 (leader line geometry, Esc focus). Gate 87 green on run 2 (run 1: `E0_ROUTES` not yet extended; Docker forwarder 500, D181). Manual: screenshots in both themes found and fixed three defects. |
+| E6.6 Live map updates | **gate green** | 88 | gate-88 | D201 | `useLiveUpdates` invalidates the map on `device_status` and `reconciliation` through `createCoalescer` (2 s, leading + trailing; `isLiveMapQuery` skips `["map","config"]`). `MAP_POLL_MS` 30 s on the layer, detail and device reads (interim for services/alerts). Import and services refresh now invalidate the map. Tests: `map-live.test.tsx` 6 (one refetch, in place, view and drawer unchanged; 200 events, one per window; config untouched), `test_map_live.py` 1 (the disconnect LWT carries the Deployment `/ws` filters on). Gate 88 green on its first run. Manual: live SIM `disconnect` turned SIM Pod 000 Offline in headless Chromium with no reload. |
 | E6.7 Owner landing view | not started | | | | |
 | E6.8 Walkthrough and SIM acceptance | not started | | | | |
 
@@ -52,22 +52,26 @@ Phase document §7 has the checklist for each checkpoint.
 | CP3 | | | |
 | CP4 | | | |
 
-## Resume here (rewritten 2026-11-14, after H1)
+## Resume here (rewritten 2026-11-14, after batch 3)
 
-**State.** Batch 2 (#27) and H1 (gate 86, its own PR) are built and pushed, and neither is
-merged. The owner chose to test batches 2 and 3 together (project-changes #51). So **batch 3
-is built now on `e6-batch-3`, stacked on `e6-hygiene`**. Then CP2 and CP3 run as one
-hands-on session. On approval, merge #27, then H1's PR, then batch 3's PR, each after CI is
-green. When a lower PR merges, GitHub retargets the PR above it to `main`.
+**State.** Batches 2 and 3 and H1 are all built, gated and pushed, and none is merged. The
+three PRs are stacked: #27 (batch 2, gates 83-85) ← #28 (H1, gate 86) ← the batch 3 PR
+(gates 87-88). The owner chose to test batches 2 and 3 together (project-changes #51).
 
 **Next, in order:**
 
-1. **Batch 3:** E6.5 (drawer) and E6.6 (live updates), each to a full gate.
-2. **CP2 + CP3 with the owner.** Bring the QA stack up (below), migrate it by hand, provision
-   a small SIM fleet, and give phase-6 §7's CP2 and CP3 checklists with the exact URL and
-   login.
-3. **Merge** the three PRs in order on approval.
-4. **Batch 4:** E6.7 and E6.8, then CP4.
+1. **The combined CP2 + CP3 with the owner.** Bring the QA stack up (below), migrate it by
+   hand, run a small SIM fleet, and give phase-6 §7's CP2 and CP3 checklists with the exact URL
+   and login. The `sim-fleet` Deployment (2 × 3) is already provisioned in `eoe-e6`. Fix what
+   the owner reports on the branch it belongs to, carried up the stack.
+2. **Merge on approval**, each after CI is green: #27, then #28, then batch 3's PR. GitHub
+   retargets the next PR to `main` as each base merges.
+3. **Batch 4** on `e6-batch-4` from `main`: E6.7 (Owner view) and E6.8 (walkthrough and SIM
+   acceptance), then CP4.
+
+**Raised at the combined CP, not yet decided:** a Listener under an offline Aggregator keeps
+the liveness the Aggregator last reported (E3.9), so it can read Streaming while its Pod reads
+Offline. This was seen live in E6.6's manual check.
 
 **QA stack on this WSL host** (`qa-stack.ps1` is Windows-only):
 
