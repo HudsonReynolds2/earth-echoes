@@ -4,6 +4,40 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D205 (2026-11-15): How E6.8 closed the epic's verification
+
+- **The SIM acceptance runs on the demo fleet, not a fresh provisioning run.** Phase-6 asks
+  for "a small fleet with coordinates". The SIM platform fixture already seeds Redwood Coast
+  with coordinates at every level (E6.2a), so `test_map_fleet.py` connects its three
+  Aggregators and sixteen Listeners as mock devices. `provision.py` is already proven by
+  `test_fleet.py`, and repeating it would only add time.
+  - Every assertion reads `GET /map/deployments/{id}` over HTTP.
+  - The fixture's `sim-ghost-01` Pod (unplaced, silent, kept for another test) is excluded
+    from "every Pod is placed". It is asserted to count as `unknown`, which cannot hide the
+    healthy rollup (D60).
+- **Unreachable is part of the acceptance.** After `disconnect`, the dead Aggregator's
+  Listeners must read `unreachable` (E6.9). After `missed_wake_window`, the sleeper reads
+  `offline` while its Aggregator stays healthy, and its Pod reads offline.
+- **Time budget.** The test takes ~33 s alone (the missed wake window waits out the 30 s
+  default grace), within the SIM stage's existing budget. The stage has no explicit timeout.
+- **The walkthrough.** `guide/e6-verification.md` covers every E6 task and H1. It amends E1 §1
+  and the not-yet-filled surfaces list (E6.7, E6.9) and E3's status section (E6.9).
+- **A clean-stack dry run, by me, before the owner's CP4.** Throwaway compose project
+  `eoe-walk`, removed with its volume afterwards.
+  - §0 ran verbatim: migrate to head, seed, mint the broker, provision the fleet.
+  - §6 checked out: the Listener read Unreachable in both the drawer and inventory.
+  - §7 checked out: the Overview read 4 / 42 with one folded Unreachable row.
+  - §2 checked out: H1's half pair was refused.
+  - It found three run-sheet defects, all fixed in the walkthrough:
+    1. a project name whose old volume has other credentials fails the seed (this host's
+       `eoe-qa`);
+    2. a fleet started during an API restart fails with "connection reset";
+    3. a fleet fails with "no broker account" after the broker files are regenerated from
+       another database, which a gate run does.
+  - **Not done by me:** the click-through of §1-§7 as a person would do it. That is the
+    owner's CP4.
+- **Reference:** phase-6 §4 E6.8, §7 CP4; D60, D196, D200-D204.
+
 ## D204 (2026-11-14): How E6.7 built the Owner view
 
 - **All device numbers come from the map's reads (E6.4).** The hero, distributions, Pods and

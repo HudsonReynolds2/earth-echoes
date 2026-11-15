@@ -37,18 +37,26 @@ Troubleshooting: `.\qa-stack.ps1 status`, or
 
 - [ ] `http://localhost:15173` → **Sign in** → the seeded credentials land you on a page
       titled **Organization overview**.
-- [ ] The hero reads **Listeners registered 28** — real data, styled as the one serif
+- [ ] ~~The hero reads **Listeners registered 28** — real data, styled as the one serif
       number on the page. (The label is deliberately *registered*, not *online*: nothing
-      is online until Epic 3 wires live devices.)
+      is online until Epic 3 wires live devices.)~~ *(amended 2026-11-15, E6.7: the hero now
+      reads **Devices online N / M**, counting Aggregators and Listeners. On a fresh seed
+      nothing has reported, so it reads **0 / 34**.)*
 - [ ] The meta line reads **2 deployments · 6 pods · 28 listeners**.
 - [ ] Two deployment cards: **Redwood Coast** (slug `redwood-coast`, 3 pods ·
       16 listeners) and **High Desert** (`high-desert`, 3 pods · 12 listeners), each with
-      an "Open inventory" button and the line "Device status arrives with E3 · services
-      with E5".
-- [ ] The **Needs attention** panel is an empty state naming E3 and E7 — not a fake feed.
-- [ ] **Nothing anywhere is showing a device status** — no colored dots, chips, or
+      ~~an "Open inventory" button and the line "Device status arrives with E3 · services
+      with E5"~~ *(amended 2026-11-15, E6.7: a rollup chip, the status distribution, one chip
+      per service, the Pods with their status, and **Open map** / **Open inventory**. A fresh
+      seed reads "No status reported yet" and "N not reported yet", never a color.)*
+- [ ] ~~The **Needs attention** panel is an empty state naming E3 and E7 — not a fake feed.~~
+      *(amended 2026-11-15, E6.7: it lists real devices needing attention, worst first. On a
+      fresh seed it reads "Nothing needs attention", naming E7 for Grafana alerts.)*
+- [ ] ~~**Nothing anywhere is showing a device status** — no colored dots, chips, or
       "online" counts. This absence is a designed, test-enforced rule (no invented data,
-      ever); status arrives with E3.
+      ever); status arrives with E3.~~ *(amended 2026-11-15, E6.7: real status now renders
+      here, from the map's rollup. The rule became "no status without a report": a device
+      that never spoke still shows a dash, never a color.)*
 
 ## 2. Both themes
 
@@ -184,15 +192,19 @@ placeholders pretending to be data:
       *(amended 2026-11-13, E6.1: the region is now a live map with satellite imagery and a
       basemap switcher, still with the six-state legend; verify it with the E6 walkthrough.
       Device markers arrive with E6.2b)* *(amended 2026-11-14, E6.2b: Deployment, Pod and
-      Listener markers now draw on it, drilling by route)*.
+      Listener markers now draw on it, drilling by route)* *(amended 2026-11-15, E6.9: the
+      legend has **seven** states; **Unreachable**, a hollow hexagon, is a Listener behind an
+      offline Aggregator)*.
 - [ ] **/configuration** — ~~empty state naming E2~~ *(amended 2026-08-04, E2.7: the
       live inheritance editor now lives here — verify it via
       [the E2 walkthrough](e2-verification.md); its Publish affordances name **E3**)*.
 - [ ] **/provisioning** — ~~empty state naming **E4** and **E5**~~ *(amended 2026-11-13, E4.10:
       the generation wizard and bundle tracking board now live here — verify them via the E4
       walkthrough, `guide/e4-verification.md`)*.
-- [ ] **Overview → Needs attention** — names **E3/E7**.
-- [ ] **Deployment cards** — "Device status arrives with E3 · services with E5".
+- [ ] **Overview → Needs attention** — ~~names **E3/E7**~~ *(amended 2026-11-15, E6.7: filled
+      with real devices; only Grafana alerts are left to **E7**)*.
+- [ ] **Deployment cards** — ~~"Device status arrives with E3 · services with E5"~~ *(amended
+      2026-11-15, E6.7: status and services are filled; "Recordings collected" names **E7**)*.
 - [ ] **Listener detail** — footer "Live status arrives with E3 · telemetry with E5"
       *(amended 2026-08-04, E2.7: the "effective config with E2" promise is delivered —
       the page now carries an **Effective config** card with an Edit deep-link into

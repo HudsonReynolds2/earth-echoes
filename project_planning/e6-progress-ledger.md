@@ -29,7 +29,7 @@ before the rollup exists (project-changes #47). The rows below are in working or
 | E6.6 Live map updates | **gate green** | 88 | gate-88 | D201 | `useLiveUpdates` invalidates the map on `device_status` and `reconciliation` through `createCoalescer` (2 s, leading + trailing; `isLiveMapQuery` skips `["map","config"]`). `MAP_POLL_MS` 30 s on the layer, detail and device reads (interim for services/alerts). Import and services refresh now invalidate the map. Tests: `map-live.test.tsx` 6 (one refetch, in place, view and drawer unchanged; 200 events, one per window; config untouched), `test_map_live.py` 1 (the disconnect LWT carries the Deployment `/ws` filters on). Gate 88 green on its first run. Manual: live SIM `disconnect` turned SIM Pod 000 Offline in headless Chromium with no reload. |
 | E6.9 Unreachable Listeners (project-changes #52, #53) | **gate green** | 89 | gate-89 | D202, D203 | `UNREACHABLE` + `behind_aggregator` in `device_status`; applied in `listener_statuses` (one more constant query). `SEVERITY` places it below `offline`. Frontend vocabulary, tokens (both themes), glyph subset re-cut with U+2B21, drawer note. Tests: `test_unreachable.py` (pure + inventory/map/drawer agreement), `map-drawer.test.tsx` +1, legend test now seven, E3 walkthrough amended. Gate 89 green on its first run. Manual: screenshot shows the hexagon rendering, seven-status legend and drawer note. |
 | E6.7 Owner landing view | **gate green** | 90 | gate-90 | D204 | `Overview.tsx` rebuilt on the map reads: hero online/registered (`onlineTotals`; unreachable not online), a card per Deployment (rollup, distribution, E5.5 service chips, Pods, Open map), Needs attention (`attentionItems`: worst first, cut-off Listeners folded per Pod, capped at 8 with `?tab=` links), E7 telemetry line. Map reads `?tab=`. Tests: `overview.test.tsx` 11 (E1 tests amended, D204). Gate 90 green on run 4 (run 1: a loaded-runner timeout, given headroom; run 3: Docker forwarder). Manual: real-data Overview with a SIM disconnect read 4 / 42 and folded the cut-off Listeners. |
-| E6.8 Walkthrough and SIM acceptance | not started | | | | |
+| E6.8 Walkthrough and SIM acceptance | **gate green** | 91 | gate-91 | D205 | `sim/tests/test_map_fleet.py` (demo fleet as mock devices: healthy rollup with every Pod placed, `disconnect` → Pod/Deployment offline and Listeners unreachable, `missed_wake_window` → Listener offline with its Aggregator healthy; ~33 s). `guide/e6-verification.md`, indexed; E1 §1 and the not-yet-filled surfaces list amended, E3 status section amended at E6.9. Clean-stack dry run (`eoe-walk`, removed) found and fixed three run-sheet defects. Gate 91 green on run 2 (run 1: Docker forwarder, D181). |
 
 Batches: one PR per batch, on `e6-batch-N` (rule R3, project-changes #47).
 
@@ -53,26 +53,18 @@ Phase document §7 has the checklist for each checkpoint.
 | CP3 | | | |
 | CP4 | | | |
 
-## Resume here (rewritten 2026-11-14, after batch 3)
+## Resume here (rewritten 2026-11-15, after batch 4)
 
-**State.** Batches 2 and 3 and H1 are all built, gated and pushed, and none is merged. The
-three PRs are stacked: #27 (batch 2, gates 83-85) ← #28 (H1, gate 86) ← the batch 3 PR
-(gates 87-88). The owner chose to test batches 2 and 3 together (project-changes #51).
+**State.** Every E6 task is built and gated: batch 4 (E6.9 gate 89, E6.7 gate 90, E6.8 gate
+91) is pushed on `e6-batch-4` with its PR open against `main`. Batches 1-3 and H1 are merged.
+**The batch waits for the owner's CP4**, which runs `guide/e6-verification.md` start to
+finish. Merge on approval after CI is green, and that closes the epic.
 
 **Next, in order:**
 
-1. **The combined CP2 + CP3 with the owner.** Bring the QA stack up (below), migrate it by
-   hand, run a small SIM fleet, and give phase-6 §7's CP2 and CP3 checklists with the exact URL
-   and login. The `sim-fleet` Deployment (2 × 3) is already provisioned in `eoe-e6`. Fix what
-   the owner reports on the branch it belongs to, carried up the stack.
-2. **Merge on approval**, each after CI is green: #27, then #28, then batch 3's PR. GitHub
-   retargets the next PR to `main` as each base merges.
-3. **Batch 4** on `e6-batch-4` from `main`: E6.7 (Owner view) and E6.8 (walkthrough and SIM
-   acceptance), then CP4.
-
-**Raised at the combined CP, not yet decided:** a Listener under an offline Aggregator keeps
-the liveness the Aggregator last reported (E3.9), so it can read Streaming while its Pod reads
-Offline. This was seen live in E6.6's manual check.
+1. **CP4 with the owner.** Bring the QA stack up (below), re-mint the broker accounts, wait
+   for the API, run the SIM fleet, and give the owner phase-6 §7's CP4 plus the walkthrough.
+2. **Merge on approval.** Then write the epic-close entry and offer the next epic.
 
 **QA stack on this WSL host** (`qa-stack.ps1` is Windows-only):
 
