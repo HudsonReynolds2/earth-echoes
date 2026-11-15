@@ -4,6 +4,53 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D204 (2026-11-14): How E6.7 built the Owner view
+
+- **All device numbers come from the map's reads (E6.4).** The hero, distributions, Pods and
+  attention list read `GET /map/deployments` and each `GET /map/deployments/{id}`, which are
+  the same queries the map uses. So the Overview, the map and the inventory cannot disagree
+  (D60), and E6.6's live invalidation and 30 s poll make this page live too.
+- **Deviation: the per-service chips read E5.5's `GET /deployments/{id}/services/status`.**
+  Phase-6 says "the data comes from E6.4's endpoints only", but it also asks for per-service
+  chips, and only E5.5's read has them. The map payload carries the rollup alone. Reading
+  E5.5's existing endpoint (every role holds `view_services`) beats copying five service
+  states into the map payload. The organization name still comes from E1's
+  `/organizations`.
+- **Online excludes `unreachable`.** Phase-6 defines online as every status except `offline`
+  and `unknown`. E6.9's `unreachable` came later, and a Listener nobody can hear is not
+  online. So online = registered − offline − unreachable − unknown.
+- **The attention list folds cut-off Listeners into one row per Pod.** When an Aggregator
+  dies, its fifty unreachable Listeners would bury everything else. They become "N listeners
+  unreachable · behind an offline aggregator", linked to the Pod, and the offline Aggregator
+  has its own row above.
+  - Alerts naming the Deployment but no device (D191) get a row of their own.
+  - The order is the server's severity: alerting, offline, unreachable, degraded, drifted.
+  - The list is capped at 8, with links to `/map?tab=alerts` and `/map?tab=reconciliation`.
+    The map now reads its lens from `?tab=` for that.
+- **The E1 Overview tests were amended, not deleted** (phase-6 E6.7):
+  - the hero test now asserts devices online / registered (1 / 34 on the fixture);
+  - the "no `[data-status]`" assertion became assertions on the map's rollup, since real
+    status renders here now;
+  - the first-run empty state test is unchanged in what it offers, driven by an empty
+    Organization layer.
+- **Manage actions.** The header's *Open inventory* stays behind `manage_devices`. The tests
+  assert that a Viewer and a Field Tech see the page without it.
+- **A timeout raised, with its reason.** Gate 90's first run failed
+  `inventory-forms.test.tsx > walks the conflict dialog …` with "Test timed out in 5000ms". It
+  had also timed out once in a local full run while E6.9 was being built.
+  - Alone it takes about 1.2 s: a full Pod page under role queries. It never hung.
+  - Making the input faster was tried and measured: `delay: null` gave 1.29 s, and pasting
+    gave 1.20 s. Neither touched the cost, so both were reverted.
+  - The test now has a 15 s timeout, as the map's full-page live tests do. Every assertion is
+    unchanged.
+  - The load grew with E6.6-E6.7's full-app tests running in parallel workers.
+- **A styling defect found on the live stack, fixed for every page.** The screenshot showed
+  "Open map" as underlined text in a tight box. `.btn-secondary`/`.btn-tertiary` on an `<a>`
+  got the border but not the `button` element rule's height, padding and radius. That was
+  already true of the four existing link-buttons, E1's Overview header among them.
+  `a:is(.btn-secondary, .btn-tertiary)` now gives links the button's box.
+- **Reference:** phase-6 §4 E6.7; spec 10.3; V2·S1; D60, D191, D201, D202.
+
 ## D203 (2026-11-14): Two things from merging batches 2-3: a CI port race, and a stacked-merge slip
 
 - **A new CI-only flake.** PR #28's first CI run failed `sim-protocol` with 4 setup errors in

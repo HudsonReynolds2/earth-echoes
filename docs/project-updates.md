@@ -1,5 +1,47 @@
 # Project Updates
 
+## 2026-11-15: E6.7 — the Owner view, on the map's rollup (Gate 90 GREEN)
+
+- **What changed:**
+  - **Rebuilt on the map's reads.** `Overview.tsx` now reads the same queries as the map, so
+    it updates live too.
+  - **Hero.** Devices online / registered. Unreachable, offline and never-heard devices are
+    not online.
+  - **Cards.** A card per Deployment with its rollup, distribution, per-service chips (E5.5),
+    its Pods with status, and *Open map*.
+  - **Needs attention.** Worst first, with Listeners cut off behind an offline Aggregator
+    folded into one row per Pod. Capped at 8, with `/map?tab=alerts|reconciliation` links.
+    The map now reads its lens from `?tab=`.
+  - **Also.** An honest E7 line for telemetry figures. Links styled as buttons now get the
+    button's box on every page.
+  - **Decisions (D204):** the E5.5 services read (a deviation), online excluding
+    unreachable, the folding rule, the amended E1 tests, the link-button fix, and one test's
+    raised timeout.
+- **Gate:** 90, GREEN on the fourth run. The entire accumulated suite, no filters.
+  - Run 1 was RED: `inventory-forms.test.tsx > walks the conflict dialog …` failed with "Test
+    timed out in 5000ms". Measured at ~1.2 s alone, and faster input did not help, so the
+    test got a 15 s timeout with its reason (D204). Every assertion is unchanged.
+  - Run 2 was GREEN. A live-stack screenshot then showed link-buttons without a button box.
+    CSS was fixed, so the gate was rerun.
+  - Run 3 was RED: `test_e0_readiness.py::test_prod_frontend_image_actually_serves_the_app`.
+    Verbatim: "AssertionError: prod image did not serve the app shell / assert 'id="root"' in
+    ''". Run by hand, the same image served the shell and bundle on the first request. This
+    is the Docker forwarder (D99/D181). No containers had leaked, and three probes passed.
+  - Run 4 was GREEN, on the committed tree.
+- **Tests:** **1426 backend / 278 vitest / 10 Playwright / 79 `/sim`**, 1793 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. `overview.test.tsx` has 11 tests: 2 amended E1 tests
+  and 9 new.
+- **Command:** `make gate`
+- **Manual verification:** on the QA project `eoe-e6`, with real data. The SIM fleet ran
+  `disconnect`, and headless Chromium was signed in as the temporary verification owner
+  (reactivated with a fresh password, deactivated afterwards).
+  - The Overview read **4 / 42** online: SIM Pod 001's Aggregator and Listeners.
+  - The SIM Fleet card read Offline, with 1 offline · 3 unreachable · 4 streaming, and Pod 000
+    Offline / Pod 001 Streaming.
+  - Needs attention listed sim-000, then "3 listeners unreachable" for Pod 000.
+  - The demo Deployments read "No status reported yet".
+  - The screenshot found the link-button defect above. It was fixed and re-shot.
+
 ## 2026-11-14: E6.9 — a Listener behind an offline Aggregator reads Unreachable (Gate 89 GREEN)
 
 - **What changed:**

@@ -122,7 +122,11 @@ describe("create and edit flows", () => {
     expect(bodies).toHaveLength(2);
     expect(bodies[0].auto_suffix).toBe(false); // never silent
     expect(bodies[1].auto_suffix).toBe(true); // only on the explicit click
-  });
+    // ~1.2 s alone, a full Pod page under role queries. Under the whole
+    // suite's parallel load it crossed vitest's 5 s default twice on
+    // 2026-11-14 without ever hanging, so it gets the headroom the other
+    // full-page flows have (D204). Nothing asserted changed.
+  }, 15_000);
 
   it("dialog 'Edit name' closes without a second POST", async () => {
     actAsOwner();

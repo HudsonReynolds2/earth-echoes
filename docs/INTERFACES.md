@@ -2236,6 +2236,19 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
   drawer, and clicking the focused Pod opens its drawer instead of re-drilling. Token
   `--eoe-width-drawer`.
 
+### The Owner view (E6.7; spec 10.3; V2·S1; D204)
+
+- **`pages/Overview.tsx`** reads `mapKeys.deployments` and each `mapKeys.deployment(id)` (so
+  E6.6's invalidation and poll cover it), E5.5's services status per Deployment, and E1's
+  organization name.
+- **Pure helpers, exported for tests and E7:**
+  - `onlineTotals(rows)`: online = registered − offline − unreachable − unknown.
+  - `attentionItems(details)`: worst first, unreachable Listeners folded per Pod, unattached
+    alerts as their own row.
+  - `ATTENTION_CAP` (8).
+  E7 adds Grafana alerts by feeding the same items, not a second panel.
+- **Map lens deep link:** `/map?tab=status|reconciliation|alerts` sets the initial lens.
+
 ## Owned by SIM
 
 ### The `/sim` project (SIM.1; D100) — its own uv project, a CLIENT of the platform
