@@ -54,6 +54,11 @@ export function MapView({
         center={INITIAL_CENTER}
         zoom={INITIAL_ZOOM}
         className="map-canvas"
+        // The map's own limits, independent of the basemap: marker
+        // clustering needs a maxZoom even when no tile layer supplies one
+        // (the `none` basemap, or before a slow source has loaded).
+        minZoom={2}
+        maxZoom={19}
         attributionControl
         zoomControl
       >

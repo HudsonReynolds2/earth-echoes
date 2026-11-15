@@ -19,8 +19,10 @@ device that has been entered in inventory but has never spoken has no status;
 saying so is honest, and defaulting it to healthy would report a deployment
 that has never come online as a working one.
 
-Alerts are E7's and are deliberately absent. When they land, `alerting`
-outranks everything below it here, and this is the function that learns it.
+Alerts are applied by `with_alerts` (E6.4, D191): an open alert on a device
+makes it `alerting`, which outranks everything. E6 feeds it the open
+`inventory_alert` rows; E7 adds Grafana alerts to the same count, through
+`app/map/alerts.py`, without touching this module again.
 """
 
 from enum import StrEnum
@@ -108,6 +110,20 @@ def _from_revision(revision_state: str | None) -> DeviceStatus:
     if revision_state == "failed":
         return DeviceStatus.DEGRADED
     return DeviceStatus.HEALTHY
+
+
+def with_alerts(status: DeviceStatus, open_alerts: int) -> DeviceStatus:
+    """A device's displayed status once its active alerts are counted
+    (spec 9.3: status derives from reachability, reconciliation, AND alerts).
+
+    **An open alert wins over every other state, `unknown` included.** An
+    alert is a real signal about this device that someone must act on, and
+    `alerting` is the top of `SEVERITY` for exactly that reason. A separate
+    function rather than a third argument to `aggregator_status` and
+    `listener_status`, so those two keep the signatures E3's suite pins and
+    every caller that predates alerts keeps working unchanged.
+    """
+    return DeviceStatus.ALERTING if open_alerts > 0 else status
 
 
 def rollup(statuses: list[DeviceStatus]) -> DeviceStatus:

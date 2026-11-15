@@ -14,6 +14,7 @@ import {
   listeners,
   pods,
 } from "./inventory-fixture";
+import { mapDeploymentFixture, mapDeploymentsFixture } from "./map-fixture";
 import { fixtureServices, fixtureServicesStatus } from "./services-fixture";
 
 export const healthPayload = {
@@ -164,4 +165,17 @@ export const server = setupServer(
   ),
   // E6.1: the map's basemap configuration.
   http.get("http://api.test/api/v1/map/config", () => HttpResponse.json(mapConfigFixture)),
+  // E6.4: the map's two drill levels (tests/map-fixture.ts).
+  http.get("http://api.test/api/v1/map/deployments", () =>
+    HttpResponse.json(mapDeploymentsFixture()),
+  ),
+  http.get("http://api.test/api/v1/map/deployments/:id", ({ params }) => {
+    const detail = mapDeploymentFixture(String(params.id));
+    return detail
+      ? HttpResponse.json(detail)
+      : HttpResponse.json(
+          { error: { code: "not_found", message: "deployment not found" } },
+          { status: 404 },
+        );
+  }),
 );

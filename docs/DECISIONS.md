@@ -4,6 +4,120 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D198 (2026-11-14): How E6.3 drew GPS-less Listeners
+
+- **Tethers are CSS, not Leaflet polylines.** The first build drew each tether as a
+  react-leaflet `<Polyline>`. Leaflet's vector layers need an SVG or canvas renderer, and
+  jsdom has neither, so the component crashed under test. The leaf already knows its pixel
+  offset from the Pod, so the tether is now a dashed CSS line inside the leaf's own markup,
+  sized and rotated from that offset. It follows the theme, needs no re-projection, and
+  renders anywhere.
+- **The fan uses the upper half only.** Full rings put leaves on top of the Pod's label and
+  the floating "no GPS" badge. That was found by looking at a real-browser screenshot, not by
+  a test. Leaves now fan from 9 o'clock over the top to 3 o'clock, and the "<n> no GPS"
+  count moved into the label line. `leaf-fan.test.ts` pins `dy ≤ 0` for every leaf.
+- **A test that passed while the feature was broken.** The first Playwright check asserted
+  that leaves were apart from each other. It passed while they were drawn 24,000 px away:
+  measured mid zoom animation, projected at the pre-fit zoom. Separation was the wrong
+  property. The test now polls until every leaf is within 100 px of its Pod. The positions
+  themselves were right once the zoom settled (72–84 px from the Pod).
+- **Leaves show for the focused Pod, or from zoom 14.** On `/map/pods/:id` the operator asked
+  for that Pod, so its leaves always show. On the Deployment view they appear from zoom 14,
+  because a 50-leaf fan per Pod at Deployment zoom would bury the Pods.
+- **Leaf → pin is a refetch, not a special path.** Every inventory save invalidates every
+  query in the tab, so the map rereads and the Listener draws as a pin. E6.6 brings the same
+  change to other tabs.
+- **Reference:** phase-6 §4 E6.3; spec 9.2; D196.
+
+## D197 (2026-11-14): A SIM test's "previous test left this device online" precondition races the retained offline
+
+- **What happened:** gate 84's first run failed
+  `sim/tests/test_mock_aggregator.py::test_an_unclean_death_flips_the_aggregator_offline_through_the_lwt`
+  with "a previous test left this device online". It had passed at every earlier gate.
+- **Mechanism:** the module shares one platform and one Aggregator across tests. The previous
+  test disconnects politely, so the broker holds a retained `offline`. This test starts a new
+  consumer, waits for its CONNECT, and reads `aggregator_status` immediately. Whether the
+  retained `offline` has been consumed by then is a race, so the row can still read `online`.
+  The product behaves correctly. The precondition is checked too early.
+- **Proposed fix, not made:** this is SIM-owned test code outside phase-6's authorized edits.
+  Have the precondition poll briefly (for example with the module's own
+  `wait_for_verdict(online=False)`, bounded at a few seconds) before asserting, and treat a
+  row that is still `online` after that as the real failure. **Offered to the owner** with
+  D195's pool-template fix as one small hygiene batch.
+- **Reference:** gate 84 run 1 (verbatim in project-updates); SIM.1; D108.
+
+## D196 (2026-11-14): How E6.2b drew the markers
+
+- **Markers are kept by an imperative, keyed layer, not react-leaflet's `<Marker>`.**
+  `leaflet.markercluster` needs a real `MarkerClusterGroup`, and remounting markers on every
+  render would reset clusters and focus. `MarkerLayer` diffs a `Map` keyed by entity and
+  changes only what moved, which is also what E6.6 needs from live updates.
+- **The marker's focusable element is the size of its shape.** It was first a zero-size
+  anchor with the shape overflowing it, which Playwright correctly reported as hidden. A
+  zero-size focus target is wrong for keyboard and screen-reader users too. Leaflet now sizes
+  the element to the shape (`iconSize` = `DEPLOYMENT_SIZE` / `podMarkerSize(n)` /
+  `LISTENER_SIZE` / `CLUSTER_SIZE`) and centers it on the coordinate. The CSS hangs the label
+  and badges off its center.
+- **`leaflet.markercluster` needs a global `L`.** It is a UMD build that extends `window.L`.
+  `leafletGlobal.ts` sets it before the plugin is imported, which matters in the browser as
+  well as in tests.
+- **The map declares `maxZoom` itself.** Clustering throws "Map has no maxZoom specified"
+  when no tile layer supplies one (the `none` basemap, or while a slow source loads).
+- **Deviation, the Reconciliation lens.** Phase-6 E6.2b says it "dims every device whose
+  latest revision is `applied`, so drifted, failed and pending stand out". The map payload
+  carries displayed status, not revision state, and spec 9.3 / D60 deliberately show
+  `pending` as healthy (a change in flight is not a fault). The lens therefore keeps
+  `drifted` and `degraded` (failed) bright and dims the rest. Pending revisions are not
+  singled out, and adding revision state to the payload for one lens was not worth a second
+  vocabulary on the map.
+- **A selected Listener is an interim card until E6.5.** Clicking a pin sets
+  `?device=listener:<MAC>`, the grammar the drawer will read, and shows its name, MAC,
+  status and an "Open in inventory" link. E6.5 replaces the card with the drawer and keeps
+  the URL.
+- **Shared status CSS.** The six `.status-chip[data-status=…]` rules became
+  `:is(.status-chip, .map-marker, .map-cluster)[data-status=…]`, so markers and chips cannot
+  drift apart in color or glyph. markercluster's own bubble colors are blanked.
+- **Library:** `leaflet.markercluster` 1.5.3 and `@types/leaflet.markercluster` 1.5.6, exact.
+- **Reference:** phase-6 §4 E6.2b; D60, D188, D190.
+
+## D195 (2026-11-14): How E6.4 rolled up markers, and two CI-only flakes on PR #26
+
+- **`with_alerts` is a new function, not a third argument.** `aggregator_status` and
+  `listener_status` keep the signatures E3's suite pins. The batched readers in
+  `hierarchy_common` wrap their result, so every caller (inventory tables, the aggregator card,
+  the map) gets alerts at once. An open alert wins over `unknown` too: an alert is a real
+  signal about a device, even one whose own status report never arrived.
+- **Unattached alerts badge the Deployment and move no status** (fixed choice 4). In
+  practice this is `provisioning_required`, which names an `aggregator_uuid` that is not in
+  inventory by definition and often names no Deployment either. One that names no Deployment
+  counts nowhere on the map, and E7's alert list is where it will surface.
+- **Not paginated.** `GET /map/deployments` returns every visible Deployment, since a map
+  showing a first page would hide the rest of the organization. At spec 14.2's order of ten,
+  that is ten rows.
+- **The per-Deployment counts compute every device's status.** That is two batched readers
+  over id lists, constant in query count. At v1 scale (10 Deployments × 1,000 Listeners)
+  the Organization layer passes about 10,000 MACs in one `IN` list. E8.2's performance pass
+  owns measuring it against spec 14.4's 200 ms. A cached rollup is the remedy if it is
+  slow, and E7.4's fan-out cache is the natural home for it.
+- **PR #26's CI went red twice on infrastructure, then green on the third run without
+  changes.** Each run's local gate was green.
+  - Run A, 11 setup errors in `test_auth.py`: `template database "eoe_tpl_f1a08d123e9ebebf"
+    does not exist`. Best-fit mechanism: the pooled Postgres was judged unhealthy by one
+    worker, replaced by a fresh empty server, and that server reused the host port, so a
+    worker holding the old template name cloned against a server without it. Not proven. A
+    targeted fix would have `ephemeral_postgres` re-acquire the pool and template once when
+    a clone reports a missing template. That is a test-harness change outside E6 and is
+    **offered to the owner, not made**.
+  - Run B: `test_stack_keystone` reported "grafana never answered … in 180s: ConnectError
+    ('[Errno 111] Connection refused')". This is D165's published-port refusal; its single
+    recreate did not recover on that runner.
+  - No test was skipped or weakened. Both are recorded here so a recurrence is
+    recognisable.
+- **Process slip, caught.** The E6.4 gate was first started while the QA stack held the
+  gate's host ports (D44). It was stopped within seconds, before any stage reported, the QA
+  stack was brought down with its volumes kept, and the gate was rerun from the start.
+- **Reference:** phase-6 fixed choices 3-5, E6.4; D44, D60, D165, D190, D191.
+
 ## D194 (2026-11-13): How E6.2a placed Deployments and Pods
 
 - **A PATCH is judged by its result.** `apply_coordinates` combines the PATCH with the

@@ -183,7 +183,8 @@ placeholders pretending to be data:
       the status vocabulary legitimately shows, as a legend); the copy names **E6**~~
       *(amended 2026-11-13, E6.1: the region is now a live map with satellite imagery and a
       basemap switcher, still with the six-state legend; verify it with the E6 walkthrough.
-      Device markers arrive with E6.2b)*.
+      Device markers arrive with E6.2b)* *(amended 2026-11-14, E6.2b: Deployment, Pod and
+      Listener markers now draw on it, drilling by route)*.
 - [ ] **/configuration** — ~~empty state naming E2~~ *(amended 2026-08-04, E2.7: the
       live inheritance editor now lives here — verify it via
       [the E2 walkthrough](e2-verification.md); its Publish affordances name **E3**)*.

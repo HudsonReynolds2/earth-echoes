@@ -1,5 +1,101 @@
 # Project Updates
 
+## 2026-11-14: E6.3 — GPS-less Listeners fan out as leaves; batch 2 is built (Gate 85 GREEN)
+
+- **What changed:**
+  - **The fan.** GPS-less Listeners fan out over the upper half of their Pod as hollow,
+    dashed leaves on CSS tethers (`leafFan.ts`, `LeafFan.tsx`), placed by pixel offset and
+    re-projected per zoom, so a leaf never claims a geographic position.
+  - **When leaves show.** For the focused Pod on its route, and for every Pod from zoom 14 on
+    the Deployment view. The *Show GPS-less* toggle is remembered per browser.
+  - **Counts.** The Pod label carries "<n> no GPS", and an unplaced Pod's row counts its
+    GPS-less Listeners. A Listener that gains GPS draws as a pin on the next read.
+  - **Decisions (D198):** tethers moved from Leaflet polylines to CSS (jsdom has no vector
+    renderer), the fan moved to the upper half after a screenshot showed leaves on the label,
+    and a Playwright check that asserted separation was replaced by one that asserts
+    nearness.
+- **Gate:** 85, GREEN on its first run. The entire accumulated suite, no filters.
+- **Tests:** **1367 backend / 245 vitest / 9 Playwright / 79 `/sim`**, 1700 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `leaf-fan.test.ts` (8), `map-leaves.test.tsx`
+  (4), `map-markers.test.ts` +1, `e2e/map.spec.ts` +1.
+- **Command:** `make gate`
+- **Manual verification:** in Chromium against a mocked API, I took screenshots of a Pod with
+  three GPS-less Listeners and inspected them.
+  - The first screenshot showed leaves overlapping the Pod's label and badge. That was fixed,
+    and the second shows three leaves fanned over the Pod, clear of the label, which reads
+    "Sleeping · 3 listeners · 3 no GPS".
+  - The leaves measured 72–84 px from the Pod once the zoom settled.
+  - The live-stack check with a reporting SIM fleet is the owner's CP2.
+
+## 2026-11-14: E6.2b — Deployment, Pod and Listener markers, drill routes and clusters (Gate 84 GREEN)
+
+- **What changed:**
+  - **Routes.** `/map`, `/map/deployments/:id` and `/map/pods/:id`, plus `?device=` for a
+    selected Listener.
+  - **Markers.** The pure builders in `markers.ts` escape every name, give `unknown` no
+    color, show the services chip only when services are not verified, and badge alerts with
+    their count. `MarkerLayer` keeps markers keyed and updates them in place, and fits the
+    view once per level. Listener pins are clustered, and a cluster shows the worst status
+    inside it, in the server's order.
+  - **Around the map.** `UnplacedPanel` links to each level's Map location card. The
+    Reconciliation and Alerts lenses dim what is fine. Markers are buttons with spoken
+    names, and they open on Enter.
+  - **Decisions (D196):** the status-chip CSS is shared with markers, `leafletGlobal.ts`
+    serves the UMD cluster plugin, the map declares its own `maxZoom`, and the
+    Reconciliation lens is status-based (a recorded deviation).
+- **Gate:** 84, GREEN on the second run. The entire accumulated suite, no filters.
+  - Run 1 was RED on two failures, neither in code this task touched (the task changed only
+    the frontend, and 232/232 vitest and 8/8 Playwright passed in that run).
+    - Backend, 1 setup error in `test_reported_consumer.py`. Verbatim: "ports are not
+      available: exposing port TCP 127.0.0.1:54535 -> 127.0.0.1:0: /forwards/expose returned
+      unexpected status: 500 … 6 attempts". This is D181's open Docker Desktop forwarder
+      fault.
+    - SIM, `test_mock_aggregator.py::test_an_unclean_death_flips_the_aggregator_offline_through_the_lwt`.
+      Verbatim: "AssertionError: a previous test left this device online". The test's
+      precondition reads `aggregator_status` right after its consumer connects, before the
+      broker's retained `offline` from the previous test's polite disconnect has been
+      consumed. This is a first occurrence, a timing race in a SIM-owned test (D197).
+  - Three forwarding probes passed before the rerun.
+  - Run 2 was GREEN.
+- **Tests:** **1367 backend / 232 vitest / 8 Playwright / 79 `/sim`**, 1686 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `map-markers.test.ts` (11),
+  `map-drill.test.tsx` (11), and `e2e/map.spec.ts` +2.
+- **Command:** `make gate`
+- **Manual verification:** Playwright drove the real map in Chromium against a mocked API on
+  the `none` basemap: two Deployment markers, click to the Deployment, Pod squares, a
+  cluster opened until the alerting pin showed, the pin selected into the URL, and a marker
+  focused and opened with Enter. The live-stack visual check with a reporting SIM fleet is
+  CP2, at the end of the batch.
+
+## 2026-11-14: E6.4 — markers have a status: the rollup and the map's reads (Gate 83 GREEN)
+
+- **What changed:**
+  - **Alerts in the status derivation.** `device_status.with_alerts` means an open alert
+    makes a device `alerting`. It is applied in `hierarchy_common`'s readers, so the inventory
+    tables and the map read one derivation (D60, D191).
+  - **The map's backend.**
+    - `app/map/alerts.py` is the seam E7 extends.
+    - `app/map/rollup.py` is the pure rollup: worst-of-descendants, plus a degraded voice for
+      services `degraded` only (D190).
+    - `app/map/service.py` serves `GET /map/deployments` and `GET /map/deployments/{id}`
+      (404 when out of scope).
+  - **Frontend.** `STATUS_SEVERITY`/`worstStatus`, pinned to the backend's order.
+  - **Records.** The E3 walkthrough's two `alerting` lines are amended. D195 also records PR
+    #26's two CI-only infrastructure flakes and offers a harness fix.
+- **Gate:** 83, GREEN on its first complete run. The entire accumulated suite, no filters.
+  An earlier start was stopped within seconds, before any stage reported, because the QA
+  stack held the gate's host ports (D44). It was rerun from the start.
+- **Tests:** **1367 backend / 210 vitest / 6 Playwright / 79 `/sim`**, 1662 in all, 0 failed /
+  0 skipped / 0 xfailed / 0 deselected. New: `test_map_endpoints.py` (48, including the
+  constant query count at 1 and 1,000 Listeners) and `status-severity.test.ts` (2).
+- **Command:** `make gate`
+- **Manual verification:** on the QA stack rebuilt with this code, signed in as the owner:
+  - `GET /map/deployments` returns both Deployments, placed and honestly `unknown` (no
+    device has reported on this stack), with services `unconfigured`.
+  - Redwood Coast's detail lists three placed Pods with their Aggregator coordinates and 9
+    of 16 Listeners placed (4+3+2), as the fixture rule says.
+  - The stack was taken down again so the next gate has its ports.
+
 ## 2026-11-13: E6.2a — Deployments and Pods have a place on the map (Gate 82 GREEN)
 
 - **What changed:**

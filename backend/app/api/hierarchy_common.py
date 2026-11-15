@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.controlplane import device_status
 from app.controlplane.device_status import DeviceStatus
 from app.errors import AppError
+from app.map.alerts import aggregator_alert_counts, listener_alert_counts
 from app.models import (
     Aggregator,
     AggregatorStatus,
@@ -288,9 +289,15 @@ def aggregator_statuses(
         ).all()
     }
     latest = _latest_revision_states(db, "aggregator", [str(i) for i in aggregator_ids])
+    # E6.4 (D191): open alerts make a device `alerting`, here, so the inventory
+    # tables and the map read one derivation and cannot disagree (D60).
+    alerts = aggregator_alert_counts(db, aggregator_ids)
     return {
-        agg_id: device_status.aggregator_status(
-            online=online.get(agg_id), revision_state=latest.get(str(agg_id))
+        agg_id: device_status.with_alerts(
+            device_status.aggregator_status(
+                online=online.get(agg_id), revision_state=latest.get(str(agg_id))
+            ),
+            alerts.get(agg_id, 0),
         )
         for agg_id in aggregator_ids
     }
@@ -310,9 +317,13 @@ def listener_statuses(db: Session, macs: list[str]) -> dict[str, DeviceStatus]:
         ).all()
     }
     latest = _latest_revision_states(db, "listener", macs)
+    alerts = listener_alert_counts(db, macs)
     return {
-        mac: device_status.listener_status(
-            liveness_state=liveness.get(mac), revision_state=latest.get(mac)
+        mac: device_status.with_alerts(
+            device_status.listener_status(
+                liveness_state=liveness.get(mac), revision_state=latest.get(mac)
+            ),
+            alerts.get(mac, 0),
         )
         for mac in macs
     }

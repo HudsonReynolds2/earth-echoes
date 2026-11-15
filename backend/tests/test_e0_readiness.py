@@ -193,6 +193,9 @@ E0_ROUTES = {
     ("GET", f"{API_PREFIX}/aggregators/{{aggregator_id}}/broker-credential"),
     # E6.1: the basemap configuration the map reads (D188).
     ("GET", f"{API_PREFIX}/map/config"),
+    # E6.4: the map's two drill levels (phase-6 fixed choice 5).
+    ("GET", f"{API_PREFIX}/map/deployments"),
+    ("GET", f"{API_PREFIX}/map/deployments/{{deployment_id}}"),
 }
 
 E0_TABLES = {

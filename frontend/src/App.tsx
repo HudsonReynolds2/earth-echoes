@@ -27,6 +27,8 @@ export function App({ queryClient }: { queryClient?: QueryClient }) {
         <Route element={<Shell />}>
           <Route index element={<Overview />} />
           <Route path="map" element={<Map />} />
+          <Route path="map/deployments/:deploymentId" element={<Map />} />
+          <Route path="map/pods/:podId" element={<Map />} />
           <Route path="inventory" element={<InventoryLayout />}>
             <Route index element={<OrganizationLevel />} />
             <Route path="deployments/:deploymentId" element={<DeploymentLevel />} />

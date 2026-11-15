@@ -64,3 +64,249 @@ test("the map chrome is relit for the night theme", async ({ page }) => {
   expect(dark).not.toBe(light);
   expect(dark).not.toBe("rgb(255, 255, 255)");
 });
+
+// --- E6.2b: markers, drill-down, clusters, pins -----------------------------------
+
+const DEP = "d1000000-0000-4000-8000-000000000001";
+const DEP2 = "d2000000-0000-4000-8000-000000000002";
+const POD_A = "b1100000-0000-4000-8000-000000000001";
+const POD_B = "b1200000-0000-4000-8000-000000000002";
+const ZERO = {
+  alerting: 0,
+  offline: 0,
+  degraded: 0,
+  drifted: 0,
+  sleeping: 0,
+  healthy: 0,
+  unknown: 0,
+};
+
+function deploymentRow(id: string, name: string, lat: number, lon: number, status: string) {
+  return {
+    id,
+    name,
+    slug: name.toLowerCase().replace(/ /g, "-"),
+    gps_lat: lat,
+    gps_lon: lon,
+    status,
+    counts: { ...ZERO, [status]: 1 },
+    alert_count: status === "alerting" ? 1 : 0,
+    services_status: "verified",
+    pod_count: 2,
+    listener_count: 6,
+  };
+}
+
+const LEAVES = [1, 2, 3].map((n) => ({
+  mac: `02:EE:0E:01:01:A${n}`,
+  name: `leaf-${n}`,
+  pod_id: POD_A,
+  aggregator_id: "agg-a",
+  gps_lat: null,
+  gps_lon: null,
+  status: "sleeping",
+  alert_count: 0,
+}));
+
+const LISTENERS = [0, 1, 2, 3, 4, 5].map((n) => ({
+  mac: `02:EE:0E:01:01:0${n + 1}`,
+  name: `pin-${n + 1}`,
+  pod_id: n < 4 ? POD_A : POD_B,
+  aggregator_id: n < 4 ? "agg-a" : "agg-b",
+  gps_lat: (n < 4 ? 41.221 : 41.208) + (n % 2) * 0.0012,
+  gps_lon: (n < 4 ? -124.012 : -123.992) + (n % 3) * 0.0016,
+  status: n === 2 ? "alerting" : "healthy",
+  alert_count: n === 2 ? 1 : 0,
+}));
+
+test.describe("markers", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route(`${API}/auth/me`, (route) =>
+      route.fulfill({
+        json: {
+          id: "u1",
+          email: "owner@example.com",
+          is_active: true,
+          assignments: [{ role: "owner", deployment_id: null }],
+        },
+      }),
+    );
+    await page.route(`${API}/map/deployments`, (route) =>
+      route.fulfill({
+        json: [
+          deploymentRow(DEP, "Redwood Coast", 41.213, -124.004, "alerting"),
+          deploymentRow(DEP2, "High Desert", 43.358, -121.056, "healthy"),
+        ],
+      }),
+    );
+    await page.route(`${API}/map/deployments/${DEP}`, (route) =>
+      route.fulfill({
+        json: {
+          deployment: deploymentRow(DEP, "Redwood Coast", 41.213, -124.004, "alerting"),
+          pods: [
+            {
+              id: POD_A,
+              name: "Pod 01 · Alder Creek",
+              aggregator_id: "agg-a",
+              aggregator_uuid: "demo-agg-rc-01",
+              aggregator_name: null,
+              gps_lat: 41.221,
+              gps_lon: -124.012,
+              aggregator_status: "healthy",
+              status: "alerting",
+              counts: { ...ZERO, healthy: 4, alerting: 1 },
+              alert_count: 1,
+              listener_count: 4,
+            },
+            {
+              id: POD_B,
+              name: "Pod 02 · Ridge Line",
+              aggregator_id: "agg-b",
+              aggregator_uuid: "demo-agg-rc-02",
+              aggregator_name: null,
+              gps_lat: 41.208,
+              gps_lon: -123.992,
+              aggregator_status: "healthy",
+              status: "healthy",
+              counts: { ...ZERO, healthy: 3 },
+              alert_count: 0,
+              listener_count: 2,
+            },
+          ],
+          listeners: [...LISTENERS, ...LEAVES],
+        },
+      }),
+    );
+  });
+
+  test("drills from the organization to a deployment, and pins open from their cluster", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto("/map");
+    const redwood = page.getByRole("button", { name: /^Deployment Redwood Coast, Alerting/ });
+    await expect(redwood).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Deployment High Desert/ })).toBeVisible();
+
+    await redwood.click();
+    await expect(page).toHaveURL(new RegExp(`/map/deployments/${DEP}$`));
+    await expect(page.getByRole("navigation", { name: "Hierarchy" })).toContainText(
+      "Redwood Coast",
+    );
+    await expect(
+      page.getByRole("button", { name: /^Pod Pod 01 · Alder Creek, Alerting/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /^Pod Pod 02 · Ridge Line, Streaming/ }),
+    ).toBeVisible();
+
+    // Pins either sit in a cluster carrying the worst status inside it, or are
+    // already apart at this zoom. Open any cluster until the alerting pin shows.
+    const pin = page.getByRole("button", { name: /^Listener pin-3, Alerting, 1 alert/ });
+    for (let attempt = 0; attempt < 4 && !(await pin.isVisible()); attempt += 1) {
+      const cluster = page.locator(".map-cluster").first();
+      if ((await cluster.count()) === 0) break;
+      await expect(cluster).toHaveAttribute("data-status", /alerting|healthy/);
+      await cluster.click();
+      await page.waitForTimeout(600);
+    }
+    await expect(pin).toBeVisible();
+    await pin.click();
+    await expect(page).toHaveURL(
+      /device=listener%3A02%3AEE%3A0E%3A01%3A01%3A03|device=listener:02:EE:0E:01:01:03/,
+    );
+    await expect(page.getByTestId("map-selected")).toContainText("pin-3");
+  });
+
+  test("markers are reachable from the keyboard", async ({ page }) => {
+    await page.goto("/map");
+    const redwood = page.getByRole("button", { name: /^Deployment Redwood Coast/ });
+    await expect(redwood).toBeVisible();
+    await redwood.focus();
+    await expect(redwood).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(new RegExp(`/map/deployments/${DEP}$`));
+  });
+});
+
+test.describe("leaves", () => {
+  test("a Pod's GPS-less Listeners fan out around it on dashed tethers", async ({ page }) => {
+    await page.route(`${API}/auth/me`, (route) =>
+      route.fulfill({
+        json: {
+          id: "u1",
+          email: "owner@example.com",
+          is_active: true,
+          assignments: [{ role: "owner", deployment_id: null }],
+        },
+      }),
+    );
+    await page.route(`${API}/pods/${POD_A}`, (route) =>
+      route.fulfill({ json: { id: POD_A, deployment_id: DEP, name: "Pod 01 · Alder Creek" } }),
+    );
+    await page.route(`${API}/map/deployments/${DEP}`, (route) =>
+      route.fulfill({
+        json: {
+          deployment: deploymentRow(DEP, "Redwood Coast", 41.213, -124.004, "healthy"),
+          pods: [
+            {
+              id: POD_A,
+              name: "Pod 01 · Alder Creek",
+              aggregator_id: "agg-a",
+              aggregator_uuid: "demo-agg-rc-01",
+              aggregator_name: null,
+              gps_lat: 41.221,
+              gps_lon: -124.012,
+              aggregator_status: "healthy",
+              status: "sleeping",
+              counts: { ...ZERO, healthy: 1, sleeping: 3 },
+              alert_count: 0,
+              listener_count: 3,
+            },
+          ],
+          listeners: LEAVES,
+        },
+      }),
+    );
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto(`/map/pods/${POD_A}`);
+    const leaves = page.getByRole("button", { name: /no GPS, drawn beside its pod$/ });
+    await expect(leaves).toHaveCount(3);
+    await expect(page.locator(".map-marker-leaf .map-tether")).toHaveCount(3);
+    await expect(page.getByText("3 no GPS")).toBeVisible();
+    // Each leaf sits within a short tether of its Pod in real layout, once the
+    // zoom has settled. Polling for NEARNESS, not just separation: a leaf
+    // projected at the wrong zoom is still "apart", thousands of px away.
+    const pod = page.getByRole("button", { name: /^Pod Pod 01 · Alder Creek/ });
+    const centre = async (handle: typeof pod) => {
+      const box = (await handle.boundingBox())!;
+      return [box.x + box.width / 2, box.y + box.height / 2];
+    };
+    await expect
+      .poll(async () => {
+        const [px, py] = await centre(pod);
+        const centres = await leaves.evaluateAll((elements) =>
+          elements.map((element) => {
+            const box = element.getBoundingClientRect();
+            return [box.x + box.width / 2, box.y + box.height / 2];
+          }),
+        );
+        return Math.max(...centres.map(([x, y]) => Math.hypot(x - px, y - py)));
+      })
+      .toBeLessThan(100);
+    const centres = await leaves.evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        return [box.x + box.width / 2, box.y + box.height / 2];
+      }),
+    );
+    for (let a = 0; a < centres.length; a += 1) {
+      for (let b = a + 1; b < centres.length; b += 1) {
+        expect(
+          Math.hypot(centres[a][0] - centres[b][0], centres[a][1] - centres[b][1]),
+        ).toBeGreaterThan(20);
+      }
+    }
+    if (process.env.EOE_SHOT) await page.screenshot({ path: process.env.EOE_SHOT });
+  });
+});
