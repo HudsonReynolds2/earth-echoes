@@ -479,6 +479,14 @@ inventory**.
   `deployment_id` the map's subscription filter needs.
 - The end-to-end proof (SIM `disconnect` turns a marker offline with no reload) is E6.8's.
 
+> **Addendum PHASE6-4-01 (2026-11-14, ref project-changes #53):** task **E6.9 Unreachable
+> Listeners** is added and runs first in batch 4, before E6.7, so the Owner view's counts include
+> it from the start. `device_status` gains `UNREACHABLE` and `behind_aggregator(status,
+> aggregator_online)`; `hierarchy_common.listener_statuses` applies it; `SEVERITY` places it just
+> below `offline`. The frontend vocabulary, tokens (both themes), the vendored glyph subset (re-cut
+> with U+2B21) and the drawer's Status tab follow. This is an E3-owned module, edited at the
+> owner's direction. Rationale in DECISIONS D202.
+
 **E6.7 Owner landing view.** `Overview.tsx` becomes V2·S1:
 - The hero number is **Devices online / registered**. Online means any status other than
   `offline` and `unknown`; registered means every Aggregator and Listener in scope.

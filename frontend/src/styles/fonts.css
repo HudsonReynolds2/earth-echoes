@@ -95,15 +95,16 @@
 /* ── EOE Status Glyphs: the status vocabulary's shape channel ───────────── */
 
 /* Status is three channels — color + shape + label — and the shape is what
- * survives greyscale, color blindness, and a sun-washed tablet screen. The six
- * glyphs are Geometric Shapes and Dingbats codepoints (U+25A0-25D0, U+2715),
+ * survives greyscale, color blindness, and a sun-washed tablet screen. The seven
+ * glyphs are Geometric Shapes, Dingbats and one Miscellaneous Symbols and
+ * Arrows codepoint (U+25A0-25D0, U+2715, and E6.9's hexagon U+2B21),
  * and NONE of them exist in IBM Plex Sans, Plex Mono, or Source Serif 4 — the
  * full families, not just these subsets. Left to the system fallback they
  * render inconsistently across platforms and turn to tofu on a minimal
  * air-gapped host, which silently deletes the accessibility channel.
  *
  * So the shapes are vendored like everything else: Noto Sans Symbols 2 (OFL),
- * subsetted to exactly these six codepoints — 568 bytes. Declaring the range
+ * subsetted to exactly these seven codepoints — 596 bytes. Declaring the range
  * keeps this face out of the way of all other text. */
 @font-face {
   font-family: "EOE Status Glyphs";
@@ -111,5 +112,5 @@
   font-weight: 400;
   font-display: block;
   src: url("/fonts/eoe-status-glyphs.woff2") format("woff2");
-  unicode-range: U+25A0, U+25B2, U+25C6, U+25CF, U+25D0, U+2715;
+  unicode-range: U+25A0, U+25B2, U+25C6, U+25CF, U+25D0, U+2715, U+2B21;
 }

@@ -4,6 +4,145 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D205 (2026-11-15): How E6.8 closed the epic's verification
+
+- **The SIM acceptance runs on the demo fleet, not a fresh provisioning run.** Phase-6 asks
+  for "a small fleet with coordinates". The SIM platform fixture already seeds Redwood Coast
+  with coordinates at every level (E6.2a), so `test_map_fleet.py` connects its three
+  Aggregators and sixteen Listeners as mock devices. `provision.py` is already proven by
+  `test_fleet.py`, and repeating it would only add time.
+  - Every assertion reads `GET /map/deployments/{id}` over HTTP.
+  - The fixture's `sim-ghost-01` Pod (unplaced, silent, kept for another test) is excluded
+    from "every Pod is placed". It is asserted to count as `unknown`, which cannot hide the
+    healthy rollup (D60).
+- **Unreachable is part of the acceptance.** After `disconnect`, the dead Aggregator's
+  Listeners must read `unreachable` (E6.9). After `missed_wake_window`, the sleeper reads
+  `offline` while its Aggregator stays healthy, and its Pod reads offline.
+- **Time budget.** The test takes ~33 s alone (the missed wake window waits out the 30 s
+  default grace), within the SIM stage's existing budget. The stage has no explicit timeout.
+- **The walkthrough.** `guide/e6-verification.md` covers every E6 task and H1. It amends E1 §1
+  and the not-yet-filled surfaces list (E6.7, E6.9) and E3's status section (E6.9).
+- **A clean-stack dry run, by me, before the owner's CP4.** Throwaway compose project
+  `eoe-walk`, removed with its volume afterwards.
+  - §0 ran verbatim: migrate to head, seed, mint the broker, provision the fleet.
+  - §6 checked out: the Listener read Unreachable in both the drawer and inventory.
+  - §7 checked out: the Overview read 4 / 42 with one folded Unreachable row.
+  - §2 checked out: H1's half pair was refused.
+  - It found three run-sheet defects, all fixed in the walkthrough:
+    1. a project name whose old volume has other credentials fails the seed (this host's
+       `eoe-qa`);
+    2. a fleet started during an API restart fails with "connection reset";
+    3. a fleet fails with "no broker account" after the broker files are regenerated from
+       another database, which a gate run does.
+  - **Not done by me:** the click-through of §1-§7 as a person would do it. That is the
+    owner's CP4.
+- **Reference:** phase-6 §4 E6.8, §7 CP4; D60, D196, D200-D204.
+
+## D204 (2026-11-14): How E6.7 built the Owner view
+
+- **All device numbers come from the map's reads (E6.4).** The hero, distributions, Pods and
+  attention list read `GET /map/deployments` and each `GET /map/deployments/{id}`, which are
+  the same queries the map uses. So the Overview, the map and the inventory cannot disagree
+  (D60), and E6.6's live invalidation and 30 s poll make this page live too.
+- **Deviation: the per-service chips read E5.5's `GET /deployments/{id}/services/status`.**
+  Phase-6 says "the data comes from E6.4's endpoints only", but it also asks for per-service
+  chips, and only E5.5's read has them. The map payload carries the rollup alone. Reading
+  E5.5's existing endpoint (every role holds `view_services`) beats copying five service
+  states into the map payload. The organization name still comes from E1's
+  `/organizations`.
+- **Online excludes `unreachable`.** Phase-6 defines online as every status except `offline`
+  and `unknown`. E6.9's `unreachable` came later, and a Listener nobody can hear is not
+  online. So online = registered − offline − unreachable − unknown.
+- **The attention list folds cut-off Listeners into one row per Pod.** When an Aggregator
+  dies, its fifty unreachable Listeners would bury everything else. They become "N listeners
+  unreachable · behind an offline aggregator", linked to the Pod, and the offline Aggregator
+  has its own row above.
+  - Alerts naming the Deployment but no device (D191) get a row of their own.
+  - The order is the server's severity: alerting, offline, unreachable, degraded, drifted.
+  - The list is capped at 8, with links to `/map?tab=alerts` and `/map?tab=reconciliation`.
+    The map now reads its lens from `?tab=` for that.
+- **The E1 Overview tests were amended, not deleted** (phase-6 E6.7):
+  - the hero test now asserts devices online / registered (1 / 34 on the fixture);
+  - the "no `[data-status]`" assertion became assertions on the map's rollup, since real
+    status renders here now;
+  - the first-run empty state test is unchanged in what it offers, driven by an empty
+    Organization layer.
+- **Manage actions.** The header's *Open inventory* stays behind `manage_devices`. The tests
+  assert that a Viewer and a Field Tech see the page without it.
+- **A timeout raised, with its reason.** Gate 90's first run failed
+  `inventory-forms.test.tsx > walks the conflict dialog …` with "Test timed out in 5000ms". It
+  had also timed out once in a local full run while E6.9 was being built.
+  - Alone it takes about 1.2 s: a full Pod page under role queries. It never hung.
+  - Making the input faster was tried and measured: `delay: null` gave 1.29 s, and pasting
+    gave 1.20 s. Neither touched the cost, so both were reverted.
+  - The test now has a 15 s timeout, as the map's full-page live tests do. Every assertion is
+    unchanged.
+  - The load grew with E6.6-E6.7's full-app tests running in parallel workers.
+- **A styling defect found on the live stack, fixed for every page.** The screenshot showed
+  "Open map" as underlined text in a tight box. `.btn-secondary`/`.btn-tertiary` on an `<a>`
+  got the border but not the `button` element rule's height, padding and radius. That was
+  already true of the four existing link-buttons, E1's Overview header among them.
+  `a:is(.btn-secondary, .btn-tertiary)` now gives links the button's box.
+- **Reference:** phase-6 §4 E6.7; spec 10.3; V2·S1; D60, D191, D201, D202.
+
+## D203 (2026-11-14): Two things from merging batches 2-3: a CI port race, and a stacked-merge slip
+
+- **A new CI-only flake.** PR #28's first CI run failed `sim-protocol` with 4 setup errors in
+  `sim/tests/test_fleet.py`. Verbatim: "OSError: [Errno 98] error while attempting to bind on
+  address ('127.0.0.1', 58007): [errno 98] address already in use" → "the API server thread
+  died before it started serving".
+  - The test API server's port is chosen free and then bound, and another process on the
+    runner took it in between.
+  - It is unrelated to H1: #29 carried H1's changes and passed every check.
+  - A rerun of the failed jobs passed. No test was skipped or changed.
+  - A targeted fix would bind port 0 and read back the port, rather than pick-then-bind. That
+    is SIM harness code, offered and not made.
+- **The stacked-merge slip.** `gh pr merge 27 --delete-branch` deleted `e6-batch-2`, and GitHub
+  closed #28 instead of retargeting it. A closed PR's base cannot change. The fix:
+  1. re-push `e6-batch-2` at `eaf2259`, already in `main`;
+  2. reopen #28 and retarget it to `main` through the REST API (`gh pr edit --base` fails on a
+     deprecated Projects-classic GraphQL field in this repo);
+  3. wait for its rerun CI (green), then merge.
+
+  #29 was retargeted before any branch was deleted. No commit was lost, and no unreviewed code
+  merged. **Rule:** for stacked PRs, retarget the next PR first and delete merged branches last.
+- **Reference:** project-changes #51; D195, D199.
+
+## D202 (2026-11-14): `unreachable`, the status of a Listener behind an offline Aggregator
+
+- **The owner's call.** Offered a new status or Offline-with-a-reason, the owner chose the new
+  status (project-changes #52).
+- **The rule.** `behind_aggregator(status, aggregator_online)`: an Aggregator verdict of `False`
+  makes any Listener `unreachable`, whatever it last reported, never-heard included. `None`
+  (the Aggregator never spoke) and `True` change nothing. It is applied before `with_alerts`,
+  so an open alert still wins. It is a separate function, like `with_alerts`, so
+  `listener_status` keeps E3's pinned signature.
+- **Why never-heard Listeners too.** `unknown` means "no information about why". Here the reason
+  it cannot be heard is known and actionable: the path is down. D60's honesty rule is
+  satisfied, because nothing is claimed about the Listener itself.
+- **Severity: just below `offline`.** The Aggregator causing it is `offline` in the same Pod,
+  and that is the fault to fix. A Pod therefore still reads Offline, and its counts say how
+  many Listeners are cut off.
+- **One derivation (D60).** It lives in `hierarchy_common.listener_statuses`, so the inventory
+  tables, map markers, clusters, the drawer, and (from E6.7) the Owner view all agree. It adds
+  one query (the Aggregators' verdicts per Listener), and the query count stays constant in
+  fleet size.
+- **The drawer keeps the history.** It shows the last reported liveness under "Last reported
+  liveness", after a note naming the offline Aggregator and since when.
+- **Visual vocabulary:**
+  - **Shape.** `⬡` U+2B21, a hollow hexagon: the only hexagon in the set, and hollow for "no
+    fresh data". The first choice, `⊘`, is not in Noto Sans Symbols 2. The vendored subset was
+    re-cut per `public/fonts/README.md` (568 → 596 bytes).
+  - **Color.** Okabe–Ito yellow, the one hue the palette did not use, darkened:
+    - light: `#7a6400` on tint `#f4eed3` (5.8:1 on surface, 4.9:1 on tint);
+    - dark: `#d9c24a` on tint `#2a2712` (9.3:1 and 8.4:1).
+- **Tests changed with the feature, not weakened.**
+  - `shell.test.tsx`'s legend test pinned the six-state list and now pins seven.
+  - `services-wizard.test.tsx`'s device-word guard gains "Unreachable" (stricter).
+  - The E3 walkthrough's status section is amended: its Sleeping step follows an
+    aggregator-offline step, and would otherwise now read Unreachable.
+- **Reference:** spec 6.5, 9.3; E3.9, E3.12; D27, D60, D191, D201.
+
 ## D201 (2026-11-14): How E6.6 made the map live
 
 - **Leading and trailing, not trailing only.** The map refetches on the first event at once,

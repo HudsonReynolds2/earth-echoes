@@ -23,7 +23,7 @@ import { App } from "../src/App";
 import { leaderSegment } from "../src/components/map/LeaderLine";
 import { parseDrawerTarget } from "../src/lib/map";
 import { FIXTURE_IDS, aggregators } from "./inventory-fixture";
-import { ALERTING_MAC } from "./map-fixture";
+import { ALERTING_MAC, mapDeviceFixture } from "./map-fixture";
 import { mePayload, server } from "./msw-server";
 
 type Role = "owner" | "viewer" | "field_tech";
@@ -123,6 +123,38 @@ describe("opening the drawer", () => {
       ).not.toBeNull(),
     );
     expect(within(panel).getByTestId("device-drawer-counts")).toHaveTextContent("listeners");
+  });
+});
+
+describe("a listener behind an offline aggregator (E6.9)", () => {
+  it("reads Unreachable, says why, and labels its liveness as history", async () => {
+    actAs("owner");
+    server.use(
+      http.get(`http://api.test/api/v1/map/devices/listener/:mac`, ({ params }) => {
+        const device = mapDeviceFixture("listener", decodeURIComponent(String(params.mac)))!;
+        return HttpResponse.json({
+          ...device,
+          status: "unreachable",
+          aggregator: {
+            ...device.aggregator!,
+            status: "offline",
+            online: false,
+            online_changed_at: "2026-11-14T12:04:31Z",
+          },
+        });
+      }),
+    );
+    renderAt(`${ALDER}?device=listener:${ALERTING_MAC}`);
+    const panel = await drawer();
+    const note = await within(panel).findByTestId("device-drawer-unreachable");
+    expect(note).toHaveTextContent("demo-agg-rc-01");
+    expect(note).toHaveTextContent("offline since 2026-11-14 12:04:31Z");
+    expect(panel.querySelector(".status-chip[data-status='unreachable']")).toHaveTextContent(
+      "Unreachable",
+    );
+    expect(within(panel).getByTestId("device-drawer-status")).toHaveTextContent(
+      "Last reported liveness",
+    );
   });
 });
 

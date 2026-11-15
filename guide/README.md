@@ -19,6 +19,7 @@ holds the specification).
 | [E3 verification walkthrough](e3-verification.md) | Hand-verify the control plane: the MQTT broker and its isolation, publication, reconciliation, and device status |
 | [E4 verification walkthrough](e4-verification.md) | Hand-verify device provisioning: generating a bundle, what is in it, and watching the tracking board fill in as a device comes online from its own card |
 | [E5 verification walkthrough](e5-verification.md) | Hand-verify deployment services onboarding: write-only credentials, the five connection tests, the rolled-up status, and the generated stack |
+| [E6 verification walkthrough](e6-verification.md) | Hand-verify the map and monitoring: satellite basemaps, markers and rollup, GPS-less leaves, the device drawer, live updates, the Unreachable status and the Owner view |
 | [SIM verification walkthrough](sim-verification.md) | Hand-verify the simulation harness: the mock fleet, the six shipped scenarios, and the full-scale load procedure |
 
 E4 (device provisioning) was built after E5 and the simulation harness, by owner decision

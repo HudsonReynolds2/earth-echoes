@@ -31,6 +31,8 @@
   --eoe-color-status-degraded-tint: #3a2f18;
   --eoe-color-status-offline: #8d958f; /* 4.8:1 on tint, 5.4:1 on surface */
   --eoe-color-status-offline-tint: #242a26;
+  --eoe-color-status-unreachable: #d9c24a; /* 8.4:1 on tint, 9.3:1 on surface */
+  --eoe-color-status-unreachable-tint: #2a2712;
   --eoe-color-status-alerting: #ef7d4e; /* 5.4:1 on tint, 6.1:1 on surface */
   --eoe-color-status-alerting-tint: #3a231a;
   --eoe-color-status-drifted: #c48ab8; /* 5.6:1 on tint, 6.1:1 on surface */

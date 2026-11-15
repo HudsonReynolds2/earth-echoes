@@ -61,6 +61,10 @@ import {
 
 const TABS: MapTab[] = ["Status", "Reconciliation", "Alerts"];
 
+function tabFromUrl(value: string | null): MapTab {
+  return TABS.find((name) => name.toLowerCase() === value?.toLowerCase()) ?? "Status";
+}
+
 const LEAVES_KEY = "eoe.map.showLeaves";
 
 /** Per-viewer convenience: on unless this viewer turned it off. Storage can
@@ -169,7 +173,9 @@ function DrawerOverlay({ drawer }: { drawer: Drawer }) {
 
 export function Map() {
   const { deploymentId, podId } = useParams();
-  const [tab, setTab] = useState<MapTab>("Status");
+  // E6.7: the Overview links straight into a lens with `?tab=`.
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<MapTab>(() => tabFromUrl(searchParams.get("tab")));
   const drawer = useDrawer();
   const config = useQuery({ queryKey: mapKeys.config, queryFn: getMapConfig });
 

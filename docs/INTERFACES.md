@@ -2147,6 +2147,14 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
   `test_map_endpoints.py` at 1 and 1,000 Listeners.
 - **Frontend:** `STATUS_SEVERITY` and `worstStatus` in `components/StatusChip.tsx`, pinned to
   the backend's `SEVERITY` by `tests/status-severity.test.ts`.
+- **E6.9 amendment (D202; SPEC-9-02): seven statuses.** `DeviceStatus.UNREACHABLE`
+  (`"unreachable"`), a Listener whose Aggregator's `aggregator_status.online` is `False`.
+  `device_status.behind_aggregator(status, aggregator_online)` applies it, inside
+  `hierarchy_common.listener_statuses`, before `with_alerts`. `SEVERITY` (worst first):
+  alerting, offline, **unreachable**, degraded, drifted, sleeping, healthy, unknown. Every
+  `counts` dict gains the `unreachable` key. Frontend: `DEVICE_STATUSES` and `STATUS_SEVERITY`
+  include it; tokens `--eoe-color-status-unreachable{,-tint,-glyph}` (glyph `⬡` U+2B21, in the
+  vendored subset).
 
 ### Markers, drill routes and clustering (E6.2b; spec 9.2; D196)
 
@@ -2227,6 +2235,19 @@ Checksums use the D52 `sha256:<hex>` form. **No secret value ever appears.**
   Deployment and Pod routes a *Deployment details* / *Pod details* control opens that level's
   drawer, and clicking the focused Pod opens its drawer instead of re-drilling. Token
   `--eoe-width-drawer`.
+
+### The Owner view (E6.7; spec 10.3; V2·S1; D204)
+
+- **`pages/Overview.tsx`** reads `mapKeys.deployments` and each `mapKeys.deployment(id)` (so
+  E6.6's invalidation and poll cover it), E5.5's services status per Deployment, and E1's
+  organization name.
+- **Pure helpers, exported for tests and E7:**
+  - `onlineTotals(rows)`: online = registered − offline − unreachable − unknown.
+  - `attentionItems(details)`: worst first, unreachable Listeners folded per Pod, unattached
+    alerts as their own row.
+  - `ATTENTION_CAP` (8).
+  E7 adds Grafana alerts by feeding the same items, not a second panel.
+- **Map lens deep link:** `/map?tab=status|reconciliation|alerts` sets the initial lens.
 
 ## Owned by SIM
 

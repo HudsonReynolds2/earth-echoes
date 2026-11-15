@@ -5,6 +5,30 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #53 (2026-11-14): Task E6.9 (Unreachable Listeners) is added to phase 6
+
+- **What changed:** phase-6 gains task E6.9, first in batch 4 before E6.7, so the Owner view's
+  counts include the new status from the start. It edits E3-owned `device_status` and
+  `hierarchy_common`, which phase-6's authorized-edits table does not list, at the owner's
+  direction (#52).
+- **Why:** #52's status needs an implementing task, and E6.7 reads its counts.
+- **Who approved:** the owner, 2026-11-14.
+- **Affects:** project_planning/phase-6-map-monitoring.md section 4
+- **Addendum:** PHASE6-4-01
+
+## #52 (2026-11-14): A seventh device status, `unreachable`
+
+- **What changed:** spec 9.3 gains `unreachable`, for a Listener whose Aggregator is offline
+  (addendum SPEC-9-02). Task E6.9 implements it (#53).
+- **Why:** E6.6's live check showed SIM Pod 000's Listeners reading Streaming after their
+  Aggregator died, because their status was the Aggregator's last report. The owner, asked:
+  "listeners under an offline Aggregator should have a status that indicates that situation".
+  Given a choice between a new status and reusing Offline with a reason, the owner chose a new
+  **Unreachable** status.
+- **Who approved:** the owner, 2026-11-14.
+- **Affects:** project_planning/echoes-of-earth-platform-spec-v1.1.md section 9.3
+- **Addendum:** SPEC-9-02
+
 ## #51 (2026-11-14): CP2 folds into CP3, and batch 3 is stacked on the unmerged batches
 
 - **What changed:** phase-6 §7 says each batch is branched from `main` only after the

@@ -1,5 +1,7 @@
 /**
- * The six-state device status vocabulary (spec §9.3/§6.2, tokens D21), closed.
+ * The device status vocabulary (spec §9.3/§6.2, tokens D21), closed. Six
+ * states until E6.9 added `unreachable` (D202, SPEC-9-02): a Listener whose
+ * Aggregator is offline.
  *
  * Status is THREE channels, never one: color + shape glyph + text label. The
  * glyph is supplied by CSS from --eoe-color-status-{name}-glyph so the palette
@@ -11,6 +13,7 @@ export const DEVICE_STATUSES = [
   "sleeping",
   "degraded",
   "offline",
+  "unreachable",
   "alerting",
   "drifted",
 ] as const;
@@ -27,6 +30,7 @@ export type DeviceStatus = (typeof DEVICE_STATUSES)[number];
 export const STATUS_SEVERITY = [
   "alerting",
   "offline",
+  "unreachable",
   "degraded",
   "drifted",
   "sleeping",
@@ -53,6 +57,7 @@ const LABELS: Record<DeviceStatus, string> = {
   sleeping: "Sleeping",
   degraded: "Degraded",
   offline: "Offline",
+  unreachable: "Unreachable",
   alerting: "Alerting",
   drifted: "Drifted",
 };
