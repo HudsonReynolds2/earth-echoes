@@ -4,6 +4,37 @@ Deviations from the spec or a phase document, and implementation choices the doc
 open, with rationale (implementation-handbook.md section 1, rule R1). Feed these back into
 the next spec or phase-doc revision. Newest first within each batch.
 
+## D199 (2026-11-14): The owner's hygiene batch: listener half-pairs refused, two flakes fixed
+
+The owner answered D194's, D195's and D197's offers at CP2 time: "Yes fix the flaky tests. and
+yes the website should not let a listener be configured with improper GPS either." All three
+are outside phase-6's authorized edits, so they go in as one owner-approved task (H1,
+project-changes #50, addendum PHASE6-2-01).
+
+- **Listeners follow D194's rule.** `POST /listeners` refuses half a pair with the shared
+  422 ("give both latitude and longitude, or neither"). `PATCH /listeners/{mac}` is judged by
+  its result through `apply_coordinates`, so moving one axis of a placed Listener is allowed
+  and clearing means both nulls. A PATCH that touches neither coordinate does not judge the
+  pair, so a legacy half row can still be renamed. The listener import reports a half row as
+  a `validation_error` row, as the aggregator import does.
+- **The database refuses it too.** Migration `1d73e4435c21` gives `listener` the same
+  `ck_listener_gps_pair` and `ck_listener_gps_range` CHECKs as E6.2a's tables, so all three
+  levels hold one rule in three layers. The column predates E6 and the API accepted half pairs
+  until now, so an install holding a half row would fail this upgrade. The migration adds no
+  data repair on purpose: the owner confirmed on 2026-11-14 that no install holds data that
+  matters ("We are still in development"), and a loud failure beats silently changed data.
+- **D195, the vanished template.** `ephemeral_postgres` now catches a clone that fails with
+  `template database "…" does not exist`, re-acquires the pool and the template once, and
+  clones again. A second miss raises the original error. It does not retry any other error.
+  `test_container_pool.py` drives both paths against the real pooled server by having
+  `_acquire_template` hand out a name the server does not have.
+- **D197, the SIM precondition.** When the status row reads `online`, the test now waits up
+  to 5 s for the retained `offline` to land (`wait_for_verdict(online=False)`) before failing
+  with the original message. A row still `online` after that remains a real failure.
+- **Not touched:** D195's second CI flake (the keystone's Grafana published-port refusal,
+  D165) has no proposed fix, and none is made here.
+- **Reference:** D165, D194, D195, D197; project-changes #50.
+
 ## D198 (2026-11-14): How E6.3 drew GPS-less Listeners
 
 - **Tethers are CSS, not Leaflet polylines.** The first build drew each tether as a

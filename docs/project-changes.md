@@ -5,6 +5,37 @@ definitions, or acceptance criteria relative to the planning documents (rule R1,
 `.claude/rules/project-rules.json`). Every entry names an addendum that exists in the
 referenced planning document; an entry with no addendum is incomplete.
 
+## #51 (2026-11-14): CP2 folds into CP3, and batch 3 is stacked on the unmerged batches
+
+- **What changed:** phase-6 §7 says each batch is branched from `main` only after the
+  previous batch's PR has merged, with an owner checkpoint between batches. For batches 2 and
+  3 the owner chose instead to test both at once:
+  - `e6-batch-3` is branched from `e6-hygiene` (H1), which is itself stacked on `e6-batch-2`;
+  - CP2's and CP3's checklists run together in one hands-on session after batch 3;
+  - on approval, PRs #27, H1's and batch 3's merge in that order.
+- **Why:** the owner's instruction on 2026-11-14: "tell me when to test the features of E6
+  batch 2 and batch 3. If everything works, merge both PRs into main." The risk §7 guards
+  against (building on a defect not yet seen) is accepted. Any CP2 fix lands on the branch
+  it belongs to and is carried up the stack.
+- **Who approved:** the owner, 2026-11-14.
+- **Affects:** project_planning/phase-6-map-monitoring.md section 7
+- **Addendum:** PHASE6-7-01
+
+## #50 (2026-11-14): Hygiene task H1 added to E6, outside phase-6's authorized edits
+
+- **What changed:** One task, H1, runs between batch 2 and batch 3, on its own branch
+  `e6-hygiene` with its own PR and gate. It makes three edits phase-6 does not authorize:
+  - **E1:** the listener create, PATCH and import refuse half a GPS pair (D194's rule), and
+    migration `1d73e4435c21` adds the `listener` `gps_pair`/`gps_range` CHECKs;
+  - **INFRA.1:** `ephemeral_postgres` re-acquires a vanished template once (D195);
+  - **SIM.1:** a SIM test's precondition polls briefly before failing (D197).
+- **Why:** each was recorded as an offer, not a fix, because it was outside the phase. The
+  owner accepted all three on 2026-11-14. The two test fixes remove known CI and gate flakes;
+  none weakens an assertion or touches a test-critical suite.
+- **Who approved:** the owner, 2026-11-14.
+- **Affects:** project_planning/phase-6-map-monitoring.md section 2 (authorized edits)
+- **Addendum:** PHASE6-2-01
+
 ## #49 (2026-11-13): project-changes #9's map-engine direction is superseded
 
 - **What changed:** #9 recorded, "so it is not re-decided", a map-engine direction for E6:

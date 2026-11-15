@@ -232,6 +232,14 @@ stop-and-ask.
 | E4 | `GET /provisioning/records?target_type=&target_id=`, a filtered read of existing rows (`VIEW_PROVISIONING`, D7 envelope), for the drawer's Card tab | E6.5 |
 | E1 | `pages/Overview.tsx` becomes the V2·S1 Owner view (E6.7) | E6.7 |
 
+> **Addendum PHASE6-2-01 (2026-11-14, ref project-changes #50):** the owner authorized three
+> more edits, made as hygiene task H1 between batches 2 and 3. **E1:** listener create, PATCH
+> and import refuse half a GPS pair, with D194's message and PATCH-judged-by-result rule, and
+> `listener` gains the `gps_pair`/`gps_range` CHECKs.
+> **INFRA.1:** `ephemeral_postgres` re-acquires a vanished template once (D195). **SIM.1:**
+> `test_an_unclean_death_flips_the_aggregator_offline_through_the_lwt` polls its precondition
+> for up to 5 s (D197). See DECISIONS D199.
+
 **Untouched:** `contracts/mqtt.py`, `controlplane/consumer.py`, `services_status`'s writer, and
 the four test-critical suites (RBAC, merge engine, revision state machine, provisioning
 manifest).
@@ -565,6 +573,10 @@ ends on a full gate (rule R0).
 the end of each batch, the QA stack is brought up and the owner is given the checklist below
 with the exact URL and login. Each checklist is chosen to catch, while it is still cheap to
 fix, the defects that later tasks would otherwise build on.
+
+> **Addendum PHASE6-7-01 (2026-11-14, ref project-changes #51):** at the owner's direction,
+> CP2 is held together with CP3 after batch 3. `e6-batch-3` is stacked on `e6-hygiene` and
+> `e6-batch-2` rather than branched from `main`. On approval, the three PRs merge in order.
 
 | Batch | Tasks | Checkpoint |
 |---|---|---|

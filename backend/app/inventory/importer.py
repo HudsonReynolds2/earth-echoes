@@ -207,6 +207,11 @@ def import_listeners(
                 _error(index, "forbidden", "no manage_devices grant in this row's deployment")
             )
             continue
+        if (parsed.gps_lat is None) != (parsed.gps_lon is None):  # D199, as for aggregators
+            results.append(
+                _error(index, "validation_error", "give both latitude and longitude, or neither")
+            )
+            continue
         if db.get(Listener, mac) is not None:  # sees rows flushed earlier in THIS file too
             results.append(_error(index, "conflict", f"MAC {mac} is already registered"))
             continue

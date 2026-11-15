@@ -385,6 +385,8 @@ class Listener(Base):
     __table_args__ = (
         UniqueConstraint("deployment_id", "name"),
         CheckConstraint("mac ~ '^[0-9A-F]{2}(:[0-9A-F]{2}){5}$'", name="mac_format"),
+        CheckConstraint(GPS_PAIR_CHECK, name="gps_pair"),  # D199
+        CheckConstraint(GPS_RANGE_CHECK, name="gps_range"),
         Index("ix_listener_tags", "tags", postgresql_using="gin"),
     )
 

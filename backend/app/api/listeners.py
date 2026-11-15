@@ -20,10 +20,12 @@ from app.api.hierarchy_common import (
     ListenerOut,
     TagsBody,
     TagsOut,
+    apply_coordinates,
     clean_tags,
     deployment_of_aggregator,
     listener_out,
     not_found,
+    require_coordinate_pair,
 )
 from app.api.pagination import ListResponse, PageParams, apply_page
 from app.audit import record_audit
@@ -136,6 +138,7 @@ def create_listener(
         raise AppError(
             "forbidden", "requires permission manage_devices in this deployment", status_code=403
         )
+    require_coordinate_pair(body.gps_lat, body.gps_lon)  # D199
     mac = normalize_mac(body.mac)
     # MAC collision ALWAYS rejects - a duplicate means a data-entry error or a
     # cloned device (spec 4.3 item 1); no parameter overrides this.
@@ -215,9 +218,11 @@ def patch_listener(
 ) -> ListenerOut:
     row = _resolve(db, actor, mac, Permission.MANAGE_DEVICES)
     changed = body.model_dump(exclude_unset=True)
-    for field in ("name", "gps_lat", "gps_lon"):
-        if field in changed:
-            setattr(row, field, changed[field])
+    if "name" in changed:
+        row.name = changed["name"]
+    if "gps_lat" in changed or "gps_lon" in changed:
+        # D194/D199: judged by the result, as for Deployments and Aggregators.
+        apply_coordinates(row, changed)
     try:
         db.flush()
     except IntegrityError as error:

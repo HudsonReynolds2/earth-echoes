@@ -271,7 +271,14 @@ async def test_an_unclean_death_flips_the_aggregator_offline_through_the_lwt(pla
     async with manager:
         await manager.wait_connected(deployment_id_of(platform.factory))
         before = status_row(platform.factory)
-        assert before is None or before.online is False, "a previous test left this device online"
+        if before is not None and before.online:
+            # D197: the previous test disconnected politely, so the broker holds
+            # a retained `offline` that this fresh consumer may not have applied
+            # yet. Give it a bounded moment; still `online` after that is real.
+            try:
+                await wait_for_verdict(platform.factory, online=False, timeout=5.0)
+            except AssertionError:
+                raise AssertionError("a previous test left this device online") from None
 
         process = start_detached_aggregator(platform)
         try:

@@ -540,6 +540,12 @@ def _acquire_template(port: int) -> str:
     return template
 
 
+def _is_missing_template(error: Exception, template: str) -> bool:
+    """True when a clone failed only because `template` is not on the server."""
+    text = str(error)
+    return f'template database "{template}" does not exist' in text
+
+
 @contextlib.contextmanager
 def ephemeral_postgres(migrate: bool = True):
     """A migrated, empty Postgres database nobody else is touching.
@@ -555,10 +561,24 @@ def ephemeral_postgres(migrate: bool = True):
     migrations for real. That path is the reason the template can be trusted:
     the suite never stops exercising a from-scratch migration run.
     """
-    port = _acquire_pool_postgres()
-    template = _acquire_template(port) if migrate else "template0"
+    import sqlalchemy as sa
+
     database = f"eoe_t{int(time.time())}_{uuid.uuid4().hex[:12]}"
-    _create_database(port, database, template=template)
+    for attempt in (1, 2):
+        port = _acquire_pool_postgres()
+        template = _acquire_template(port) if migrate else "template0"
+        try:
+            _create_database(port, database, template=template)
+            break
+        except sa.exc.DBAPIError as error:
+            # D195: between acquiring the template and cloning it, another
+            # worker may judge the pooled server unhealthy and replace it, and
+            # the new server can reuse the host port. The clone then reaches a
+            # server that never had this template. Re-acquiring once rebuilds
+            # it on the live server; a second miss is a real fault and raises.
+            if attempt == 2 or not _is_missing_template(error, template):
+                raise
+            print(f"pooled postgres: template {template} vanished, re-acquiring once (D195)")
     try:
         yield _admin_url(port, database)
     finally:
